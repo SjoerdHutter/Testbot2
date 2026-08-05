@@ -74,6 +74,26 @@ loopt van 83,5 tot 85,5). Scheve verdelingen vangt die vertaling niet.
 Er wordt niets verhandeld en er gaat niets naar buiten: het venster doet alleen
 leesverzoeken naar de publieke Gamma-API van Polymarket.
 
+## Opstarten
+
+De app toont eerst wat hij al heeft en haalt daarna pas op:
+
+* de vorige ophaalronde staat in `localStorage` en wordt meteen getekend, mits
+  hij van vandaag is; de verse cijfers vervangen hem stilletjes;
+* de servicewerker geeft de schil (`index.html`, `app_params.js`, de scripts)
+  direct uit zijn eigen cache en werkt die op de achtergrond bij;
+* de uurcurves (het tijdstip van de dagpiek), de NWS-bijmenging voor de
+  Amerikaanse steden en de dagelijkse controle houden het eerste beeld niet
+  meer op; ze werken de kaarten bij zodra ze binnen zijn.
+
+Gemeten op 49 steden, koud profiel: eerste beeld van 4,8 naar 1,7 seconde, en
+bij een tweede bezoek naar ongeveer een kwart seconde. De schil zelf gaat onder
+mobiele vertraging van 1,9 seconde naar 0,1 seconde.
+
+Prijs van dat laatste: na een nieuwe versie zie je die pas de volgende keer dat
+je de app opent. De weergegevens komen niet uit die cache maar rechtstreeks van
+de weer-API's, dus die zijn altijd actueel.
+
 ## Onafhankelijk van TestBot
 
 Weerbot 2 is een volledige, zelfstandige app: alle bestandsverwijzingen zijn
