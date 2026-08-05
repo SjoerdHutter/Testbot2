@@ -25,8 +25,7 @@
   var MAAND = ["january", "february", "march", "april", "may", "june", "july",
                "august", "september", "october", "november", "december"];
 
-  /* Stadssleutel van de app -> stadsdeel van de Polymarket-slug. Zhengzhou en
-     Jinan staan er niet in: daar noteert Polymarket geen weermarkt. */
+  /* Stadssleutel van de app -> stadsdeel van de Polymarket-slug. */
   var SLUG = {
     NYC: "nyc", CHI: "chicago", MIA: "miami", LAX: "los-angeles",
     SFO: "san-francisco", SEA: "seattle", DEN: "denver", DAL: "dallas",
@@ -254,131 +253,111 @@
     return W > 0.2 ? S / W : null;
   }
 
-  /* ── Venster ── */
+  /* ── Uitklappaneel per stad ──
+     De cijfers staan in de kaart zelf, onder "polymarket", naast het paneel
+     "model en controles". Per stad wordt onthouden welke reeks (hoogste of
+     laagste) en welke dag je aan het bekijken was. */
 
-  function laag() { return document.getElementById("marktLaag"); }
-  function venster() { return document.getElementById("marktVenster"); }
+  var toestand = {};                // stadssleutel -> {soort, dagIndex}
 
-  function sluit() {
-    var l = laag();
-    if (l) l.classList.remove("zichtbaar");
-    toestand = null;
+  function toestandVan(key) {
+    if (!toestand[key]) toestand[key] = { soort: "max", dagIndex: 0 };
+    return toestand[key];
   }
 
-  function bindEens() {
-    var l = laag();
-    if (!l || l.getAttribute("data-gebonden")) return;
-    l.setAttribute("data-gebonden", "1");
-    l.addEventListener("click", function (e) {
-      if (e.target === l) return sluit();
-      var el = e.target;
-      var a = function (n) { return el && el.getAttribute ? el.getAttribute(n) : null; };
-      if (a("data-markt-sluit") !== null) return sluit();
-      var soort = a("data-markt-soort");
-      if (soort && toestand) { toestand.soort = soort; return tekenVenster(); }
-      var dag = a("data-markt-dag");
-      if (dag !== null && dag !== undefined && toestand) {
-        toestand.dagIndex = parseInt(dag, 10);
-        return tekenVenster();
-      }
-      if (a("data-markt-ververs") !== null && toestand) {
-        delete bak[toestand.slug];
-        return tekenVenster();
-      }
-    });
-    document.addEventListener("keydown", function (e) {
-      if (e.key === "Escape") sluit();
-    });
-  }
-
-  function open(stad, dagen, soort) {
-    if (!SLUG[stad.key]) return;
-    bindEens();
-    toestand = { stad: stad, dagen: dagen || [], soort: soort === "min" ? "min" : "max", dagIndex: 0 };
-    var l = laag();
-    if (l) l.classList.add("zichtbaar");
-    tekenVenster();
-  }
-
-  function datumVan(t) {
-    var d = t.dagen && t.dagen[t.dagIndex];
+  function datumVan(stad, dagen, i) {
+    var d = dagen && dagen[i];
     if (d && d.datum) return d.datum;
-    var basis = new Date(Date.now() + t.dagIndex * 86400000);
+    var basis = new Date(Date.now() + i * 86400000);
     try {
-      return new Intl.DateTimeFormat("en-CA", { timeZone: t.stad.tz, year: "numeric",
+      return new Intl.DateTimeFormat("en-CA", { timeZone: stad.tz, year: "numeric",
         month: "2-digit", day: "2-digit" }).format(basis);
     } catch (e) { return basis.toISOString().slice(0, 10); }
   }
 
-  function dagLabel(t, i) {
+  function dagLabel(dagen, i) {
     var namen = ["vandaag", "morgen", "overmorgen"];
-    var d = t.dagen && t.dagen[i];
+    var d = dagen && dagen[i];
     if (!d || !d.datum) return namen[i] || ("dag " + i);
-    var dm = parseInt(d.datum.slice(8, 10), 10) + "/" + parseInt(d.datum.slice(5, 7), 10);
-    return (namen[i] || "") + " " + dm;
+    return (namen[i] || "") + " " +
+           parseInt(d.datum.slice(8, 10), 10) + "/" + parseInt(d.datum.slice(5, 7), 10);
   }
 
-  function tekenVenster() {
-    var v = venster();
-    if (!v || !toestand) return;
-    var t = toestand;
-    var datum = datumVan(t);
-    var slug = slugVan(t.stad.key, datum, t.soort);
-    t.slug = slug;
+  /* Vult `el` met de marktcijfers van deze stad en bindt de knoppen erin. */
+  function vul(el, stad, dagen) {
+    if (!el || !stad || !SLUG[stad.key]) return;
+    var t = toestandVan(stad.key);
+    var datum = datumVan(stad, dagen, t.dagIndex);
+    var slug = slugVan(stad.key, datum, t.soort);
 
-    v.innerHTML = kopHtml(t, datum) +
-      '<div class="markt-melding">Polymarket ophalen…</div>';
+    if (!el.getAttribute("data-markt-gebonden")) {
+      el.setAttribute("data-markt-gebonden", "1");
+      el.addEventListener("click", function (e) {
+        var k = e.target;
+        var a = function (n) { return k && k.getAttribute ? k.getAttribute(n) : null; };
+        var soort = a("data-markt-soort");
+        var dag = a("data-markt-dag");
+        var ververs = a("data-markt-ververs");
+        if (!soort && dag === null && ververs === null) return;
+        e.preventDefault(); e.stopPropagation();
+        var st = toestandVan(stad.key);
+        if (soort) st.soort = soort;
+        if (dag !== null) st.dagIndex = parseInt(dag, 10);
+        if (ververs !== null) delete bak[slugVan(stad.key, datumVan(stad, dagen, st.dagIndex), st.soort)];
+        vul(el, stad, dagen);
+      });
+    }
+
+    el.innerHTML = kopHtml(stad, dagen, t, datum) +
+                   '<div class="markt-melding">Polymarket ophalen…</div>';
+    el.setAttribute("data-markt-slug", slug);
 
     haal(slug).then(function (d) {
-      if (!toestand || toestand.slug !== slug) return;    // er is intussen geklikt
-      v.innerHTML = kopHtml(t, datum) + (d ? lijfHtml(t, d, slug) : geenHtml(t, slug));
+      if (el.getAttribute("data-markt-slug") !== slug) return;   // er is intussen geklikt
+      el.innerHTML = kopHtml(stad, dagen, t, datum) +
+                     (d ? lijfHtml(stad, dagen, t, d, slug) : geenHtml(t));
     }).catch(function (e) {
-      if (!toestand || toestand.slug !== slug) return;
-      v.innerHTML = kopHtml(t, datum) +
+      if (el.getAttribute("data-markt-slug") !== slug) return;
+      el.innerHTML = kopHtml(stad, dagen, t, datum) +
         '<div class="markt-melding">Polymarket antwoordde niet (' + veilig(e.message) +
-        '). <span class="markt-link" data-markt-ververs="1" style="cursor:pointer">opnieuw proberen</span></div>';
+        '). <span class="markt-link" data-markt-ververs="1">opnieuw proberen</span></div>';
     });
   }
 
-  function kopHtml(t, datum) {
-    var soortKnop = function (k, tekst) {
-      return '<button class="chip-knop' + (t.soort === k ? " aan" : "") +
-             '" data-markt-soort="' + k + '">' + tekst + "</button>";
+  function kopHtml(stad, dagen, t, datum) {
+    var knop = function (attr, waarde, tekst, aan) {
+      return '<button class="chip-knop' + (aan ? " aan" : "") + '" ' + attr + '="' +
+             waarde + '">' + tekst + "</button>";
     };
-    var dagKnop = function (i) {
-      return '<button class="chip-knop' + (t.dagIndex === i ? " aan" : "") +
-             '" data-markt-dag="' + i + '">' + dagLabel(t, i) + "</button>";
-    };
-    var aantalDagen = Math.max(1, Math.min(3, (t.dagen && t.dagen.length) || 3));
+    var dagen3 = Math.max(1, Math.min(3, (dagen && dagen.length) || 3));
     var dagKnoppen = "";
-    for (var i = 0; i < aantalDagen; i++) dagKnoppen += dagKnop(i);
-    return '<div class="markt-kop">' +
-             '<div class="markt-titel">Polymarket · ' + veilig(t.stad.naam) + "</div>" +
-             '<button class="markt-sluit" data-markt-sluit="1" title="sluiten">×</button>' +
+    for (var i = 0; i < dagen3; i++) {
+      dagKnoppen += knop("data-markt-dag", i, dagLabel(dagen, i), t.dagIndex === i);
+    }
+    return '<div class="markt-tabs">' +
+             knop("data-markt-soort", "max", "hoogste", t.soort === "max") +
+             knop("data-markt-soort", "min", "laagste", t.soort === "min") +
+             '<span class="balk-scheiding"></span>' + dagKnoppen +
            "</div>" +
-           '<div class="markt-sub">afrekenstation ' + veilig(t.stad.station) +
-             " · lokale datum " + veilig(datum) + "</div>" +
-           '<div class="markt-tabs">' + soortKnop("max", "hoogste temperatuur") +
-             soortKnop("min", "laagste temperatuur") + "</div>" +
-           '<div class="markt-tabs">' + dagKnoppen + "</div>";
+           '<div class="markt-sub">afrekenstation ' + veilig(stad.station) +
+             " · lokale datum " + veilig(datum) + "</div>";
   }
 
-  function geenHtml(t, slug) {
+  function geenHtml(t) {
     return '<div class="markt-melding">' +
       (t.soort === "min"
         ? "Polymarket noteert voor deze stad en dag geen markt op de laagste temperatuur. Die reeks loopt maar voor een handvol steden."
-        : "Polymarket noteert voor deze stad en dag geen markt op de hoogste temperatuur. Markten voor morgen en overmorgen worden meestal pas een dag van tevoren geopend.") +
-      '<div style="margin-top:8px"><span class="markt-link" data-markt-ververs="1" style="cursor:pointer">opnieuw proberen</span></div>' +
-      "</div>";
+        : "Polymarket noteert voor deze stad en dag geen markt op de hoogste temperatuur. Markten voor morgen en overmorgen gaan meestal pas een dag van tevoren open.") +
+      ' <span class="markt-link" data-markt-ververs="1">opnieuw proberen</span></div>';
   }
 
-  function lijfHtml(t, d, slug) {
-    var dag = t.dagen && t.dagen[t.dagIndex];
-    var eigen = null;
-    if (dag) eigen = t.soort === "min" ? dag.mn : dag;
-    var appEenheid = t.stad.eenheid;
+  function lijfHtml(stad, dagen, t, d, slug) {
+    var dag = dagen && dagen[t.dagIndex];
+    var eigen = dag ? (t.soort === "min" ? dag.mn : dag) : null;
+    var appEenheid = stad.eenheid;
     var marktEenheid = d.eenheid || appEenheid;
     var onze = eigen ? onzeKansen(d.vakken, eigen, marktEenheid, appEenheid) : null;
+    var onsMax = onze ? Math.max.apply(null, onze) : null;
 
     var cijfers =
       cijfer("totaal verhandeld", geld(d.volume), "over de hele reeks") +
@@ -387,17 +366,16 @@
       cijfer("temperatuurvakken", String(d.vakken.length),
              d.gesloten ? "markt gesloten" : "markt open");
 
-    var maxJa = 0;
-    d.vakken.forEach(function (b) { if (b.ja !== null && b.ja > maxJa) maxJa = b.ja; });
-    if (onze) onze.forEach(function (p) { if (p > maxJa) maxJa = p; });
-    var schaal = Math.max(0.08, maxJa);
+    var schaal = 0.08;
+    d.vakken.forEach(function (b) { if (b.ja !== null && b.ja > schaal) schaal = b.ja; });
+    if (onsMax !== null && onsMax > schaal) schaal = onsMax;
 
     var rijen = d.vakken.map(function (b, i) {
       var p = onze ? onze[i] : null;
       var edge = (p !== null && b.ja !== null) ? p - b.ja : null;
       var klas = [];
       if (b.ja !== null && b.ja >= 0.5) klas.push("piek");
-      if (p !== null && onze && p === Math.max.apply(null, onze)) klas.push("onsx");
+      if (p !== null && p === onsMax) klas.push("onsx");
       return "<tr" + (klas.length ? ' class="' + klas.join(" ") + '"' : "") + ">" +
         "<td>" + veilig(b.label) + "</td>" +
         "<td>" + procent(b.ja) + "</td>" +
@@ -416,7 +394,7 @@
     var onsGem = eigen ? naarEenheid(eigen.verwachting, appEenheid, marktEenheid) : null;
     var vergelijk = "";
     if (mGem !== null || onsGem !== null) {
-      vergelijk = '<div class="markt-legenda" style="margin-top:10px">' +
+      vergelijk = '<div class="markt-legenda" style="margin-top:8px">' +
         (mGem !== null ? "markt verwacht <b>" + nlGetal(mGem) + marktEenheid + "</b>" : "") +
         (mGem !== null && onsGem !== null ? " · " : "") +
         (onsGem !== null ? "wij <b>" + nlGetal(onsGem) + marktEenheid + "</b>" +
@@ -429,29 +407,28 @@
     }
 
     var onsNoot = onze
-      ? (t.soort === "min" && eigen && eigen.gekalibreerd === false
+      ? (eigen && eigen.gekalibreerd === false
           ? "onze kans komt uit de kale ledenspreiding, die is nog niet geijkt"
           : "onze kans komt uit de verwachting en de gekalibreerde 80%-band")
       : "voor deze dag heeft de app geen voorspelling, dus alleen de marktkansen staan er";
 
-    return '<div class="markt-sub" style="margin-top:10px">' + veilig(d.titel) +
+    return '<div class="markt-sub" style="margin-top:8px">' + veilig(d.titel) +
              (d.gesloten ? " · gesloten" : (d.einde ? " · sluit " + tijdKort(d.einde) : "")) +
            "</div>" +
            '<div class="markt-cijfers">' + cijfers + "</div>" +
            '<div class="markt-kop2">Ja-kans per temperatuur</div>' +
-           '<table class="markt-tabel"><thead><tr>' +
+           '<div class="markt-tabelwrap"><table class="markt-tabel"><thead><tr>' +
              "<th>vak</th><th>ja</th><th>ons</th><th>edge</th>" +
              '<th class="markt-cel-balk"></th><th>volume</th>' +
-           "</tr></thead><tbody>" + rijen + "</tbody></table>" +
+           "</tr></thead><tbody>" + rijen + "</tbody></table></div>" +
            '<div class="markt-legenda">' +
              '<span class="lm">▬</span> markt · <span class="lo">▬</span> onze kans · ' +
-             onsNoot + ".<br>" +
-             "De elf vakken sluiten elkaar uit; de Ja-prijzen tellen nu op tot " +
-             procent(d.somJa) + " (boven 100% zit het verschil in de spreiding tussen bied en laat).</div>" +
+             onsNoot + ".<br>De elf vakken sluiten elkaar uit; de Ja-prijzen tellen nu op tot " +
+             procent(d.somJa) + " (boven 100% zit het verschil tussen bied en laat).</div>" +
            vergelijk +
-           '<div class="markt-voet">' +
-             "Bron: publieke Gamma-API van Polymarket, opgehaald " + tijdKort(d.opgehaald) +
-             ' · <span class="markt-link" data-markt-ververs="1" style="cursor:pointer">vernieuwen</span>' +
+           '<div class="markt-voet">Bron: publieke Gamma-API van Polymarket, opgehaald ' +
+             tijdKort(d.opgehaald) +
+             ' · <span class="markt-link" data-markt-ververs="1">vernieuwen</span>' +
              ' · <a class="markt-link" href="' + SITE + veilig(slug) +
              '" target="_blank" rel="noopener">markt openen</a><br>' +
              "Alleen ter vergelijking met de eigen voorspelling; de app handelt niet en verstuurt niets." +
@@ -467,7 +444,7 @@
   }
 
   function tijdKort(x) {
-    var d = typeof x === "number" ? new Date(x) : new Date(x);
+    var d = new Date(x);
     if (isNaN(d.getTime())) return "?";
     try {
       return new Intl.DateTimeFormat("nl-BE", { day: "numeric", month: "short",
@@ -481,7 +458,6 @@
     vakUit: vakUit,
     onzeKansen: onzeKansen,
     marktGemiddelde: marktGemiddelde,
-    open: open,
-    sluit: sluit
+    vul: vul
   };
 })();

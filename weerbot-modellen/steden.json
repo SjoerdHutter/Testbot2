@@ -288,24 +288,6 @@
   "eenheid": "C"
  },
  {
-  "key": "jinan",
-  "naam": "Jinan",
-  "icao": "ZSJN",
-  "station": "Jinan Yaoqiang International Airport",
-  "lat": 36.8572,
-  "lon": 117.216,
-  "eenheid": "C"
- },
- {
-  "key": "zhengzhou",
-  "naam": "Zhengzhou",
-  "icao": "ZHCC",
-  "station": "Zhengzhou Xinzheng International Airport",
-  "lat": 34.5265,
-  "lon": 113.8492,
-  "eenheid": "C"
- },
- {
   "key": "manila",
   "naam": "Manila",
   "icao": "RPLL",

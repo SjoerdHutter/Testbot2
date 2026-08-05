@@ -1,7 +1,7 @@
 {
   "name": "Weerbot 2",
   "short_name": "Weerbot 2",
-  "description": "Hoogste en laagste temperatuur in 51 steden met ensemblevoorspelling, fouthistorie en Polymarket-statistieken",
+  "description": "Hoogste en laagste temperatuur in 49 steden met ensemblevoorspelling, fouthistorie en Polymarket-statistieken",
   "lang": "nl",
   "display": "standalone",
   "background_color": "#0B1118",

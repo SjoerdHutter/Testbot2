@@ -84,8 +84,6 @@ STEDEN = [
     {"key": "CKG", "naam": "Chongqing", "station": "ZUCK", "lat": 29.5200, "lon": 106.4800, "tz": "Asia/Shanghai", "eenheid": "C", "bron": "iem"},
     {"key": "WUH", "naam": "Wuhan", "station": "ZHHH", "lat": 30.6200, "lon": 114.1300, "tz": "Asia/Shanghai", "eenheid": "C", "bron": "iem"},
     {"key": "TAO", "naam": "Qingdao", "station": "ZSQD", "lat": 36.0667, "lon": 120.3333, "tz": "Asia/Shanghai", "eenheid": "C", "bron": "iem"},
-    {"key": "TNA", "naam": "Jinan", "station": "ZSJN", "lat": 36.8555, "lon": 117.2060, "tz": "Asia/Shanghai", "eenheid": "C", "bron": "era5"},
-    {"key": "CGO", "naam": "Zhengzhou", "station": "ZHCC", "lat": 34.7167, "lon": 113.6500, "tz": "Asia/Shanghai", "eenheid": "C", "bron": "iem"},
     {"key": "HKG", "naam": "Hongkong", "station": "VHHH", "lat": 22.3094, "lon": 113.9219, "tz": "Asia/Hong_Kong", "eenheid": "C", "bron": "hko"},
     {"key": "MNL", "naam": "Manila", "station": "RPLL", "lat": 14.5069, "lon": 121.0042, "tz": "Asia/Manila", "eenheid": "C", "bron": "iem"},
     {"key": "KUL", "naam": "Kuala Lumpur", "station": "WMKK", "lat": 2.7167, "lon": 101.7000, "tz": "Asia/Kuala_Lumpur", "eenheid": "C", "bron": "iem"},

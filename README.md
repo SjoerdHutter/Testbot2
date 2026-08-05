@@ -1,7 +1,7 @@
 # Weerbot 2
 
 Verbeterde versie van [TestBot](https://github.com/SjoerdHutter/TestBot). De app
-voorspelt de dagtemperatuur in 51 steden uit een ensemble van vijf modelsystemen
+voorspelt de dagtemperatuur in 49 steden uit een ensemble van vijf modelsystemen
 (ECMWF IFS en AIFS, NCEP GEFS, ICON, GEM via Open‑Meteo), corrigeert die met
 gekalibreerde parameters, en controleert zichzelf elke dag tegen de
 stationsmeting waar ook de weddenschappen op afrekenen.
@@ -72,8 +72,7 @@ afrekening in een vak valt (de markt rekent op hele graden, dus vak `84-85°F`
 loopt van 83,5 tot 85,5). Scheve verdelingen vangt die vertaling niet.
 
 Er wordt niets verhandeld en er gaat niets naar buiten: het venster doet alleen
-leesverzoeken naar de publieke Gamma-API van Polymarket. Zhengzhou en Jinan
-hebben geen markt; daar staat de knop niet.
+leesverzoeken naar de publieke Gamma-API van Polymarket.
 
 ## Onafhankelijk van TestBot
 

@@ -17,7 +17,7 @@
     ANK:"ankara", IST:"istanbul", MOW:"moskou", TYO:"tokio", SEL:"seoul",
     PUS:"busan", TPE:"taipei", PEK:"peking", SHA:"shanghai", CAN:"guangzhou",
     SZX:"shenzhen", CTU:"chengdu", CKG:"chongqing", WUH:"wuhan", TAO:"qingdao",
-    TNA:"jinan", CGO:"zhengzhou", HKG:"hongkong", MNL:"manila",
+    HKG:"hongkong", MNL:"manila",
     KUL:"kualalumpur", SIN:"singapore", KHI:"karachi", LKO:"lucknow",
     JED:"jeddah", TLV:"telaviv", TOR:"toronto", MEX:"mexicostad",
     PTY:"panamastad", BUE:"buenosaires", SAO:"saopaulo", CPT:"kaapstad",

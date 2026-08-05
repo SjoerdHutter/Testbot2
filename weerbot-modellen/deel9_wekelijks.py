@@ -195,9 +195,7 @@ def update():
                     r["run2run"] = round(mm - sum(p2v) / len(p2v), 2)
             hoek = date.fromisoformat(dg).timetuple().tm_yday / 365.25 * 2 * math.pi
             r["doy_sin"] = round(math.sin(hoek), 4); r["doy_cos"] = round(math.cos(hoek), 4)
-            if key == "jinan":
-                r["doel"], r["doelbron"] = r.get("era5_max", ""), "era5" if r.get("era5_max") else ""
-            elif r.get("station_max"):
+            if r.get("station_max"):
                 r["doel"], r["doelbron"] = r["station_max"], "station"
             totaal += 1
         with open(pad, "w", newline="") as f:
