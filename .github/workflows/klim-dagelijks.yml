@@ -1,0 +1,33 @@
+name: Dagelijkse klim-berekening
+on:
+  schedule:
+    - cron: "23 2,14 * * *"
+  workflow_dispatch:
+permissions:
+  contents: write
+jobs:
+  klim:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - run: pip install numpy "scikit-learn>=1.8,<1.9"
+
+      # Controleert of de upload gaaf is aangekomen (grootte + sha256).
+      - name: Upload controleren
+        run: python weerbot-modellen/controleer_upload.py
+
+      - name: klim_vandaag.json berekenen
+        working-directory: weerbot-modellen
+        run: python bereken_klim_vandaag.py
+
+      - name: Committen
+        run: |
+          git config user.name "weerbot-actie"
+          git config user.email "actions@users.noreply.github.com"
+          git add weerbot-modellen/klim_vandaag.json
+          git diff --cached --quiet || git commit -m "Dagelijkse klim-waarden"
+          git push
+

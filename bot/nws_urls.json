@@ -1,0 +1,13 @@
+{
+ "NYC": "https://api.weather.gov/gridpoints/OKX/37,46/forecast",
+ "CHI": "https://api.weather.gov/gridpoints/LOT/65,76/forecast",
+ "MIA": "https://api.weather.gov/gridpoints/MFL/105,51/forecast",
+ "LAX": "https://api.weather.gov/gridpoints/LOX/149,41/forecast",
+ "SFO": "https://api.weather.gov/gridpoints/MTR/85,98/forecast",
+ "SEA": "https://api.weather.gov/gridpoints/SEW/124,60/forecast",
+ "DEN": "https://api.weather.gov/gridpoints/BOU/71,59/forecast",
+ "DAL": "https://api.weather.gov/gridpoints/FWD/87,107/forecast",
+ "HOU": "https://api.weather.gov/gridpoints/HGX/66,89/forecast",
+ "AUS": "https://api.weather.gov/gridpoints/EWX/158,87/forecast",
+ "ATL": "https://api.weather.gov/gridpoints/FFC/49,81/forecast"
+}

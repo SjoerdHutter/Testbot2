@@ -1,0 +1,64 @@
+name: Wekelijkse kalibratie
+
+# Draait bot/kalibratie.py en commit de verse app_params.js/json. Zonder deze
+# actie verouderen de parameters en gaat de app na 45 dagen per stad zelf in de
+# browser herijken; dat is trager en kost de bezoeker dataverkeer.
+#
+# Gepland op maandag 05:23 UTC: ruim na de dagelijkse klim-berekening (02:23)
+# en de wekelijkse hertraining (03:17), zodat er nooit twee acties tegelijk
+# naar main pushen.
+on:
+  schedule:
+    - cron: "23 5 * * 1"
+  workflow_dispatch:
+    inputs:
+      dagen:
+        description: "Aantal backtestdagen"
+        required: false
+        default: "240"
+permissions:
+  contents: write
+
+jobs:
+  kalibreer:
+    runs-on: ubuntu-latest
+    timeout-minutes: 120      # de METAR- en 1-minuutreeksen zijn traag
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      # kalibratie.py gebruikt alleen de standaardbibliotheek, dus geen pip.
+
+      - name: Kalibreren
+        working-directory: bot          # kalibratie.py importeert weer.py ernaast
+        run: python kalibratie.py ${{ github.event.inputs.dagen || '240' }}
+
+      - name: Uitkomst controleren
+        run: |
+          python - <<'PY'
+          import json, sys
+          tekst = open("app_params.js").read()
+          d = json.loads(tekst[tekst.index("=") + 1:].strip().rstrip(";"))
+          steden = d.get("steden", {})
+          met_kern = sum(1 for s in steden.values()
+                         for h in ("0", "1", "2") if "kern" in (s.get(h) or {}))
+          print(f"  {len(steden)} steden · {met_kern} stad-horizonnen met kern "
+                f"· gegenereerd {d.get('gegenereerd')}")
+          if len(steden) < 45:
+              sys.exit(f"FOUT: maar {len(steden)} steden, te weinig om te committen")
+          PY
+
+      - name: Committen
+        run: |
+          git config user.name "weerbot-actie"
+          git config user.email "actions@users.noreply.github.com"
+          git add app_params.js       # de repo bevat alleen de js-variant
+          if git diff --cached --quiet; then
+            echo "  geen wijziging"
+            exit 0
+          fi
+          git commit -m "Wekelijkse kalibratie"
+          # een andere actie kan ondertussen gepusht hebben
+          git pull --rebase origin "${GITHUB_REF_NAME}"
+          git push origin "HEAD:${GITHUB_REF_NAME}"

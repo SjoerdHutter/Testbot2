@@ -1,0 +1,461 @@
+[
+ {
+  "key": "nyc",
+  "naam": "New York",
+  "icao": "KLGA",
+  "station": "LaGuardia Airport",
+  "lat": 40.7772,
+  "lon": -73.8726,
+  "eenheid": "F"
+ },
+ {
+  "key": "chicago",
+  "naam": "Chicago",
+  "icao": "KORD",
+  "station": "Chicago O'Hare International Airport",
+  "lat": 41.9786,
+  "lon": -87.9048,
+  "eenheid": "F"
+ },
+ {
+  "key": "miami",
+  "naam": "Miami",
+  "icao": "KMIA",
+  "station": "Miami International Airport",
+  "lat": 25.796,
+  "lon": -80.2898,
+  "eenheid": "F"
+ },
+ {
+  "key": "losangeles",
+  "naam": "Los Angeles",
+  "icao": "KLAX",
+  "station": "Los Angeles International Airport",
+  "lat": 33.9425,
+  "lon": -118.408,
+  "eenheid": "F"
+ },
+ {
+  "key": "sanfrancisco",
+  "naam": "San Francisco",
+  "icao": "KSFO",
+  "station": "San Francisco International Airport",
+  "lat": 37.6198,
+  "lon": -122.3748,
+  "eenheid": "F"
+ },
+ {
+  "key": "seattle",
+  "naam": "Seattle",
+  "icao": "KSEA",
+  "station": "Seattle–Tacoma International Airport",
+  "lat": 47.4479,
+  "lon": -122.3103,
+  "eenheid": "F"
+ },
+ {
+  "key": "denver",
+  "naam": "Denver",
+  "icao": "KBKF",
+  "station": "Buckley Space Force Base",
+  "lat": 39.7017,
+  "lon": -104.752,
+  "eenheid": "F"
+ },
+ {
+  "key": "dallas",
+  "naam": "Dallas",
+  "icao": "KDAL",
+  "station": "Dallas Love Field",
+  "lat": 32.8448,
+  "lon": -96.8477,
+  "eenheid": "F"
+ },
+ {
+  "key": "houston",
+  "naam": "Houston",
+  "icao": "KHOU",
+  "station": "William P. Hobby Airport",
+  "lat": 29.6453,
+  "lon": -95.2768,
+  "eenheid": "F"
+ },
+ {
+  "key": "austin",
+  "naam": "Austin",
+  "icao": "KAUS",
+  "station": "Austin Bergstrom International Airport",
+  "lat": 30.1975,
+  "lon": -97.662,
+  "eenheid": "F"
+ },
+ {
+  "key": "atlanta",
+  "naam": "Atlanta",
+  "icao": "KATL",
+  "station": "Hartsfield Jackson Atlanta International Airport",
+  "lat": 33.6367,
+  "lon": -84.4281,
+  "eenheid": "F"
+ },
+ {
+  "key": "londen",
+  "naam": "Londen",
+  "icao": "EGLC",
+  "station": "London City Airport",
+  "lat": 51.5053,
+  "lon": 0.0553,
+  "eenheid": "C"
+ },
+ {
+  "key": "parijs",
+  "naam": "Parijs",
+  "icao": "LFPB",
+  "station": "Paris-Le Bourget International Airport",
+  "lat": 48.9623,
+  "lon": 2.4365,
+  "eenheid": "C"
+ },
+ {
+  "key": "amsterdam",
+  "naam": "Amsterdam",
+  "icao": "EHAM",
+  "station": "Amsterdam Airport Schiphol",
+  "lat": 52.3086,
+  "lon": 4.7639,
+  "eenheid": "C"
+ },
+ {
+  "key": "madrid",
+  "naam": "Madrid",
+  "icao": "LEMD",
+  "station": "Adolfo Suárez Madrid–Barajas Airport",
+  "lat": 40.4934,
+  "lon": -3.5722,
+  "eenheid": "C"
+ },
+ {
+  "key": "milaan",
+  "naam": "Milaan",
+  "icao": "LIMC",
+  "station": "Milan Malpensa International Airport",
+  "lat": 45.6306,
+  "lon": 8.7281,
+  "eenheid": "C"
+ },
+ {
+  "key": "munchen",
+  "naam": "München",
+  "icao": "EDDM",
+  "station": "Munich Airport",
+  "lat": 48.3538,
+  "lon": 11.7861,
+  "eenheid": "C"
+ },
+ {
+  "key": "warschau",
+  "naam": "Warschau",
+  "icao": "EPWA",
+  "station": "Warsaw Chopin Airport",
+  "lat": 52.1657,
+  "lon": 20.9671,
+  "eenheid": "C"
+ },
+ {
+  "key": "helsinki",
+  "naam": "Helsinki",
+  "icao": "EFHK",
+  "station": "Helsinki Vantaa Airport",
+  "lat": 60.3184,
+  "lon": 24.9633,
+  "eenheid": "C"
+ },
+ {
+  "key": "ankara",
+  "naam": "Ankara",
+  "icao": "LTAC",
+  "station": "Esenboğa International Airport",
+  "lat": 40.1281,
+  "lon": 32.9951,
+  "eenheid": "C"
+ },
+ {
+  "key": "tokio",
+  "naam": "Tokio",
+  "icao": "RJTT",
+  "station": "Tokyo Haneda International Airport",
+  "lat": 35.5497,
+  "lon": 139.787,
+  "eenheid": "C"
+ },
+ {
+  "key": "seoul",
+  "naam": "Seoul",
+  "icao": "RKSI",
+  "station": "Incheon International Airport",
+  "lat": 37.4691,
+  "lon": 126.451,
+  "eenheid": "C"
+ },
+ {
+  "key": "busan",
+  "naam": "Busan",
+  "icao": "RKPK",
+  "station": "Gimhae International Airport",
+  "lat": 35.1795,
+  "lon": 128.938,
+  "eenheid": "C"
+ },
+ {
+  "key": "taipei",
+  "naam": "Taipei",
+  "icao": "RCSS",
+  "station": "Taipei Songshan International Airport",
+  "lat": 25.0672,
+  "lon": 121.5528,
+  "eenheid": "C"
+ },
+ {
+  "key": "peking",
+  "naam": "Peking",
+  "icao": "ZBAA",
+  "station": "Beijing Capital International Airport",
+  "lat": 40.0773,
+  "lon": 116.5967,
+  "eenheid": "C"
+ },
+ {
+  "key": "shanghai",
+  "naam": "Shanghai",
+  "icao": "ZSPD",
+  "station": "Shanghai Pudong International Airport",
+  "lat": 31.1434,
+  "lon": 121.805,
+  "eenheid": "C"
+ },
+ {
+  "key": "guangzhou",
+  "naam": "Guangzhou",
+  "icao": "ZGGG",
+  "station": "Guangzhou Baiyun International Airport",
+  "lat": 23.3924,
+  "lon": 113.299,
+  "eenheid": "C"
+ },
+ {
+  "key": "shenzhen",
+  "naam": "Shenzhen",
+  "icao": "ZGSZ",
+  "station": "Shenzhen Bao'an International Airport",
+  "lat": 22.6395,
+  "lon": 113.8033,
+  "eenheid": "C"
+ },
+ {
+  "key": "chengdu",
+  "naam": "Chengdu",
+  "icao": "ZUUU",
+  "station": "Chengdu Shuangliu International Airport",
+  "lat": 30.5583,
+  "lon": 103.946,
+  "eenheid": "C"
+ },
+ {
+  "key": "chongqing",
+  "naam": "Chongqing",
+  "icao": "ZUCK",
+  "station": "Chongqing Jiangbei International Airport",
+  "lat": 29.7123,
+  "lon": 106.6519,
+  "eenheid": "C"
+ },
+ {
+  "key": "wuhan",
+  "naam": "Wuhan",
+  "icao": "ZHHH",
+  "station": "Wuhan Tianhe International Airport",
+  "lat": 30.7748,
+  "lon": 114.2137,
+  "eenheid": "C"
+ },
+ {
+  "key": "qingdao",
+  "naam": "Qingdao",
+  "icao": "ZSQD",
+  "station": "Qingdao Jiaodong International Airport",
+  "lat": 36.362,
+  "lon": 120.0882,
+  "eenheid": "C"
+ },
+ {
+  "key": "jinan",
+  "naam": "Jinan",
+  "icao": "ZSJN",
+  "station": "Jinan Yaoqiang International Airport",
+  "lat": 36.8572,
+  "lon": 117.216,
+  "eenheid": "C"
+ },
+ {
+  "key": "zhengzhou",
+  "naam": "Zhengzhou",
+  "icao": "ZHCC",
+  "station": "Zhengzhou Xinzheng International Airport",
+  "lat": 34.5265,
+  "lon": 113.8492,
+  "eenheid": "C"
+ },
+ {
+  "key": "manila",
+  "naam": "Manila",
+  "icao": "RPLL",
+  "station": "Ninoy Aquino International Airport",
+  "lat": 14.5086,
+  "lon": 121.02,
+  "eenheid": "C"
+ },
+ {
+  "key": "kualalumpur",
+  "naam": "Kuala Lumpur",
+  "icao": "WMKK",
+  "station": "Kuala Lumpur International Airport",
+  "lat": 2.7456,
+  "lon": 101.71,
+  "eenheid": "C"
+ },
+ {
+  "key": "singapore",
+  "naam": "Singapore",
+  "icao": "WSSS",
+  "station": "Singapore Changi Airport",
+  "lat": 1.3502,
+  "lon": 103.994,
+  "eenheid": "C"
+ },
+ {
+  "key": "karachi",
+  "naam": "Karachi",
+  "icao": "OPKC",
+  "station": "Jinnah International Airport",
+  "lat": 24.9065,
+  "lon": 67.1608,
+  "eenheid": "C"
+ },
+ {
+  "key": "lucknow",
+  "naam": "Lucknow",
+  "icao": "VILK",
+  "station": "Chaudhary Charan Singh International Airport",
+  "lat": 26.7606,
+  "lon": 80.8893,
+  "eenheid": "C"
+ },
+ {
+  "key": "jeddah",
+  "naam": "Jeddah",
+  "icao": "OEJN",
+  "station": "King Abdulaziz International Airport",
+  "lat": 21.6802,
+  "lon": 39.1574,
+  "eenheid": "C"
+ },
+ {
+  "key": "toronto",
+  "naam": "Toronto",
+  "icao": "CYYZ",
+  "station": "Toronto Pearson International Airport",
+  "lat": 43.6759,
+  "lon": -79.6294,
+  "eenheid": "C"
+ },
+ {
+  "key": "mexicostad",
+  "naam": "Mexico-Stad",
+  "icao": "MMMX",
+  "station": "Mexico City Benito Juárez International Airport",
+  "lat": 19.4358,
+  "lon": -99.0703,
+  "eenheid": "C"
+ },
+ {
+  "key": "panamastad",
+  "naam": "Panama-Stad",
+  "icao": "MPMG",
+  "station": "Marcos A. Gelabert International Airport",
+  "lat": 8.9733,
+  "lon": -79.5556,
+  "eenheid": "C"
+ },
+ {
+  "key": "buenosaires",
+  "naam": "Buenos Aires",
+  "icao": "SAEZ",
+  "station": "Ezeiza International Airport - Ministro Pistarini",
+  "lat": -34.8222,
+  "lon": -58.5358,
+  "eenheid": "C"
+ },
+ {
+  "key": "saopaulo",
+  "naam": "São Paulo",
+  "icao": "SBGR",
+  "station": "São Paulo/Guarulhos–Governor André Franco Montoro International Airport",
+  "lat": -23.4313,
+  "lon": -46.47,
+  "eenheid": "C"
+ },
+ {
+  "key": "kaapstad",
+  "naam": "Kaapstad",
+  "icao": "FACT",
+  "station": "Cape Town International Airport",
+  "lat": -33.974,
+  "lon": 18.6043,
+  "eenheid": "C"
+ },
+ {
+  "key": "wellington",
+  "naam": "Wellington",
+  "icao": "NZWN",
+  "station": "Wellington International Airport",
+  "lat": -41.3268,
+  "lon": 174.8069,
+  "eenheid": "C"
+ },
+ {
+  "key": "istanbul",
+  "naam": "Istanbul",
+  "icao": "LTFM",
+  "station": "İstanbul Airport",
+  "lat": 41.2749,
+  "lon": 28.7321,
+  "eenheid": "C"
+ },
+ {
+  "key": "moskou",
+  "naam": "Moskou",
+  "icao": "UUWW",
+  "station": "Vnukovo International Airport",
+  "lat": 55.5915,
+  "lon": 37.2615,
+  "eenheid": "C"
+ },
+ {
+  "key": "telaviv",
+  "naam": "Tel Aviv",
+  "icao": "LLBG",
+  "station": "Ben Gurion International Airport",
+  "lat": 32.0114,
+  "lon": 34.8867,
+  "eenheid": "C"
+ },
+ {
+  "key": "hongkong",
+  "naam": "Hongkong",
+  "icao": "HKO",
+  "station": "Hong Kong Observatory (hoofdstation)",
+  "lat": 22.302,
+  "lon": 114.1741,
+  "eenheid": "C"
+ }
+]

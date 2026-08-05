@@ -1,0 +1,43 @@
+name: Wekelijkse hertraining
+on:
+  schedule:
+    - cron: "17 3 * * 1"      # elke maandag 03:17 UTC
+  workflow_dispatch:
+permissions:
+  contents: write
+jobs:
+  hertrain:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - run: pip install numpy "scikit-learn>=1.8,<1.9" scipy
+
+      - name: Modellen controleren
+        run: python weerbot-modellen/controleer_upload.py
+
+      - name: Bundelbestand controleren
+        run: python weerbot-modellen/pak_features.py check
+
+      - name: Bundel uitpakken naar uit_features
+        run: python weerbot-modellen/pak_features.py uit
+
+      - name: Data bijwerken en modellen hertrainen
+        working-directory: weerbot-modellen
+        run: python deel9_wekelijks.py
+
+      - name: Terug inpakken tot een bestand
+        run: python weerbot-modellen/pak_features.py in
+
+      - name: Wijzigingen committen
+        run: |
+          git config user.name "weerbot-actie"
+          git config user.email "actions@users.noreply.github.com"
+          git add weerbot-modellen/features_alle.csv \
+                  weerbot-modellen/klim_features.csv \
+                  weerbot-modellen/modellen/modellen.json \
+                  weerbot-modellen/modellen/pooled_gbm.pkl
+          git diff --cached --quiet || git commit -m "Wekelijkse hertraining"
+          git push

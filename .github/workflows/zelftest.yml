@@ -1,0 +1,30 @@
+name: Zelftest
+
+# Bewaakt twee dingen die stil kapot kunnen gaan: de rekenkern in index.html
+# moet exact hetzelfde uitrekenen als bot/kalibratie.py, en de manifestregels
+# van de vaste bestanden moeten kloppen.
+on:
+  push:
+  pull_request:
+  workflow_dispatch:
+
+jobs:
+  zelftest:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+
+      - name: Python-bestanden compileren
+        run: python -m compileall -q bot weerbot-modellen
+
+      - name: Bestanden controleren
+        run: python weerbot-modellen/controleer_upload.py
+
+      - name: Bundelbestand controleren
+        run: python weerbot-modellen/pak_features.py check
+
+      - name: Correctiekern testen (python en javascript)
+        run: python bot/test_kern.py
