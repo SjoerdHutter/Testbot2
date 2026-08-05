@@ -179,6 +179,12 @@
         volume: getal(m.volumeNum !== undefined ? m.volumeNum : m.volume) || 0,
         bied: getal(m.bestBid), laat: getal(m.bestAsk)
       };
+    }).map(function (b) {
+      /* Van de elf vakken staan er meestal maar een handvol echt open. De rest
+         noteert de bodemprijs zonder koper: wel volume uit het verleden, maar
+         geen bod meer. Die tellen als niet verhandeld. */
+      b.verhandeld = (b.ja !== null && b.ja >= 0.005) || (b.bied !== null && b.bied > 0.001);
+      return b;
     }).filter(function (b) { return b.lo !== null || b.hi !== null; });
 
     /* op temperatuur sorteren: het "of lager"-vak vooraan, "of hoger" achteraan */
@@ -261,7 +267,7 @@
   var toestand = {};                // stadssleutel -> {soort, dagIndex}
 
   function toestandVan(key) {
-    if (!toestand[key]) toestand[key] = { soort: "max", dagIndex: 0 };
+    if (!toestand[key]) toestand[key] = { soort: "max", dagIndex: 0, alles: false };
     return toestand[key];
   }
 
@@ -298,10 +304,12 @@
         var soort = a("data-markt-soort");
         var dag = a("data-markt-dag");
         var ververs = a("data-markt-ververs");
-        if (!soort && dag === null && ververs === null) return;
+        var alles = a("data-markt-alles");
+        if (!soort && dag === null && ververs === null && alles === null) return;
         e.preventDefault(); e.stopPropagation();
         var st = toestandVan(stad.key);
         if (soort) st.soort = soort;
+        if (alles !== null) st.alles = alles === "1";
         if (dag !== null) st.dagIndex = parseInt(dag, 10);
         if (ververs !== null) delete bak[slugVan(stad.key, datumVan(stad, dagen, st.dagIndex), st.soort)];
         vul(el, stad, dagen);
@@ -370,25 +378,54 @@
     d.vakken.forEach(function (b) { if (b.ja !== null && b.ja > schaal) schaal = b.ja; });
     if (onsMax !== null && onsMax > schaal) schaal = onsMax;
 
-    var rijen = d.vakken.map(function (b, i) {
+    /* Standaard alleen de vakken waarin gehandeld wordt. Een vak waar de markt
+       niets meer in ziet maar wij wel, blijft staan: juist daar zit het verschil
+       waar dit paneel voor bedoeld is. */
+    var toonAlles = !!t.alles;
+    var zichtbaar = [], verborgen = 0;
+    d.vakken.forEach(function (b, i) {
       var p = onze ? onze[i] : null;
+      if (toonAlles || b.verhandeld || (p !== null && p >= 0.01)) zichtbaar.push({ b: b, p: p });
+      else verborgen++;
+    });
+    if (!zichtbaar.length) {                       // niets over: dan toch maar alles
+      d.vakken.forEach(function (b, i) { zichtbaar.push({ b: b, p: onze ? onze[i] : null }); });
+      verborgen = 0;
+    }
+
+    var rijen = zichtbaar.map(function (r, n) {
+      var b = r.b, p = r.p;
       var edge = (p !== null && b.ja !== null) ? p - b.ja : null;
-      var klas = [];
+      var klas = ["vak"];
+      if (!n) klas.push("eerste");
       if (b.ja !== null && b.ja >= 0.5) klas.push("piek");
       if (p !== null && p === onsMax) klas.push("onsx");
-      return "<tr" + (klas.length ? ' class="' + klas.join(" ") + '"' : "") + ">" +
+      return '<tr class="' + klas.join(" ") + '">' +
         "<td>" + veilig(b.label) + "</td>" +
         "<td>" + procent(b.ja) + "</td>" +
-        "<td>" + (p === null ? "·" : procent(p)) + "</td>" +
+        "<td>" + (p === null ? "\u00B7" : procent(p)) + "</td>" +
         edgeHtml(edge) +
-        '<td class="markt-cel-balk"><span class="markt-balk">' +
-          '<i class="markt" style="width:' + Math.round(Math.min(1, (b.ja || 0) / schaal) * 100) + '%"></i>' +
-          (p === null ? "" : '<i class="ons" style="width:' +
-            Math.round(Math.min(1, p / schaal) * 100) + '%"></i>') +
-        "</span></td>" +
         "<td>" + geld(b.volume) + "</td>" +
-      "</tr>";
+      "</tr>" +
+      /* De staaf staat op een eigen regel over de volle breedte. Als kolom paste
+         hij niet op een telefoonscherm en verdween hij daar helemaal. */
+      '<tr class="balken"><td colspan="5"><span class="markt-balk">' +
+        '<i class="markt" style="width:' + Math.round(Math.min(1, (b.ja || 0) / schaal) * 100) + '%"></i>' +
+        (p === null ? "" : '<i class="ons" style="width:' +
+          Math.round(Math.min(1, p / schaal) * 100) + '%"></i>') +
+      "</span></td></tr>";
     }).join("");
+
+    var verborgenRegel = "";
+    if (verborgen || toonAlles) {
+      verborgenRegel = '<div class="markt-verborgen">' +
+        (toonAlles
+          ? "alle " + d.vakken.length + " vakken \u00B7 " +
+            '<span data-markt-alles="0">alleen waar in gehandeld wordt</span>'
+          : verborgen + " vak" + (verborgen === 1 ? "" : "ken") +
+            " zonder handel verborgen \u00B7 " + '<span data-markt-alles="1">toon alles</span>') +
+        "</div>";
+    }
 
     var mGem = marktGemiddelde(d.vakken);
     var onsGem = eigen ? naarEenheid(eigen.verwachting, appEenheid, marktEenheid) : null;
@@ -418,9 +455,8 @@
            '<div class="markt-cijfers">' + cijfers + "</div>" +
            '<div class="markt-kop2">Ja-kans per temperatuur</div>' +
            '<div class="markt-tabelwrap"><table class="markt-tabel"><thead><tr>' +
-             "<th>vak</th><th>ja</th><th>ons</th><th>edge</th>" +
-             '<th class="markt-cel-balk"></th><th>volume</th>' +
-           "</tr></thead><tbody>" + rijen + "</tbody></table></div>" +
+             "<th>vak</th><th>ja</th><th>ons</th><th>edge</th><th>volume</th>" +
+           "</tr></thead><tbody>" + rijen + "</tbody></table></div>" + verborgenRegel +
            '<div class="markt-legenda">' +
              '<span class="lm">▬</span> markt · <span class="lo">▬</span> onze kans · ' +
              onsNoot + ".<br>De elf vakken sluiten elkaar uit; de Ja-prijzen tellen nu op tot " +

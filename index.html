@@ -38,6 +38,10 @@
     padding: 22px 14px 48px;
     padding-top: calc(20px + env(safe-area-inset-top, 2px));
     padding-bottom: calc(40px + env(safe-area-inset-bottom, 8px));
+    /* In landschap ligt de camera-uitsparing aan de zijkant; zonder deze twee
+       regels schuift de inhoud eronder. */
+    padding-left: max(14px, env(safe-area-inset-left, 0px));
+    padding-right: max(14px, env(safe-area-inset-right, 0px));
   }
   .pagina { max-width: 1180px; margin: 0 auto; }
 
@@ -171,7 +175,12 @@
     background: var(--paneel); border: 1px solid var(--rand); border-radius: 10px;
     padding: 9px 12px;
   }
-  .rij-kop { display: flex; align-items: center; gap: 9px; }
+  /* Op een telefoon passen de naam, de chips en de temperaturen niet op een
+     regel. Zonder afbreken duwde het temperatuurblok de rij 13 px buiten beeld,
+     en dan zoomt de browser bij het draaien de hele pagina uit om hem passend te
+     maken. Nu schuift het blok naar een tweede regel. */
+  .rij-kop { display: flex; align-items: center; flex-wrap: wrap; gap: 9px; row-gap: 7px; }
+  .rij-temps { margin-left: auto; }
   .rij-naam {
     flex: 1; min-width: 0; font-size: 14px; font-weight: 600;
     white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
@@ -278,9 +287,15 @@
   .banner.zichtbaar { display: block; }
   .laadtekst { font-family: var(--mono); font-size: 12px; color: var(--dim); padding: 30px 4px; }
 
-  /* ── Kaartgrid ── */
-  .grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(330px, 1fr)); gap: 14px; }
-  @media (max-width: 370px) { .grid { grid-template-columns: 1fr; } }
+  /* ── Kaartkolommen ──
+     Kolommen in plaats van een raster. In een raster is elke rij zo hoog als de
+     hoogste kaart erin, dus zodra je ergens een paneel openklapt staat er naast
+     die kaart een groot gat. Dat viel vooral op met de telefoon in landschap:
+     de linkerhelft vol, de rechterhelft leeg. Kolommen laten de kaarten
+     doorlopen, zodat de breedte altijd benut wordt. */
+  .grid { columns: 330px; column-gap: 14px; }
+  .grid .kaart { break-inside: avoid; -webkit-column-break-inside: avoid; margin-bottom: 14px; }
+  @media (max-width: 370px) { .grid { columns: 1; } }
 
   .kaart { background: var(--paneel); border: 1px solid var(--rand); border-radius: 14px; padding: 16px 16px 12px; }
   .kaart-kop { display: flex; align-items: baseline; flex-wrap: wrap; gap: 10px; row-gap: 7px; margin-bottom: 14px; }
@@ -444,10 +459,14 @@
      zodat de kaart zelf nooit uitrekt. */
   .markt-tabelwrap { overflow-x: auto; -webkit-overflow-scrolling: touch; }
   .markt-tabel { width: 100%; border-collapse: collapse; font-variant-numeric: tabular-nums; }
-  .kaart .markt-cel-balk { display: none; }
   .kaart .markt-cijfers { grid-template-columns: 1fr 1fr; }   /* 2x2 in plaats van 3+1 */
   .kaart .markt-tabel td, .kaart .markt-tabel th { padding-left: 6px; }
   .kaart .markt-tabel td { font-size: 11px; }
+  /* De staven staan op een eigen regel onder elk vak, over de volle breedte.
+     Als kolom pasten ze niet op een telefoon; zo blijven ze overal zichtbaar. */
+  .markt-tabel tr.balken td { border-top: none; padding: 0 0 7px; }
+  .markt-tabel tr.vak td { border-top: 1px solid rgba(31, 42, 56, 0.7); padding-bottom: 3px; }
+  .markt-tabel tr.vak.eerste td { border-top: none; }
   .markt-tabel th {
     font-family: var(--mono); font-size: 9px; letter-spacing: 0.08em; text-transform: uppercase;
     color: #5E6B82; font-weight: 400; text-align: right; padding: 0 0 5px 8px;
@@ -462,13 +481,16 @@
     content: " ◂ onze"; font-size: 9px; color: var(--accent); letter-spacing: 0.06em;
   }
   .markt-balk {
-    display: block; position: relative; width: 100%; min-width: 56px; height: 10px;
+    display: block; position: relative; width: 100%; height: 11px;
     background: var(--bg); border-radius: 3px; overflow: hidden;
   }
   .markt-balk i { position: absolute; left: 0; height: 4px; display: block; border-radius: 2px; }
-  .markt-balk i.markt { top: 1px; background: rgba(111, 179, 255, 0.75); }
-  .markt-balk i.ons { bottom: 1px; background: rgba(87, 196, 138, 0.7); }
-  .markt-cel-balk { width: 34%; padding-left: 10px !important; }
+  .markt-balk i.markt { top: 1.5px; background: rgba(111, 179, 255, 0.8); }
+  .markt-balk i.ons { bottom: 1.5px; background: rgba(87, 196, 138, 0.75); }
+  .markt-verborgen {
+    font-family: var(--mono); font-size: 9.5px; color: #5E6B82; margin-top: 8px;
+  }
+  .markt-verborgen span { color: var(--accent); cursor: pointer; text-decoration: underline; }
   .markt-legenda { font-family: var(--mono); font-size: 9.5px; color: #5E6B82; margin-top: 7px; line-height: 1.7; }
   .markt-legenda b { font-weight: 400; }
   .markt-legenda .lm { color: rgba(111, 179, 255, 0.9); }
@@ -2696,9 +2718,13 @@ const CONFIG = {"nws_gewicht": 0.25, "steden": [{"key": "NYC", "naam": "New York
     sleep = { el: el, bak: el.parentNode, greep: greep, id: e.pointerId };
     el.classList.add("sleept");
     try { greep.setPointerCapture(e.pointerId); } catch (ex) {}
-    greep.addEventListener("pointermove", beweegSleep);
-    greep.addEventListener("pointerup", stopSleep);
-    greep.addEventListener("pointercancel", stopSleep);
+    /* Op het document luisteren, niet op de greep. Zodra beweegSleep de kaart
+       in de DOM verplaatst verliest de greep zijn pointer-capture, en daarna
+       kwam pointerup daar nooit meer aan: het slepen werkte wel, maar de nieuwe
+       volgorde werd niet bewaard en de kaart bleef gemarkeerd staan. */
+    document.addEventListener("pointermove", beweegSleep);
+    document.addEventListener("pointerup", stopSleep);
+    document.addEventListener("pointercancel", stopSleep);
   }
   function beweegSleep(e) {
     if (!sleep) return;
@@ -2716,9 +2742,9 @@ const CONFIG = {"nws_gewicht": 0.25, "steden": [{"key": "NYC", "naam": "New York
     const s2 = sleep;
     sleep = null;
     s2.el.classList.remove("sleept");
-    s2.greep.removeEventListener("pointermove", beweegSleep);
-    s2.greep.removeEventListener("pointerup", stopSleep);
-    s2.greep.removeEventListener("pointercancel", stopSleep);
+    document.removeEventListener("pointermove", beweegSleep);
+    document.removeEventListener("pointerup", stopSleep);
+    document.removeEventListener("pointercancel", stopSleep);
     try { s2.greep.releasePointerCapture(s2.id); } catch (ex) {}
     bewaarVolgordeUitDom(s2.bak);
   }
@@ -2971,7 +2997,7 @@ const CONFIG = {"nws_gewicht": 0.25, "steden": [{"key": "NYC", "naam": "New York
     const compact = WEERGAVE === "lijst";
     const bak = compact ? lijstEl : grid;
     const bouw = compact ? bouwRij : bouwKaart;
-    grid.style.display = compact ? "none" : "grid";
+    grid.style.display = compact ? "none" : "block";
     lijstEl.style.display = compact ? "flex" : "none";
     if (compact) grid.innerHTML = ""; else lijstEl.innerHTML = "";
     bak.innerHTML = "";
