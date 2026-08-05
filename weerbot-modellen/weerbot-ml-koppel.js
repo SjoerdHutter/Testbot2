@@ -4,6 +4,11 @@
  * in de console, en pas dan eventueel ACTIEF op true zetten. */
 (function () {
   "use strict";
+  /* Weerbot 2 deelt de herkomst met de eerste versie; SLEUTEL geeft elke
+   * opslagnaam een eigen voorvoegsel zodat de twee apps elkaar niet overschrijven. */
+  function SLEUTEL(naam) {
+    return (window.WEERBOT2_OPSLAG ? window.WEERBOT2_OPSLAG(naam) : naam);
+  }
   var ACTIEF = false;   /* WEERBOT_ML_ACTIEF: pas omzetten na de schaduwfase */
   var KEYMAP = { NYC:"nyc", CHI:"chicago", MIA:"miami", LAX:"losangeles",
     SFO:"sanfrancisco", SEA:"seattle", DEN:"denver", DAL:"dallas", HOU:"houston",
@@ -30,7 +35,7 @@
 
   function haalAux() {
     try {
-      var c = JSON.parse(localStorage.getItem("weerbot-ml-aux-v1") || "null");
+      var c = JSON.parse(localStorage.getItem(SLEUTEL("weerbot-ml-aux-v1")) || "null");
       if (c && Date.now() - c.t < 6 * 3600 * 1000) { AUX = c.d; return Promise.resolve(); }
     } catch (e) {}
     var steden = (typeof CONFIG !== "undefined" && CONFIG.steden) || [];
@@ -57,7 +62,7 @@
         });
       }).catch(function () {});
     })).then(function () {
-      try { localStorage.setItem("weerbot-ml-aux-v1",
+      try { localStorage.setItem(SLEUTEL("weerbot-ml-aux-v1"),
         JSON.stringify({ t: Date.now(), d: AUX })); } catch (e) {}
     });
   }
@@ -94,7 +99,7 @@
   function rapport() {
     var actuals = {};
     try {
-      var V = JSON.parse(localStorage.getItem("weerbot-verificatie-v1") || "{}");
+      var V = JSON.parse(localStorage.getItem(SLEUTEL("weerbot-verificatie-v1")) || "{}");
       for (var k in V) {
         (V[k].rijen || []).forEach(function (r) {
           var dtm = r.datum || r.dag;

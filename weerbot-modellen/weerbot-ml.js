@@ -18,6 +18,11 @@
  */
 (function (wortel) {
   "use strict";
+  /* Weerbot 2 deelt de herkomst met de eerste versie; SLEUTEL geeft elke
+   * opslagnaam een eigen voorvoegsel zodat de twee apps elkaar niet overschrijven. */
+  function SLEUTEL(naam) {
+    return (window.WEERBOT2_OPSLAG ? window.WEERBOT2_OPSLAG(naam) : naam);
+  }
 
   const S = { modellen: null, klim: null };
 
@@ -169,7 +174,7 @@
 
     schaduw: function (stadKey, datumISO, oudC, nieuwC) {
       try {
-        const K = "weerbot-ml-schaduw-v1";
+        const K = SLEUTEL("weerbot-ml-schaduw-v1");
         const d = JSON.parse(localStorage.getItem(K) || "{}");
         d[stadKey] = d[stadKey] || {};
         d[stadKey][datumISO] = { oud: oudC, nieuw: nieuwC };
@@ -181,7 +186,7 @@
 
     schaduwRapport: function (actuals) {
       let d = {};
-      try { d = JSON.parse(localStorage.getItem("weerbot-ml-schaduw-v1") || "{}"); }
+      try { d = JSON.parse(localStorage.getItem(SLEUTEL("weerbot-ml-schaduw-v1")) || "{}"); }
       catch (e) {}
       const per = {}; let no = [], nn = [];
       Object.keys(d).forEach(function (stad) {

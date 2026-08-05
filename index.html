@@ -11,8 +11,9 @@
 <link rel="manifest" href="manifest.webmanifest">
 <link rel="apple-touch-icon" href="apple-touch-icon.png">
 <link rel="icon" type="image/png" href="icon-192.png">
-<title>Weerbot · maxtemperatuur</title>
+<title>Weerbot 2 · max- en mintemperatuur</title>
 <script src="app_params.js"></script>
+<script src="weerbot-modellen/polymarkt.js"></script>
 <style>
   :root {
     --bg:     #0B1118;
@@ -279,10 +280,10 @@
   @media (max-width: 370px) { .grid { grid-template-columns: 1fr; } }
 
   .kaart { background: var(--paneel); border: 1px solid var(--rand); border-radius: 14px; padding: 16px 16px 12px; }
-  .kaart-kop { display: flex; align-items: baseline; gap: 10px; margin-bottom: 14px; }
+  .kaart-kop { display: flex; align-items: baseline; flex-wrap: wrap; gap: 10px; row-gap: 7px; margin-bottom: 14px; }
   .stad-naam {
     font-size: 16px; font-weight: 650; letter-spacing: -0.01em;
-    flex: 1; min-width: 0; white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
+    flex: 1; min-width: 92px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
   }
   .klok { font-family: var(--mono); font-size: 12px; color: var(--dim); font-variant-numeric: tabular-nums; }
   .station-chip {
@@ -299,7 +300,7 @@
   .nieuw-chip { color: #57C48A; border: 1px solid rgba(87, 196, 138, 0.40); }
 
   /* ── Dagkolommen ── */
-  .dagen { display: grid; grid-template-columns: 1fr 1fr 1fr; gap: 8px; }
+  .dagen { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 8px; }
   .dag { background: var(--bg); border: 1px solid var(--rand); border-radius: 10px; padding: 10px 8px 9px; text-align: center; }
   .dag-label {
     font-family: var(--mono); font-size: 10px; text-transform: uppercase;
@@ -356,6 +357,135 @@
 
   .voet { margin-top: 26px; padding: 0 4px; font-family: var(--mono); font-size: 10.5px; line-height: 1.8; color: #5E6B82; }
 
+  /* ── Minimumtemperatuur ── */
+  .dag-min {
+    margin-top: 8px; padding-top: 7px; border-top: 1px dashed var(--rand);
+    font-family: var(--mono); font-variant-numeric: tabular-nums;
+  }
+  .dag-min-label {
+    display: block; font-size: 9px; letter-spacing: 0.12em;
+    text-transform: uppercase; color: #5E6B82; margin-bottom: 2px;
+  }
+  .dag-min-waarde { font-size: 17px; font-weight: 700; line-height: 1; }
+  .dag-min-waarde .eenh { font-size: 9px; font-weight: 600; vertical-align: 0.5em; margin-left: 1px; opacity: 0.7; }
+  .dag-min-band { margin-top: 4px; font-size: 9.5px; color: #5E6B82; }
+  .dag-min.enkel { margin-top: 0; padding-top: 0; border-top: none; }
+  .dag-min.enkel .dag-min-label { display: none; }
+  .dag-min.enkel .dag-min-waarde { font-size: 30px; letter-spacing: -0.02em; }
+  .dag-min.enkel .dag-min-waarde .eenh { font-size: 13px; vertical-align: 0.55em; opacity: 0.75; }
+  .dag-min.enkel .dag-min-band { font-size: 10px; color: var(--dim); margin-top: 6px; }
+  .rij-temp.min small { color: #5E6B82; }
+  .rij-temps.dubbel { flex-direction: column; align-items: flex-end; gap: 2px; }
+  .rij-temps.dubbel .rij-groep { display: flex; gap: 10px; }
+  .rij-groep-label {
+    font-family: var(--mono); font-size: 8.5px; letter-spacing: 0.10em;
+    text-transform: uppercase; color: #4A5468; align-self: center; width: 20px;
+  }
+  .ruw-chip {
+    font-family: var(--mono); font-size: 9px; font-weight: 700; letter-spacing: 0.06em;
+    color: #8792A6; border: 1px solid var(--rand); border-radius: 4px; padding: 1px 5px;
+    margin-left: 5px; vertical-align: 1px;
+  }
+
+  /* ── Favoriet en verbergen ── */
+  .kop-knop {
+    background: none; border: none; padding: 2px 3px; cursor: pointer; line-height: 1;
+    font-size: 14px; color: #3E4658; flex-shrink: 0;
+    -webkit-tap-highlight-color: transparent;
+  }
+  .kop-knop:hover { color: var(--dim); }
+  .kop-knop.aan { color: #E3B341; }
+  .kop-knop.verberg.aan { color: var(--accent); }
+  .verborgen-kaart { opacity: 0.55; }
+  .verborgen-chip {
+    font-family: var(--mono); font-size: 10px; font-weight: 600; letter-spacing: 0.08em;
+    color: #8792A6; border: 1px solid var(--rand); border-radius: 5px; padding: 2px 6px;
+  }
+  .leeg-tekst {
+    font-family: var(--mono); font-size: 11.5px; color: var(--dim);
+    line-height: 1.7; padding: 26px 6px; grid-column: 1 / -1;
+  }
+
+  /* ── Polymarket ── */
+  .markt-knop {
+    font-family: var(--mono); font-size: 10px; font-weight: 700; letter-spacing: 0.06em;
+    color: #7BD9A8; background: rgba(87, 196, 138, 0.10);
+    border: 1px solid rgba(87, 196, 138, 0.35); border-radius: 5px;
+    padding: 2px 7px; cursor: pointer; flex-shrink: 0;
+    -webkit-tap-highlight-color: transparent;
+  }
+  .markt-knop[disabled] { opacity: 0.4; cursor: default; }
+  .markt-laag {
+    position: fixed; inset: 0; z-index: 40; display: none;
+    background: rgba(4, 8, 13, 0.72); padding: 18px 12px;
+    padding-top: calc(18px + env(safe-area-inset-top, 0px));
+    overflow-y: auto; -webkit-overflow-scrolling: touch;
+  }
+  .markt-laag.zichtbaar { display: block; }
+  .markt-venster {
+    max-width: 620px; margin: 0 auto;
+    background: var(--paneel); border: 1px solid var(--rand);
+    border-radius: 14px; padding: 16px 16px 18px;
+  }
+  .markt-kop { display: flex; align-items: flex-start; gap: 10px; margin-bottom: 4px; }
+  .markt-titel { flex: 1; min-width: 0; font-size: 15px; font-weight: 650; }
+  .markt-sluit {
+    background: none; border: none; color: var(--dim); font-size: 20px;
+    line-height: 1; cursor: pointer; padding: 0 2px;
+    -webkit-tap-highlight-color: transparent;
+  }
+  .markt-sub { font-family: var(--mono); font-size: 10.5px; color: var(--dim); line-height: 1.6; }
+  .markt-tabs { display: flex; gap: 6px; margin: 12px 0 4px; flex-wrap: wrap; }
+  .markt-cijfers {
+    display: grid; grid-template-columns: repeat(auto-fit, minmax(112px, 1fr));
+    gap: 8px; margin: 12px 0 4px;
+  }
+  .markt-cijfer { background: var(--bg); border: 1px solid var(--rand); border-radius: 9px; padding: 9px 10px; }
+  .markt-cijfer-label {
+    font-family: var(--mono); font-size: 9px; letter-spacing: 0.10em;
+    text-transform: uppercase; color: #5E6B82;
+  }
+  .markt-cijfer-waarde {
+    font-family: var(--mono); font-size: 16px; font-weight: 700; margin-top: 3px;
+    font-variant-numeric: tabular-nums; letter-spacing: -0.01em;
+  }
+  .markt-cijfer-noot { font-family: var(--mono); font-size: 9.5px; color: #5E6B82; margin-top: 2px; }
+  .markt-kop2 {
+    font-family: var(--mono); font-size: 10px; letter-spacing: 0.12em;
+    text-transform: uppercase; color: var(--dim); margin: 16px 0 6px;
+  }
+  .markt-tabel { width: 100%; border-collapse: collapse; font-variant-numeric: tabular-nums; }
+  .markt-tabel th {
+    font-family: var(--mono); font-size: 9px; letter-spacing: 0.08em; text-transform: uppercase;
+    color: #5E6B82; font-weight: 400; text-align: right; padding: 0 0 5px 8px;
+  }
+  .markt-tabel th:first-child, .markt-tabel td:first-child { text-align: left; padding-left: 0; }
+  .markt-tabel td {
+    font-family: var(--mono); font-size: 11.5px; text-align: right;
+    padding: 5px 0 5px 8px; border-top: 1px solid rgba(31, 42, 56, 0.7);
+  }
+  .markt-tabel tr.piek td { color: var(--inkt); }
+  .markt-tabel tr.onsx td:first-child::after {
+    content: " ◂ onze"; font-size: 9px; color: var(--accent); letter-spacing: 0.06em;
+  }
+  .markt-balk {
+    display: block; position: relative; width: 100%; min-width: 56px; height: 10px;
+    background: var(--bg); border-radius: 3px; overflow: hidden;
+  }
+  .markt-balk i { position: absolute; left: 0; height: 4px; display: block; border-radius: 2px; }
+  .markt-balk i.markt { top: 1px; background: rgba(111, 179, 255, 0.75); }
+  .markt-balk i.ons { bottom: 1px; background: rgba(87, 196, 138, 0.7); }
+  .markt-cel-balk { width: 34%; padding-left: 10px !important; }
+  .markt-legenda { font-family: var(--mono); font-size: 9.5px; color: #5E6B82; margin-top: 7px; line-height: 1.7; }
+  .markt-legenda b { font-weight: 400; }
+  .markt-legenda .lm { color: rgba(111, 179, 255, 0.9); }
+  .markt-legenda .lo { color: rgba(87, 196, 138, 0.9); }
+  .markt-edge-pos { color: #57C48A; }
+  .markt-edge-neg { color: #E06C5B; }
+  .markt-melding { font-family: var(--mono); font-size: 11px; color: var(--dim); line-height: 1.7; padding: 14px 2px; }
+  .markt-voet { font-family: var(--mono); font-size: 9.5px; color: #4A5468; margin-top: 14px; line-height: 1.7; }
+  .markt-link { color: var(--accent); text-decoration: none; }
+
   @media (prefers-reduced-motion: no-preference) {
     .kaart { transition: border-color 0.15s; }
     .kaart:hover { border-color: #2B3A4E; }
@@ -369,7 +499,7 @@
 
   <div class="kop">
     <div class="kop-links">
-      <div class="kop-titel">Weer<span>bot</span> · maxtemp briefing</div>
+      <div class="kop-titel">Weer<span>bot 2</span> · temperatuurbriefing</div>
       <div class="kop-sub" id="kopSub">gegevens ophalen…</div>
     </div>
     <button class="toevoeg-knop" id="toevoegKnop">+ stad</button>
@@ -389,6 +519,7 @@
     <button class="chip-knop" data-modus="standaard">standaard</button>
     <button class="chip-knop" data-modus="nauwkeurig">nauwkeurig</button>
     <button class="chip-knop" data-modus="warmst">warmst</button>
+    <button class="chip-knop" data-modus="koudst">koudst</button>
     <button class="chip-knop" data-modus="naam">naam</button>
     <button class="chip-knop" data-modus="eigen">eigen</button>
     <span class="balk-scheiding" id="balkScheiding"></span>
@@ -398,6 +529,14 @@
     <span class="balk-scheiding"></span>
     <button class="chip-knop" data-weergave="kaarten">kaarten</button>
     <button class="chip-knop" data-weergave="lijst">lijst</button>
+    <span class="balk-scheiding"></span>
+    <span class="balk-label">toon</span>
+    <button class="chip-knop" data-toon="alles">alles</button>
+    <button class="chip-knop" data-toon="max">alleen max</button>
+    <button class="chip-knop" data-toon="min">alleen min</button>
+    <span class="balk-scheiding"></span>
+    <button class="chip-knop" id="favKnop" title="alleen favorieten tonen">&#9733; favorieten</button>
+    <button class="chip-knop" id="verborgKnop" title="verborgen steden tonen">verborgen</button>
     <input class="filter-invoer" id="filterInvoer" type="text" placeholder="filter op naam" autocomplete="off">
     <div class="balk-hint" id="balkHint"></div>
   </div>
@@ -419,8 +558,12 @@
 
 </div>
 
+<div class="markt-laag" id="marktLaag">
+  <div class="markt-venster" id="marktVenster"></div>
+</div>
+
 <script>
-const CONFIG = {"nws_gewicht": 0.25, "steden": [{"key": "NYC", "naam": "New York", "station": "LGA", "lat": 40.7794, "lon": -73.8803, "tz": "America/New_York", "eenheid": "°F", "bron": "iem", "nws_url": "https://api.weather.gov/gridpoints/OKX/37,46/forecast"}, {"key": "CHI", "naam": "Chicago", "station": "ORD", "lat": 41.9602, "lon": -87.9316, "tz": "America/Chicago", "eenheid": "°F", "bron": "iem", "nws_url": "https://api.weather.gov/gridpoints/LOT/65,76/forecast"}, {"key": "MIA", "naam": "Miami", "station": "MIA", "lat": 25.788, "lon": -80.3169, "tz": "America/New_York", "eenheid": "°F", "bron": "iem", "nws_url": "https://api.weather.gov/gridpoints/MFL/105,51/forecast"}, {"key": "LAX", "naam": "Los Angeles", "station": "LAX", "lat": 33.9382, "lon": -118.3865, "tz": "America/Los_Angeles", "eenheid": "°F", "bron": "iem", "nws_url": "https://api.weather.gov/gridpoints/LOX/149,41/forecast"}, {"key": "SFO", "naam": "San Francisco", "station": "SFO", "lat": 37.619, "lon": -122.3749, "tz": "America/Los_Angeles", "eenheid": "°F", "bron": "iem", "nws_url": "https://api.weather.gov/gridpoints/MTR/85,98/forecast"}, {"key": "SEA", "naam": "Seattle", "station": "SEA", "lat": 47.4447, "lon": -122.3144, "tz": "America/Los_Angeles", "eenheid": "°F", "bron": "iem", "nws_url": "https://api.weather.gov/gridpoints/SEW/124,60/forecast"}, {"key": "DEN", "naam": "Denver", "station": "BKF", "lat": 39.7017, "lon": -104.7517, "tz": "America/Denver", "eenheid": "°F", "bron": "iem", "nws_url": "https://api.weather.gov/gridpoints/BOU/71,59/forecast"}, {"key": "DAL", "naam": "Dallas", "station": "DAL", "lat": 32.8471, "lon": -96.8518, "tz": "America/Chicago", "eenheid": "°F", "bron": "iem", "nws_url": "https://api.weather.gov/gridpoints/FWD/87,107/forecast"}, {"key": "HOU", "naam": "Houston", "station": "HOU", "lat": 29.6375, "lon": -95.2824, "tz": "America/Chicago", "eenheid": "°F", "bron": "iem", "nws_url": "https://api.weather.gov/gridpoints/HGX/66,89/forecast"}, {"key": "AUS", "naam": "Austin", "station": "AUS", "lat": 30.183, "lon": -97.6799, "tz": "America/Chicago", "eenheid": "°F", "bron": "iem", "nws_url": "https://api.weather.gov/gridpoints/EWX/158,87/forecast"}, {"key": "ATL", "naam": "Atlanta", "station": "ATL", "lat": 33.6301, "lon": -84.4418, "tz": "America/New_York", "eenheid": "°F", "bron": "iem", "nws_url": "https://api.weather.gov/gridpoints/FFC/49,81/forecast"}, {"key": "LON", "naam": "Londen", "station": "EGLC", "lat": 51.5053, "lon": 0.0553, "tz": "Europe/London", "eenheid": "°C", "bron": "iem"}, {"key": "PAR", "naam": "Parijs", "station": "LFPB", "lat": 48.9672, "lon": 2.4272, "tz": "Europe/Paris", "eenheid": "°C", "bron": "iem"}, {"key": "AMS", "naam": "Amsterdam", "station": "EHAM", "lat": 52.3154, "lon": 4.7902, "tz": "Europe/Amsterdam", "eenheid": "°C", "bron": "iem"}, {"key": "MAD", "naam": "Madrid", "station": "LEMD", "lat": 40.4667, "lon": -3.5556, "tz": "Europe/Madrid", "eenheid": "°C", "bron": "iem"}, {"key": "MIL", "naam": "Milaan", "station": "LIMC", "lat": 45.63, "lon": 8.7231, "tz": "Europe/Rome", "eenheid": "°C", "bron": "iem"}, {"key": "MUC", "naam": "München", "station": "EDDM", "lat": 48.3583, "lon": 11.8092, "tz": "Europe/Berlin", "eenheid": "°C", "bron": "iem"}, {"key": "WAW", "naam": "Warschau", "station": "EPWA", "lat": 52.1628, "lon": 20.9611, "tz": "Europe/Warsaw", "eenheid": "°C", "bron": "iem"}, {"key": "HEL", "naam": "Helsinki", "station": "EFHK", "lat": 60.3172, "lon": 24.9633, "tz": "Europe/Helsinki", "eenheid": "°C", "bron": "iem"}, {"key": "ANK", "naam": "Ankara", "station": "LTAC", "lat": 40.1281, "lon": 32.9951, "tz": "Europe/Istanbul", "eenheid": "°C", "bron": "iem"}, {"key": "IST", "naam": "Istanbul", "station": "LTFM", "lat": 41.2629, "lon": 28.7413, "tz": "Europe/Istanbul", "eenheid": "°C", "bron": "iem"}, {"key": "MOW", "naam": "Moskou", "station": "UUWW", "lat": 55.5915, "lon": 37.2615, "tz": "Europe/Moscow", "eenheid": "°C", "bron": "iem"}, {"key": "TYO", "naam": "Tokio", "station": "RJTT", "lat": 35.5533, "lon": 139.7811, "tz": "Asia/Tokyo", "eenheid": "°C", "bron": "iem"}, {"key": "SEL", "naam": "Seoul", "station": "RKSI", "lat": 37.4667, "lon": 126.45, "tz": "Asia/Seoul", "eenheid": "°C", "bron": "iem"}, {"key": "PUS", "naam": "Busan", "station": "RKPK", "lat": 35.1795, "lon": 128.9382, "tz": "Asia/Seoul", "eenheid": "°C", "bron": "iem"}, {"key": "TPE", "naam": "Taipei", "station": "RCSS", "lat": 25.0694, "lon": 121.5517, "tz": "Asia/Taipei", "eenheid": "°C", "bron": "iem"}, {"key": "PEK", "naam": "Peking", "station": "ZBAA", "lat": 40.0741, "lon": 116.587, "tz": "Asia/Shanghai", "eenheid": "°C", "bron": "iem"}, {"key": "SHA", "naam": "Shanghai", "station": "ZSPD", "lat": 31.1167, "lon": 121.7667, "tz": "Asia/Shanghai", "eenheid": "°C", "bron": "iem"}, {"key": "CAN", "naam": "Guangzhou", "station": "ZGGG", "lat": 23.3964, "lon": 113.3008, "tz": "Asia/Shanghai", "eenheid": "°C", "bron": "iem"}, {"key": "SZX", "naam": "Shenzhen", "station": "ZGSZ", "lat": 22.55, "lon": 114.1, "tz": "Asia/Shanghai", "eenheid": "°C", "bron": "iem"}, {"key": "CTU", "naam": "Chengdu", "station": "ZUUU", "lat": 30.6667, "lon": 104.0167, "tz": "Asia/Shanghai", "eenheid": "°C", "bron": "iem"}, {"key": "CKG", "naam": "Chongqing", "station": "ZUCK", "lat": 29.52, "lon": 106.48, "tz": "Asia/Shanghai", "eenheid": "°C", "bron": "iem"}, {"key": "WUH", "naam": "Wuhan", "station": "ZHHH", "lat": 30.62, "lon": 114.13, "tz": "Asia/Shanghai", "eenheid": "°C", "bron": "iem"}, {"key": "TAO", "naam": "Qingdao", "station": "ZSQD", "lat": 36.0667, "lon": 120.3333, "tz": "Asia/Shanghai", "eenheid": "°C", "bron": "iem"}, {"key": "TNA", "naam": "Jinan", "station": "ZSJN", "lat": 36.8555, "lon": 117.206, "tz": "Asia/Shanghai", "eenheid": "°C", "bron": "era5"}, {"key": "CGO", "naam": "Zhengzhou", "station": "ZHCC", "lat": 34.7167, "lon": 113.65, "tz": "Asia/Shanghai", "eenheid": "°C", "bron": "iem"}, {"key": "HKG", "naam": "Hongkong", "station": "HKO", "lat": 22.3094, "lon": 113.9219, "tz": "Asia/Hong_Kong", "eenheid": "°C", "bron": "hko"}, {"key": "MNL", "naam": "Manila", "station": "RPLL", "lat": 14.5069, "lon": 121.0042, "tz": "Asia/Manila", "eenheid": "°C", "bron": "iem"}, {"key": "KUL", "naam": "Kuala Lumpur", "station": "WMKK", "lat": 2.7167, "lon": 101.7, "tz": "Asia/Kuala_Lumpur", "eenheid": "°C", "bron": "iem"}, {"key": "SIN", "naam": "Singapore", "station": "WSSS", "lat": 1.3667, "lon": 103.9833, "tz": "Asia/Singapore", "eenheid": "°C", "bron": "iem"}, {"key": "KHI", "naam": "Karachi", "station": "OPKC", "lat": 24.8456, "lon": 67.1614, "tz": "Asia/Karachi", "eenheid": "°C", "bron": "iem"}, {"key": "LKO", "naam": "Lucknow", "station": "VILK", "lat": 26.7606, "lon": 80.8893, "tz": "Asia/Kolkata", "eenheid": "°C", "bron": "iem"}, {"key": "JED", "naam": "Jeddah", "station": "OEJN", "lat": 21.6598, "lon": 39.1222, "tz": "Asia/Riyadh", "eenheid": "°C", "bron": "iem"}, {"key": "TLV", "naam": "Tel Aviv", "station": "LLBG", "lat": 32.0114, "lon": 34.8867, "tz": "Asia/Jerusalem", "eenheid": "°C", "bron": "iem"}, {"key": "TOR", "naam": "Toronto", "station": "CYYZ", "lat": 43.6772, "lon": -79.6306, "tz": "America/Toronto", "eenheid": "°C", "bron": "iem"}, {"key": "MEX", "naam": "Mexico-Stad", "station": "MMMX", "lat": 19.4363, "lon": -99.0721, "tz": "America/Mexico_City", "eenheid": "°C", "bron": "iem"}, {"key": "PTY", "naam": "Panama-Stad", "station": "MPMG", "lat": 8.9833, "lon": -79.5167, "tz": "America/Panama", "eenheid": "°C", "bron": "iem"}, {"key": "BUE", "naam": "Buenos Aires", "station": "SAEZ", "lat": -34.8222, "lon": -58.5358, "tz": "America/Argentina/Buenos_Aires", "eenheid": "°C", "bron": "iem"}, {"key": "SAO", "naam": "São Paulo", "station": "SBGR", "lat": -23.4321, "lon": -46.4695, "tz": "America/Sao_Paulo", "eenheid": "°C", "bron": "iem"}, {"key": "CPT", "naam": "Kaapstad", "station": "FACT", "lat": -33.9667, "lon": 18.6, "tz": "Africa/Johannesburg", "eenheid": "°C", "bron": "iem"}, {"key": "WLG", "naam": "Wellington", "station": "NZWN", "lat": -41.3272, "lon": 174.8053, "tz": "Pacific/Auckland", "eenheid": "°C", "bron": "iem"}], "params": {"gegenereerd": "2026-07-27", "halfwaarde_dagen": 14.0, "band_factor": 1.1, "band_factor_s": 1.1, "modellen": ["ecmwf_ifs025", "ecmwf_aifs025", "gfs_seamless", "icon_seamless", "gem_seamless"], "steden": {"NYC": {"0": {"a": 2.208, "b": 0.979, "g": 0.119, "res_q10": -2.61, "res_q90": 2.38, "gewichten": {"ecmwf_ifs025": 0.218, "gfs_seamless": 0.371, "icon_seamless": 0.263, "gem_seamless": 0.148}, "mae_basis": 1.29, "mae_nieuw": 1.31, "crps_oud": 0.97, "crps": 0.99, "n_eval": 91, "n_totaal": 151, "sig_c": 1.506, "sig_d": 0.0, "qz10": -1.792, "qz90": 1.639, "s_gem": 1.24, "dekking": 0.829}, "1": {"a": 3.896, "b": 0.955, "g": 0.171, "res_q10": -4.33, "res_q90": 3.39, "gewichten": {"ecmwf_ifs025": 0.193, "gfs_seamless": 0.162, "icon_seamless": 0.395, "gem_seamless": 0.25}, "mae_basis": 1.77, "mae_nieuw": 1.77, "crps_oud": 1.3, "crps": 1.32, "n_eval": 91, "n_totaal": 151, "sig_c": 1.991, "sig_d": 0.014, "qz10": -2.151, "qz90": 1.858, "s_gem": 1.79, "dekking": 0.78}, "2": {"a": 5.03, "b": 0.939, "g": 0.098, "res_q10": -4.46, "res_q90": 3.51, "gewichten": {"ecmwf_ifs025": 0.201, "gfs_seamless": 0.216, "icon_seamless": 0.295, "gem_seamless": 0.287}, "mae_basis": 1.97, "mae_nieuw": 1.96, "crps_oud": 1.48, "crps": 1.46, "n_eval": 91, "n_totaal": 151, "sig_c": 2.032, "sig_d": 0.0, "qz10": -2.352, "qz90": 1.818, "s_gem": 1.95, "dekking": 0.805}, "bron": "iem", "station": "LGA"}, "CHI": {"0": {"a": -1.057, "b": 1.017, "g": 0.0, "res_q10": -2.16, "res_q90": 1.84, "gewichten": {"ecmwf_ifs025": 0.2, "gfs_seamless": 0.472, "icon_seamless": 0.224, "gem_seamless": 0.104}, "mae_basis": 0.94, "mae_nieuw": 0.95, "crps_oud": 0.73, "crps": 0.74, "n_eval": 91, "n_totaal": 151, "sig_c": 0.91, "sig_d": 0.0, "qz10": -2.4, "qz90": 1.77, "s_gem": 1.81, "dekking": 0.805}, "1": {"a": 1.655, "b": 0.975, "g": 0.0, "res_q10": -4.42, "res_q90": 2.7, "gewichten": {"ecmwf_ifs025": 0.257, "gfs_seamless": 0.285, "icon_seamless": 0.318, "gem_seamless": 0.141}, "mae_basis": 1.51, "mae_nieuw": 1.51, "crps_oud": 1.15, "crps": 1.14, "n_eval": 91, "n_totaal": 151, "sig_c": 1.175, "sig_d": 0.286, "qz10": -2.968, "qz90": 2.217, "s_gem": 2.1, "dekking": 0.707}, "2": {"a": 1.452, "b": 0.982, "g": 0.04, "res_q10": -4.19, "res_q90": 3.0, "gewichten": {"ecmwf_ifs025": 0.209, "gfs_seamless": 0.175, "icon_seamless": 0.309, "gem_seamless": 0.307}, "mae_basis": 1.94, "mae_nieuw": 1.95, "crps_oud": 1.46, "crps": 1.37, "n_eval": 91, "n_totaal": 151, "sig_c": 1.154, "sig_d": 0.493, "qz10": -2.065, "qz90": 1.426, "s_gem": 1.78, "dekking": 0.78}, "bron": "iem", "station": "ORD"}, "MIA": {"0": {"a": 8.371, "b": 0.925, "g": 0.042, "res_q10": -1.43, "res_q90": 1.38, "gewichten": {"ecmwf_ifs025": 0.097, "gfs_seamless": 0.379, "icon_seamless": 0.314, "gem_seamless": 0.21}, "mae_basis": 1.12, "mae_nieuw": 1.13, "crps_oud": 0.8, "crps": 0.76, "n_eval": 91, "n_totaal": 151, "sig_c": 0.905, "sig_d": 0.067, "qz10": -1.563, "qz90": 1.431, "s_gem": 1.33, "dekking": 0.829}, "1": {"a": 8.142, "b": 0.928, "g": 0.086, "res_q10": -2.45, "res_q90": 1.41, "gewichten": {"ecmwf_ifs025": 0.084, "gfs_seamless": 0.221, "icon_seamless": 0.369, "gem_seamless": 0.326}, "mae_basis": 1.32, "mae_nieuw": 1.32, "crps_oud": 0.97, "crps": 0.94, "n_eval": 91, "n_totaal": 151, "sig_c": 0.897, "sig_d": 0.192, "qz10": -1.641, "qz90": 1.085, "s_gem": 1.39, "dekking": 0.829}, "2": {"a": 7.871, "b": 0.924, "g": 0.003, "res_q10": -2.68, "res_q90": 1.26, "gewichten": {"ecmwf_ifs025": 0.043, "gfs_seamless": 0.476, "icon_seamless": 0.235, "gem_seamless": 0.246}, "mae_basis": 1.28, "mae_nieuw": 1.28, "crps_oud": 0.93, "crps": 0.87, "n_eval": 91, "n_totaal": 151, "sig_c": 0.735, "sig_d": 0.201, "qz10": -2.169, "qz90": 1.166, "s_gem": 1.82, "dekking": 0.805}, "bron": "iem", "station": "MIA"}, "LAX": {"0": {"a": 4.366, "b": 0.931, "g": 0.0, "res_q10": -1.76, "res_q90": 1.65, "gewichten": {"ecmwf_ifs025": 0.018, "gfs_seamless": 0.758, "icon_seamless": 0.109, "gem_seamless": 0.115}, "mae_basis": 1.04, "mae_nieuw": 1.05, "crps_oud": 0.76, "crps": 0.75, "n_eval": 91, "n_totaal": 151, "sig_c": 1.101, "sig_d": 0.0, "qz10": -1.542, "qz90": 1.47, "s_gem": 3.5, "dekking": 0.756}, "1": {"a": 13.024, "b": 0.805, "g": 0.017, "res_q10": -3.23, "res_q90": 2.57, "gewichten": {"ecmwf_ifs025": 0.051, "gfs_seamless": 0.446, "icon_seamless": 0.298, "gem_seamless": 0.204}, "mae_basis": 1.56, "mae_nieuw": 1.54, "crps_oud": 1.14, "crps": 1.14, "n_eval": 91, "n_totaal": 151, "sig_c": 1.937, "sig_d": 0.0, "qz10": -2.042, "qz90": 1.648, "s_gem": 3.74, "dekking": 0.756}, "2": {"a": 12.257, "b": 0.809, "g": 0.053, "res_q10": -3.72, "res_q90": 2.13, "gewichten": {"ecmwf_ifs025": 0.048, "gfs_seamless": 0.517, "icon_seamless": 0.252, "gem_seamless": 0.184}, "mae_basis": 1.73, "mae_nieuw": 1.72, "crps_oud": 1.31, "crps": 1.31, "n_eval": 91, "n_totaal": 151, "sig_c": 1.084, "sig_d": 0.225, "qz10": -2.024, "qz90": 1.419, "s_gem": 3.39, "dekking": 0.805}, "bron": "iem", "station": "LAX"}, "SFO": {"0": {"a": 1.174, "b": 0.982, "g": 0.0, "res_q10": -3.43, "res_q90": 2.35, "gewichten": {"ecmwf_ifs025": 0.248, "gfs_seamless": 0.298, "icon_seamless": 0.327, "gem_seamless": 0.127}, "mae_basis": 1.54, "mae_nieuw": 1.55, "crps_oud": 1.17, "crps": 1.19, "n_eval": 91, "n_totaal": 151, "sig_c": 0.1, "sig_d": 0.853, "qz10": -2.199, "qz90": 1.66, "s_gem": 2.37, "dekking": 0.951}, "1": {"a": -1.027, "b": 1.018, "g": 0.0, "res_q10": -2.81, "res_q90": 3.58, "gewichten": {"ecmwf_ifs025": 0.368, "gfs_seamless": 0.122, "icon_seamless": 0.345, "gem_seamless": 0.166}, "mae_basis": 2.12, "mae_nieuw": 2.12, "crps_oud": 1.61, "crps": 1.66, "n_eval": 91, "n_totaal": 151, "sig_c": 0.1, "sig_d": 0.86, "qz10": -1.583, "qz90": 2.086, "s_gem": 2.72, "dekking": 0.805}, "2": {"a": -0.509, "b": 0.996, "g": 0.0, "res_q10": -3.66, "res_q90": 3.3, "gewichten": {"ecmwf_ifs025": 0.376, "gfs_seamless": 0.07, "icon_seamless": 0.381, "gem_seamless": 0.173}, "mae_basis": 2.48, "mae_nieuw": 2.47, "crps_oud": 1.84, "crps": 1.88, "n_eval": 91, "n_totaal": 151, "sig_c": 0.838, "sig_d": 0.4, "qz10": -1.326, "qz90": 1.657, "s_gem": 4.3, "dekking": 0.854}, "bron": "iem", "station": "SFO"}, "SEA": {"0": {"a": 0.236, "b": 1.01, "g": 0.0, "res_q10": -3.26, "res_q90": 1.72, "gewichten": {"ecmwf_ifs025": 0.143, "gfs_seamless": 0.43, "icon_seamless": 0.066, "gem_seamless": 0.361}, "mae_basis": 1.09, "mae_nieuw": 1.09, "crps_oud": 0.81, "crps": 0.81, "n_eval": 91, "n_totaal": 151, "sig_c": 0.893, "sig_d": 0.142, "qz10": -3.454, "qz90": 1.548, "s_gem": 1.79, "dekking": 0.732}, "1": {"a": -1.479, "b": 1.031, "g": 0.0, "res_q10": -4.95, "res_q90": 3.2, "gewichten": {"ecmwf_ifs025": 0.252, "gfs_seamless": 0.257, "icon_seamless": 0.156, "gem_seamless": 0.335}, "mae_basis": 2.12, "mae_nieuw": 2.13, "crps_oud": 1.59, "crps": 1.53, "n_eval": 91, "n_totaal": 151, "sig_c": 1.253, "sig_d": 0.382, "qz10": -2.417, "qz90": 1.491, "s_gem": 2.35, "dekking": 0.707}, "2": {"a": -1.051, "b": 1.03, "g": 0.0, "res_q10": -6.13, "res_q90": 4.52, "gewichten": {"ecmwf_ifs025": 0.34, "gfs_seamless": 0.282, "icon_seamless": 0.197, "gem_seamless": 0.182}, "mae_basis": 2.47, "mae_nieuw": 2.46, "crps_oud": 1.88, "crps": 1.82, "n_eval": 91, "n_totaal": 151, "sig_c": 2.477, "sig_d": 0.05, "qz10": -2.631, "qz90": 1.898, "s_gem": 3.21, "dekking": 0.707}, "bron": "iem", "station": "SEA"}, "DEN": {"0": {"a": 1.403, "b": 1.001, "g": 0.0, "res_q10": -1.75, "res_q90": 1.22, "gewichten": {"ecmwf_ifs025": 0.234, "gfs_seamless": 0.36, "icon_seamless": 0.271, "gem_seamless": 0.134}, "mae_basis": 0.94, "mae_nieuw": 0.95, "crps_oud": 0.7, "crps": 0.66, "n_eval": 90, "n_totaal": 150, "sig_c": 0.41, "sig_d": 0.36, "qz10": -1.672, "qz90": 1.883, "s_gem": 0.95, "dekking": 0.8}, "1": {"a": -1.165, "b": 1.03, "g": 0.0, "res_q10": -2.28, "res_q90": 2.23, "gewichten": {"ecmwf_ifs025": 0.298, "gfs_seamless": 0.257, "icon_seamless": 0.312, "gem_seamless": 0.132}, "mae_basis": 1.66, "mae_nieuw": 1.67, "crps_oud": 1.21, "crps": 1.17, "n_eval": 90, "n_totaal": 150, "sig_c": 0.722, "sig_d": 0.434, "qz10": -1.187, "qz90": 1.496, "s_gem": 1.38, "dekking": 0.8}, "2": {"a": -0.362, "b": 1.017, "g": 0.0, "res_q10": -3.01, "res_q90": 2.38, "gewichten": {"ecmwf_ifs025": 0.22, "gfs_seamless": 0.379, "icon_seamless": 0.258, "gem_seamless": 0.142}, "mae_basis": 1.92, "mae_nieuw": 1.91, "crps_oud": 1.4, "crps": 1.42, "n_eval": 90, "n_totaal": 150, "sig_c": 0.981, "sig_d": 0.234, "qz10": -1.225, "qz90": 1.548, "s_gem": 2.15, "dekking": 0.8}, "bron": "iem", "station": "BKF"}, "DAL": {"0": {"a": 3.071, "b": 0.985, "g": 0.19, "res_q10": -3.0, "res_q90": 2.82, "gewichten": {"ecmwf_ifs025": 0.119, "gfs_seamless": 0.475, "icon_seamless": 0.223, "gem_seamless": 0.183}, "mae_basis": 1.24, "mae_nieuw": 1.22, "crps_oud": 0.93, "crps": 0.9, "n_eval": 91, "n_totaal": 151, "sig_c": 1.275, "sig_d": 0.082, "qz10": -2.647, "qz90": 2.446, "s_gem": 1.13, "dekking": 0.732}, "1": {"a": 9.244, "b": 0.92, "g": 0.124, "res_q10": -3.94, "res_q90": 3.91, "gewichten": {"ecmwf_ifs025": 0.174, "gfs_seamless": 0.327, "icon_seamless": 0.256, "gem_seamless": 0.243}, "mae_basis": 1.98, "mae_nieuw": 1.97, "crps_oud": 1.53, "crps": 1.57, "n_eval": 91, "n_totaal": 151, "sig_c": 0.623, "sig_d": 0.934, "qz10": -2.012, "qz90": 2.31, "s_gem": 1.54, "dekking": 0.756}, "2": {"a": 9.46, "b": 0.91, "g": 0.074, "res_q10": -4.1, "res_q90": 3.96, "gewichten": {"ecmwf_ifs025": 0.19, "gfs_seamless": 0.293, "icon_seamless": 0.304, "gem_seamless": 0.213}, "mae_basis": 2.3, "mae_nieuw": 2.28, "crps_oud": 1.73, "crps": 1.69, "n_eval": 91, "n_totaal": 151, "sig_c": 0.1, "sig_d": 1.103, "qz10": -1.781, "qz90": 1.477, "s_gem": 1.98, "dekking": 0.829}, "bron": "iem", "station": "DAL"}, "HOU": {"0": {"a": 1.572, "b": 0.996, "g": 0.117, "res_q10": -2.11, "res_q90": 1.73, "gewichten": {"ecmwf_ifs025": 0.107, "gfs_seamless": 0.444, "icon_seamless": 0.257, "gem_seamless": 0.192}, "mae_basis": 1.05, "mae_nieuw": 1.03, "crps_oud": 0.74, "crps": 0.77, "n_eval": 91, "n_totaal": 151, "sig_c": 1.008, "sig_d": 0.165, "qz10": -2.033, "qz90": 1.555, "s_gem": 1.3, "dekking": 0.78}, "1": {"a": 0.748, "b": 1.007, "g": 0.001, "res_q10": -2.83, "res_q90": 2.71, "gewichten": {"ecmwf_ifs025": 0.153, "gfs_seamless": 0.227, "icon_seamless": 0.384, "gem_seamless": 0.236}, "mae_basis": 1.68, "mae_nieuw": 1.7, "crps_oud": 1.26, "crps": 1.23, "n_eval": 91, "n_totaal": 151, "sig_c": 1.604, "sig_d": 0.016, "qz10": -1.882, "qz90": 2.219, "s_gem": 1.73, "dekking": 0.78}, "2": {"a": -0.433, "b": 1.02, "g": 0.049, "res_q10": -3.37, "res_q90": 3.09, "gewichten": {"ecmwf_ifs025": 0.16, "gfs_seamless": 0.238, "icon_seamless": 0.347, "gem_seamless": 0.254}, "mae_basis": 1.97, "mae_nieuw": 1.98, "crps_oud": 1.43, "crps": 1.44, "n_eval": 91, "n_totaal": 151, "sig_c": 0.637, "sig_d": 0.636, "qz10": -2.01, "qz90": 1.48, "s_gem": 1.87, "dekking": 0.829}, "bron": "iem", "station": "HOU"}, "AUS": {"0": {"a": 4.825, "b": 0.96, "g": 0.0, "res_q10": -1.8, "res_q90": 1.54, "gewichten": {"ecmwf_ifs025": 0.133, "gfs_seamless": 0.261, "icon_seamless": 0.209, "gem_seamless": 0.397}, "mae_basis": 1.03, "mae_nieuw": 1.02, "crps_oud": 0.73, "crps": 0.75, "n_eval": 91, "n_totaal": 151, "sig_c": 0.561, "sig_d": 0.387, "qz10": -1.595, "qz90": 1.426, "s_gem": 1.1, "dekking": 0.854}, "1": {"a": 2.821, "b": 0.977, "g": 0.0, "res_q10": -2.62, "res_q90": 2.24, "gewichten": {"ecmwf_ifs025": 0.216, "gfs_seamless": 0.284, "icon_seamless": 0.296, "gem_seamless": 0.204}, "mae_basis": 1.57, "mae_nieuw": 1.58, "crps_oud": 1.21, "crps": 1.22, "n_eval": 91, "n_totaal": 151, "sig_c": 0.907, "sig_d": 0.277, "qz10": -1.992, "qz90": 1.365, "s_gem": 1.43, "dekking": 0.854}, "2": {"a": 5.275, "b": 0.941, "g": 0.0, "res_q10": -2.04, "res_q90": 2.62, "gewichten": {"ecmwf_ifs025": 0.19, "gfs_seamless": 0.127, "icon_seamless": 0.405, "gem_seamless": 0.279}, "mae_basis": 1.95, "mae_nieuw": 1.98, "crps_oud": 1.5, "crps": 1.47, "n_eval": 91, "n_totaal": 151, "sig_c": 1.244, "sig_d": 0.159, "qz10": -1.201, "qz90": 1.615, "s_gem": 2.1, "dekking": 0.756}, "bron": "iem", "station": "AUS"}, "ATL": {"0": {"a": 0.567, "b": 1.029, "g": 0.005, "res_q10": -1.43, "res_q90": 1.94, "gewichten": {"ecmwf_ifs025": 0.132, "gfs_seamless": 0.433, "icon_seamless": 0.227, "gem_seamless": 0.208}, "mae_basis": 1.04, "mae_nieuw": 1.04, "crps_oud": 0.76, "crps": 0.73, "n_eval": 91, "n_totaal": 151, "sig_c": 0.956, "sig_d": 0.079, "qz10": -1.647, "qz90": 2.527, "s_gem": 1.26, "dekking": 0.78}, "1": {"a": 7.588, "b": 0.941, "g": 0.053, "res_q10": -2.89, "res_q90": 2.3, "gewichten": {"ecmwf_ifs025": 0.261, "gfs_seamless": 0.352, "icon_seamless": 0.255, "gem_seamless": 0.131}, "mae_basis": 1.99, "mae_nieuw": 1.99, "crps_oud": 1.44, "crps": 1.25, "n_eval": 91, "n_totaal": 151, "sig_c": 1.653, "sig_d": 0.0, "qz10": -1.729, "qz90": 1.417, "s_gem": 1.79, "dekking": 0.805}, "2": {"a": 10.603, "b": 0.902, "g": 0.0, "res_q10": -3.85, "res_q90": 2.62, "gewichten": {"ecmwf_ifs025": 0.266, "gfs_seamless": 0.319, "icon_seamless": 0.259, "gem_seamless": 0.156}, "mae_basis": 2.3, "mae_nieuw": 2.31, "crps_oud": 1.71, "crps": 1.55, "n_eval": 91, "n_totaal": 151, "sig_c": 1.156, "sig_d": 0.34, "qz10": -2.176, "qz90": 1.357, "s_gem": 2.37, "dekking": 0.829}, "bron": "iem", "station": "ATL"}, "LON": {"0": {"a": -0.308, "b": 1.003, "g": 0.115, "res_q10": -1.29, "res_q90": 0.94, "gewichten": {"ecmwf_ifs025": 0.246, "gfs_seamless": 0.129, "icon_seamless": 0.38, "gem_seamless": 0.245}, "mae_basis": 0.57, "mae_nieuw": 0.57, "crps_oud": 0.42, "crps": 0.41, "n_eval": 91, "n_totaal": 151, "sig_c": 0.305, "sig_d": 0.381, "qz10": -2.277, "qz90": 1.486, "s_gem": 0.59, "dekking": 0.805}, "1": {"a": -0.663, "b": 1.006, "g": 0.103, "res_q10": -1.63, "res_q90": 1.19, "gewichten": {"ecmwf_ifs025": 0.273, "gfs_seamless": 0.128, "icon_seamless": 0.369, "gem_seamless": 0.23}, "mae_basis": 0.88, "mae_nieuw": 0.88, "crps_oud": 0.66, "crps": 0.65, "n_eval": 91, "n_totaal": 151, "sig_c": 0.1, "sig_d": 1.064, "qz10": -2.157, "qz90": 1.463, "s_gem": 0.78, "dekking": 0.854}, "2": {"a": -0.313, "b": 0.99, "g": 0.041, "res_q10": -2.25, "res_q90": 1.54, "gewichten": {"ecmwf_ifs025": 0.206, "gfs_seamless": 0.122, "icon_seamless": 0.334, "gem_seamless": 0.339}, "mae_basis": 0.99, "mae_nieuw": 0.99, "crps_oud": 0.74, "crps": 0.75, "n_eval": 91, "n_totaal": 151, "sig_c": 0.1, "sig_d": 1.348, "qz10": -1.894, "qz90": 1.494, "s_gem": 0.86, "dekking": 0.805}, "bron": "iem", "station": "EGLC"}, "PAR": {"0": {"a": 0.31, "b": 0.995, "g": 0.001, "res_q10": -0.85, "res_q90": 0.61, "gewichten": {"ecmwf_ifs025": 0.117, "gfs_seamless": 0.12, "icon_seamless": 0.477, "gem_seamless": 0.285}, "mae_basis": 0.49, "mae_nieuw": 0.49, "crps_oud": 0.36, "crps": 0.35, "n_eval": 91, "n_totaal": 151, "sig_c": 0.297, "sig_d": 0.12, "qz10": -1.835, "qz90": 1.097, "s_gem": 0.9, "dekking": 0.854}, "1": {"a": 0.139, "b": 0.991, "g": 0.0, "res_q10": -1.39, "res_q90": 0.96, "gewichten": {"ecmwf_ifs025": 0.242, "gfs_seamless": 0.112, "icon_seamless": 0.342, "gem_seamless": 0.304}, "mae_basis": 0.69, "mae_nieuw": 0.69, "crps_oud": 0.51, "crps": 0.53, "n_eval": 91, "n_totaal": 151, "sig_c": 0.726, "sig_d": 0.012, "qz10": -1.796, "qz90": 1.365, "s_gem": 1.16, "dekking": 0.829}, "2": {"a": 0.051, "b": 0.991, "g": 0.0, "res_q10": -1.8, "res_q90": 0.88, "gewichten": {"ecmwf_ifs025": 0.31, "gfs_seamless": 0.097, "icon_seamless": 0.37, "gem_seamless": 0.223}, "mae_basis": 0.72, "mae_nieuw": 0.73, "crps_oud": 0.54, "crps": 0.53, "n_eval": 91, "n_totaal": 151, "sig_c": 0.24, "sig_d": 0.389, "qz10": -2.305, "qz90": 1.053, "s_gem": 1.27, "dekking": 0.805}, "bron": "iem", "station": "LFPB"}, "AMS": {"0": {"a": 0.996, "b": 0.949, "g": 0.251, "res_q10": -0.66, "res_q90": 0.99, "gewichten": {"ecmwf_ifs025": 0.303, "gfs_seamless": 0.1, "icon_seamless": 0.374, "gem_seamless": 0.222}, "mae_basis": 0.53, "mae_nieuw": 0.51, "crps_oud": 0.37, "crps": 0.39, "n_eval": 91, "n_totaal": 151, "sig_c": 0.463, "sig_d": 0.073, "qz10": -1.373, "qz90": 2.141, "s_gem": 0.67, "dekking": 0.878}, "1": {"a": 1.474, "b": 0.921, "g": 0.202, "res_q10": -1.57, "res_q90": 1.34, "gewichten": {"ecmwf_ifs025": 0.33, "gfs_seamless": 0.102, "icon_seamless": 0.32, "gem_seamless": 0.248}, "mae_basis": 0.83, "mae_nieuw": 0.8, "crps_oud": 0.6, "crps": 0.61, "n_eval": 91, "n_totaal": 151, "sig_c": 0.315, "sig_d": 0.674, "qz10": -1.811, "qz90": 2.272, "s_gem": 0.79, "dekking": 0.78}, "2": {"a": 1.774, "b": 0.903, "g": 0.201, "res_q10": -1.87, "res_q90": 1.53, "gewichten": {"ecmwf_ifs025": 0.323, "gfs_seamless": 0.131, "icon_seamless": 0.316, "gem_seamless": 0.231}, "mae_basis": 0.87, "mae_nieuw": 0.87, "crps_oud": 0.65, "crps": 0.67, "n_eval": 91, "n_totaal": 151, "sig_c": 0.394, "sig_d": 0.679, "qz10": -1.911, "qz90": 1.944, "s_gem": 0.8, "dekking": 0.805}, "bron": "iem", "station": "EHAM"}, "MAD": {"0": {"a": 0.112, "b": 1.011, "g": 0.043, "res_q10": -0.7, "res_q90": 0.41, "gewichten": {"ecmwf_ifs025": 0.279, "gfs_seamless": 0.237, "icon_seamless": 0.389, "gem_seamless": 0.094}, "mae_basis": 0.46, "mae_nieuw": 0.47, "crps_oud": 0.35, "crps": 0.29, "n_eval": 91, "n_totaal": 151, "sig_c": 0.238, "sig_d": 0.245, "qz10": -2.015, "qz90": 0.947, "s_gem": 0.49, "dekking": 0.805}, "1": {"a": -0.06, "b": 1.01, "g": 0.017, "res_q10": -1.16, "res_q90": 0.51, "gewichten": {"ecmwf_ifs025": 0.368, "gfs_seamless": 0.278, "icon_seamless": 0.272, "gem_seamless": 0.082}, "mae_basis": 0.54, "mae_nieuw": 0.53, "crps_oud": 0.4, "crps": 0.34, "n_eval": 91, "n_totaal": 151, "sig_c": 0.397, "sig_d": 0.038, "qz10": -2.363, "qz90": 1.108, "s_gem": 0.55, "dekking": 0.78}, "2": {"a": -0.17, "b": 1.007, "g": 0.02, "res_q10": -1.12, "res_q90": 0.62, "gewichten": {"ecmwf_ifs025": 0.424, "gfs_seamless": 0.194, "icon_seamless": 0.272, "gem_seamless": 0.11}, "mae_basis": 0.6, "mae_nieuw": 0.59, "crps_oud": 0.44, "crps": 0.41, "n_eval": 91, "n_totaal": 151, "sig_c": 0.532, "sig_d": 0.017, "qz10": -2.404, "qz90": 1.263, "s_gem": 0.74, "dekking": 0.805}, "bron": "iem", "station": "LEMD"}, "MIL": {"0": {"a": 0.917, "b": 0.966, "g": 0.059, "res_q10": -1.06, "res_q90": 0.81, "gewichten": {"ecmwf_ifs025": 0.187, "gfs_seamless": 0.092, "icon_seamless": 0.498, "gem_seamless": 0.223}, "mae_basis": 0.48, "mae_nieuw": 0.49, "crps_oud": 0.35, "crps": 0.37, "n_eval": 91, "n_totaal": 151, "sig_c": 0.454, "sig_d": 0.102, "qz10": -1.968, "qz90": 1.621, "s_gem": 0.83, "dekking": 0.829}, "1": {"a": 1.409, "b": 0.947, "g": 0.022, "res_q10": -1.17, "res_q90": 0.94, "gewichten": {"ecmwf_ifs025": 0.275, "gfs_seamless": 0.174, "icon_seamless": 0.443, "gem_seamless": 0.108}, "mae_basis": 0.67, "mae_nieuw": 0.67, "crps_oud": 0.48, "crps": 0.49, "n_eval": 91, "n_totaal": 151, "sig_c": 0.503, "sig_d": 0.113, "qz10": -1.968, "qz90": 1.335, "s_gem": 1.18, "dekking": 0.854}, "2": {"a": 2.048, "b": 0.935, "g": 0.0, "res_q10": -1.34, "res_q90": 1.29, "gewichten": {"ecmwf_ifs025": 0.317, "gfs_seamless": 0.194, "icon_seamless": 0.331, "gem_seamless": 0.158}, "mae_basis": 0.73, "mae_nieuw": 0.73, "crps_oud": 0.54, "crps": 0.57, "n_eval": 91, "n_totaal": 151, "sig_c": 0.631, "sig_d": 0.169, "qz10": -1.991, "qz90": 1.839, "s_gem": 1.22, "dekking": 0.78}, "bron": "iem", "station": "LIMC"}, "MUC": {"0": {"a": 0.525, "b": 1.003, "g": 0.016, "res_q10": -0.95, "res_q90": 0.65, "gewichten": {"ecmwf_ifs025": 0.072, "gfs_seamless": 0.066, "icon_seamless": 0.555, "gem_seamless": 0.307}, "mae_basis": 0.47, "mae_nieuw": 0.48, "crps_oud": 0.34, "crps": 0.36, "n_eval": 91, "n_totaal": 151, "sig_c": 0.462, "sig_d": 0.0, "qz10": -1.693, "qz90": 1.317, "s_gem": 0.92, "dekking": 0.902}, "1": {"a": 0.876, "b": 1.004, "g": 0.036, "res_q10": -1.23, "res_q90": 1.3, "gewichten": {"ecmwf_ifs025": 0.169, "gfs_seamless": 0.13, "icon_seamless": 0.554, "gem_seamless": 0.147}, "mae_basis": 0.74, "mae_nieuw": 0.75, "crps_oud": 0.58, "crps": 0.61, "n_eval": 91, "n_totaal": 151, "sig_c": 0.596, "sig_d": 0.119, "qz10": -1.511, "qz90": 1.784, "s_gem": 1.18, "dekking": 0.854}, "2": {"a": 1.608, "b": 0.991, "g": 0.088, "res_q10": -1.98, "res_q90": 2.34, "gewichten": {"ecmwf_ifs025": 0.209, "gfs_seamless": 0.205, "icon_seamless": 0.372, "gem_seamless": 0.215}, "mae_basis": 0.92, "mae_nieuw": 0.93, "crps_oud": 0.7, "crps": 0.72, "n_eval": 91, "n_totaal": 151, "sig_c": 1.102, "sig_d": 0.0, "qz10": -1.784, "qz90": 2.211, "s_gem": 1.06, "dekking": 0.805}, "bron": "iem", "station": "EDDM"}, "WAW": {"0": {"a": -0.152, "b": 0.993, "g": 0.148, "res_q10": -0.95, "res_q90": 0.47, "gewichten": {"ecmwf_ifs025": 0.349, "gfs_seamless": 0.218, "icon_seamless": 0.34, "gem_seamless": 0.093}, "mae_basis": 0.47, "mae_nieuw": 0.47, "crps_oud": 0.32, "crps": 0.34, "n_eval": 91, "n_totaal": 151, "sig_c": 0.371, "sig_d": 0.144, "qz10": -2.039, "qz90": 1.04, "s_gem": 0.69, "dekking": 0.878}, "1": {"a": -0.414, "b": 1.004, "g": 0.0, "res_q10": -1.11, "res_q90": 0.73, "gewichten": {"ecmwf_ifs025": 0.265, "gfs_seamless": 0.247, "icon_seamless": 0.362, "gem_seamless": 0.126}, "mae_basis": 0.68, "mae_nieuw": 0.69, "crps_oud": 0.51, "crps": 0.54, "n_eval": 91, "n_totaal": 151, "sig_c": 0.474, "sig_d": 0.147, "qz10": -1.799, "qz90": 1.155, "s_gem": 0.85, "dekking": 0.878}, "2": {"a": -0.561, "b": 1.01, "g": 0.0, "res_q10": -1.76, "res_q90": 1.06, "gewichten": {"ecmwf_ifs025": 0.337, "gfs_seamless": 0.247, "icon_seamless": 0.212, "gem_seamless": 0.204}, "mae_basis": 0.86, "mae_nieuw": 0.87, "crps_oud": 0.66, "crps": 0.7, "n_eval": 91, "n_totaal": 151, "sig_c": 0.772, "sig_d": 0.071, "qz10": -1.797, "qz90": 1.266, "s_gem": 0.91, "dekking": 0.78}, "bron": "iem", "station": "EPWA"}, "HEL": {"0": {"a": 0.423, "b": 0.986, "g": 0.0, "res_q10": -1.8, "res_q90": 1.22, "gewichten": {"ecmwf_ifs025": 0.176, "gfs_seamless": 0.147, "icon_seamless": 0.354, "gem_seamless": 0.322}, "mae_basis": 0.67, "mae_nieuw": 0.67, "crps_oud": 0.5, "crps": 0.5, "n_eval": 91, "n_totaal": 151, "sig_c": 0.33, "sig_d": 0.616, "qz10": -2.772, "qz90": 1.659, "s_gem": 0.63, "dekking": 0.756}, "1": {"a": 0.732, "b": 0.977, "g": 0.023, "res_q10": -2.01, "res_q90": 1.71, "gewichten": {"ecmwf_ifs025": 0.19, "gfs_seamless": 0.206, "icon_seamless": 0.363, "gem_seamless": 0.241}, "mae_basis": 0.99, "mae_nieuw": 1.0, "crps_oud": 0.74, "crps": 0.74, "n_eval": 91, "n_totaal": 151, "sig_c": 1.013, "sig_d": 0.019, "qz10": -2.111, "qz90": 1.975, "s_gem": 0.77, "dekking": 0.829}, "2": {"a": 1.295, "b": 0.946, "g": 0.017, "res_q10": -2.77, "res_q90": 2.02, "gewichten": {"ecmwf_ifs025": 0.256, "gfs_seamless": 0.222, "icon_seamless": 0.224, "gem_seamless": 0.297}, "mae_basis": 1.26, "mae_nieuw": 1.26, "crps_oud": 0.95, "crps": 0.95, "n_eval": 91, "n_totaal": 151, "sig_c": 0.441, "sig_d": 0.917, "qz10": -1.873, "qz90": 1.333, "s_gem": 0.92, "dekking": 0.805}, "bron": "iem", "station": "EFHK"}, "ANK": {"0": {"a": 0.561, "b": 1.001, "g": 0.0, "res_q10": -1.26, "res_q90": 0.95, "gewichten": {"ecmwf_ifs025": 0.174, "gfs_seamless": 0.164, "icon_seamless": 0.308, "gem_seamless": 0.353}, "mae_basis": 0.59, "mae_nieuw": 0.59, "crps_oud": 0.44, "crps": 0.46, "n_eval": 91, "n_totaal": 151, "sig_c": 0.1, "sig_d": 1.056, "qz10": -2.754, "qz90": 2.429, "s_gem": 0.51, "dekking": 0.756}, "1": {"a": 0.362, "b": 1.003, "g": 0.0, "res_q10": -1.67, "res_q90": 0.92, "gewichten": {"ecmwf_ifs025": 0.187, "gfs_seamless": 0.223, "icon_seamless": 0.336, "gem_seamless": 0.254}, "mae_basis": 0.7, "mae_nieuw": 0.7, "crps_oud": 0.52, "crps": 0.53, "n_eval": 91, "n_totaal": 151, "sig_c": 0.235, "sig_d": 0.663, "qz10": -2.331, "qz90": 1.254, "s_gem": 0.65, "dekking": 0.829}, "2": {"a": 0.231, "b": 0.998, "g": 0.088, "res_q10": -2.16, "res_q90": 1.24, "gewichten": {"ecmwf_ifs025": 0.197, "gfs_seamless": 0.21, "icon_seamless": 0.336, "gem_seamless": 0.257}, "mae_basis": 0.81, "mae_nieuw": 0.82, "crps_oud": 0.61, "crps": 0.61, "n_eval": 91, "n_totaal": 151, "sig_c": 0.106, "sig_d": 1.016, "qz10": -2.434, "qz90": 1.39, "s_gem": 0.77, "dekking": 0.829}, "bron": "iem", "station": "LTAC"}, "IST": {"0": {"a": 0.053, "b": 0.996, "g": 0.0, "res_q10": -1.23, "res_q90": 1.21, "gewichten": {"ecmwf_ifs025": 0.284, "gfs_seamless": 0.072, "icon_seamless": 0.358, "gem_seamless": 0.285}, "mae_basis": 0.73, "mae_nieuw": 0.73, "crps_oud": 0.52, "crps": 0.52, "n_eval": 91, "n_totaal": 151, "sig_c": 0.196, "sig_d": 0.535, "qz10": -2.102, "qz90": 1.679, "s_gem": 0.87, "dekking": 0.732}, "1": {"a": 0.194, "b": 1.001, "g": 0.0, "res_q10": -1.12, "res_q90": 1.08, "gewichten": {"ecmwf_ifs025": 0.286, "gfs_seamless": 0.148, "icon_seamless": 0.266, "gem_seamless": 0.3}, "mae_basis": 0.97, "mae_nieuw": 0.97, "crps_oud": 0.69, "crps": 0.7, "n_eval": 91, "n_totaal": 151, "sig_c": 0.1, "sig_d": 0.829, "qz10": -1.506, "qz90": 1.246, "s_gem": 1.1, "dekking": 0.829}, "2": {"a": -0.127, "b": 1.01, "g": 0.0, "res_q10": -1.31, "res_q90": 1.19, "gewichten": {"ecmwf_ifs025": 0.29, "gfs_seamless": 0.124, "icon_seamless": 0.208, "gem_seamless": 0.378}, "mae_basis": 0.88, "mae_nieuw": 0.88, "crps_oud": 0.65, "crps": 0.68, "n_eval": 91, "n_totaal": 151, "sig_c": 0.1, "sig_d": 0.831, "qz10": -1.553, "qz90": 1.243, "s_gem": 1.05, "dekking": 0.878}, "bron": "iem", "station": "LTFM"}, "MOW": {"0": {"a": 0.002, "b": 1.006, "g": 0.091, "res_q10": -1.18, "res_q90": 0.78, "gewichten": {"ecmwf_ifs025": 0.264, "gfs_seamless": 0.157, "icon_seamless": 0.274, "gem_seamless": 0.305}, "mae_basis": 0.67, "mae_nieuw": 0.67, "crps_oud": 0.48, "crps": 0.49, "n_eval": 91, "n_totaal": 151, "sig_c": 0.618, "sig_d": 0.0, "qz10": -1.981, "qz90": 1.249, "s_gem": 0.5, "dekking": 0.854}, "1": {"a": 0.655, "b": 0.984, "g": 0.148, "res_q10": -1.75, "res_q90": 1.01, "gewichten": {"ecmwf_ifs025": 0.236, "gfs_seamless": 0.155, "icon_seamless": 0.272, "gem_seamless": 0.337}, "mae_basis": 0.89, "mae_nieuw": 0.89, "crps_oud": 0.63, "crps": 0.61, "n_eval": 91, "n_totaal": 151, "sig_c": 0.581, "sig_d": 0.211, "qz10": -1.947, "qz90": 1.262, "s_gem": 0.89, "dekking": 0.854}, "2": {"a": 0.08, "b": 1.006, "g": 0.0, "res_q10": -1.91, "res_q90": 1.39, "gewichten": {"ecmwf_ifs025": 0.232, "gfs_seamless": 0.157, "icon_seamless": 0.309, "gem_seamless": 0.301}, "mae_basis": 1.06, "mae_nieuw": 1.05, "crps_oud": 0.76, "crps": 0.74, "n_eval": 91, "n_totaal": 151, "sig_c": 0.635, "sig_d": 0.355, "qz10": -2.2, "qz90": 1.404, "s_gem": 0.87, "dekking": 0.78}, "bron": "iem", "station": "UUWW"}, "TYO": {"0": {"a": 0.461, "b": 0.982, "g": 0.0, "res_q10": -1.35, "res_q90": 1.83, "gewichten": {"ecmwf_ifs025": 0.08, "gfs_seamless": 0.351, "icon_seamless": 0.298, "gem_seamless": 0.271}, "mae_basis": 0.78, "mae_nieuw": 0.78, "crps_oud": 0.56, "crps": 0.56, "n_eval": 91, "n_totaal": 151, "sig_c": 0.704, "sig_d": 0.174, "qz10": -1.694, "qz90": 2.317, "s_gem": 1.05, "dekking": 0.78}, "1": {"a": 0.654, "b": 0.976, "g": 0.0, "res_q10": -1.47, "res_q90": 1.9, "gewichten": {"ecmwf_ifs025": 0.113, "gfs_seamless": 0.295, "icon_seamless": 0.299, "gem_seamless": 0.293}, "mae_basis": 0.98, "mae_nieuw": 0.97, "crps_oud": 0.73, "crps": 0.75, "n_eval": 91, "n_totaal": 151, "sig_c": 1.033, "sig_d": 0.065, "qz10": -1.075, "qz90": 2.835, "s_gem": 1.07, "dekking": 0.78}, "2": {"a": 1.466, "b": 0.949, "g": 0.0, "res_q10": -1.89, "res_q90": 3.04, "gewichten": {"ecmwf_ifs025": 0.189, "gfs_seamless": 0.263, "icon_seamless": 0.339, "gem_seamless": 0.209}, "mae_basis": 1.11, "mae_nieuw": 1.11, "crps_oud": 0.85, "crps": 0.88, "n_eval": 91, "n_totaal": 151, "sig_c": 1.398, "sig_d": 0.0, "qz10": -1.955, "qz90": 2.878, "s_gem": 1.05, "dekking": 0.756}, "bron": "iem", "station": "RJTT"}, "SEL": {"0": {"a": 1.094, "b": 1.001, "g": 0.088, "res_q10": -1.26, "res_q90": 1.23, "gewichten": {"ecmwf_ifs025": 0.285, "gfs_seamless": 0.034, "icon_seamless": 0.437, "gem_seamless": 0.245}, "mae_basis": 0.79, "mae_nieuw": 0.79, "crps_oud": 0.56, "crps": 0.58, "n_eval": 91, "n_totaal": 151, "sig_c": 0.661, "sig_d": 0.059, "qz10": -1.833, "qz90": 1.709, "s_gem": 1.66, "dekking": 0.854}, "1": {"a": 1.004, "b": 1.01, "g": 0.079, "res_q10": -1.47, "res_q90": 1.64, "gewichten": {"ecmwf_ifs025": 0.273, "gfs_seamless": 0.045, "icon_seamless": 0.47, "gem_seamless": 0.212}, "mae_basis": 1.01, "mae_nieuw": 1.0, "crps_oud": 0.71, "crps": 0.73, "n_eval": 91, "n_totaal": 151, "sig_c": 0.923, "sig_d": 0.028, "qz10": -1.577, "qz90": 1.738, "s_gem": 1.71, "dekking": 0.805}, "2": {"a": 1.391, "b": 1.003, "g": 0.058, "res_q10": -1.25, "res_q90": 2.18, "gewichten": {"ecmwf_ifs025": 0.31, "gfs_seamless": 0.053, "icon_seamless": 0.395, "gem_seamless": 0.241}, "mae_basis": 1.12, "mae_nieuw": 1.12, "crps_oud": 0.82, "crps": 0.83, "n_eval": 91, "n_totaal": 151, "sig_c": 1.057, "sig_d": 0.036, "qz10": -1.024, "qz90": 1.971, "s_gem": 1.69, "dekking": 0.854}, "bron": "iem", "station": "RKSI"}, "PUS": {"0": {"a": 1.15, "b": 0.965, "g": 0.063, "res_q10": -1.39, "res_q90": 1.0, "gewichten": {"ecmwf_ifs025": 0.313, "gfs_seamless": 0.316, "icon_seamless": 0.072, "gem_seamless": 0.298}, "mae_basis": 0.7, "mae_nieuw": 0.7, "crps_oud": 0.52, "crps": 0.51, "n_eval": 91, "n_totaal": 151, "sig_c": 0.728, "sig_d": 0.0, "qz10": -2.311, "qz90": 1.282, "s_gem": 1.24, "dekking": 0.78}, "1": {"a": 1.22, "b": 0.968, "g": 0.046, "res_q10": -1.88, "res_q90": 1.52, "gewichten": {"ecmwf_ifs025": 0.34, "gfs_seamless": 0.309, "icon_seamless": 0.096, "gem_seamless": 0.255}, "mae_basis": 0.97, "mae_nieuw": 0.97, "crps_oud": 0.72, "crps": 0.73, "n_eval": 91, "n_totaal": 151, "sig_c": 0.95, "sig_d": 0.0, "qz10": -1.949, "qz90": 1.509, "s_gem": 1.21, "dekking": 0.756}, "2": {"a": -0.579, "b": 1.034, "g": 0.0, "res_q10": -1.45, "res_q90": 1.4, "gewichten": {"ecmwf_ifs025": 0.368, "gfs_seamless": 0.298, "icon_seamless": 0.104, "gem_seamless": 0.23}, "mae_basis": 1.03, "mae_nieuw": 1.04, "crps_oud": 0.8, "crps": 0.8, "n_eval": 91, "n_totaal": 151, "sig_c": 0.836, "sig_d": 0.0, "qz10": -1.471, "qz90": 1.592, "s_gem": 1.28, "dekking": 0.829}, "bron": "iem", "station": "RKPK"}, "TPE": {"0": {"a": -0.038, "b": 1.031, "g": 0.0, "res_q10": -1.95, "res_q90": 1.04, "gewichten": {"ecmwf_ifs025": 0.267, "gfs_seamless": 0.351, "icon_seamless": 0.273, "gem_seamless": 0.109}, "mae_basis": 0.87, "mae_nieuw": 0.88, "crps_oud": 0.67, "crps": 0.66, "n_eval": 91, "n_totaal": 151, "sig_c": 0.191, "sig_d": 0.514, "qz10": -2.501, "qz90": 1.23, "s_gem": 1.03, "dekking": 0.829}, "1": {"a": 0.503, "b": 1.024, "g": 0.058, "res_q10": -1.8, "res_q90": 0.88, "gewichten": {"ecmwf_ifs025": 0.212, "gfs_seamless": 0.342, "icon_seamless": 0.333, "gem_seamless": 0.113}, "mae_basis": 1.07, "mae_nieuw": 1.08, "crps_oud": 0.8, "crps": 0.79, "n_eval": 91, "n_totaal": 151, "sig_c": 0.104, "sig_d": 0.609, "qz10": -1.752, "qz90": 0.902, "s_gem": 1.19, "dekking": 0.878}, "2": {"a": 0.563, "b": 1.021, "g": 0.093, "res_q10": -1.71, "res_q90": 1.56, "gewichten": {"ecmwf_ifs025": 0.208, "gfs_seamless": 0.383, "icon_seamless": 0.296, "gem_seamless": 0.113}, "mae_basis": 1.09, "mae_nieuw": 1.07, "crps_oud": 0.84, "crps": 0.81, "n_eval": 91, "n_totaal": 151, "sig_c": 0.707, "sig_d": 0.127, "qz10": -2.034, "qz90": 1.629, "s_gem": 1.29, "dekking": 0.78}, "bron": "iem", "station": "RCSS"}, "PEK": {"0": {"a": 1.099, "b": 0.973, "g": 0.011, "res_q10": -1.21, "res_q90": 2.29, "gewichten": {"ecmwf_ifs025": 0.302, "gfs_seamless": 0.134, "icon_seamless": 0.348, "gem_seamless": 0.217}, "mae_basis": 0.98, "mae_nieuw": 0.97, "crps_oud": 0.75, "crps": 0.77, "n_eval": 91, "n_totaal": 151, "sig_c": 0.596, "sig_d": 0.289, "qz10": -1.447, "qz90": 2.305, "s_gem": 1.11, "dekking": 0.78}, "1": {"a": 1.232, "b": 0.962, "g": 0.0, "res_q10": -2.34, "res_q90": 1.98, "gewichten": {"ecmwf_ifs025": 0.313, "gfs_seamless": 0.157, "icon_seamless": 0.319, "gem_seamless": 0.21}, "mae_basis": 1.3, "mae_nieuw": 1.3, "crps_oud": 0.98, "crps": 1.03, "n_eval": 91, "n_totaal": 151, "sig_c": 1.105, "sig_d": 0.104, "qz10": -1.887, "qz90": 1.517, "s_gem": 1.32, "dekking": 0.78}, "2": {"a": 1.209, "b": 0.964, "g": 0.0, "res_q10": -2.63, "res_q90": 2.42, "gewichten": {"ecmwf_ifs025": 0.309, "gfs_seamless": 0.174, "icon_seamless": 0.306, "gem_seamless": 0.211}, "mae_basis": 1.43, "mae_nieuw": 1.43, "crps_oud": 1.07, "crps": 1.12, "n_eval": 91, "n_totaal": 151, "sig_c": 1.013, "sig_d": 0.222, "qz10": -1.772, "qz90": 1.854, "s_gem": 1.5, "dekking": 0.732}, "bron": "iem", "station": "ZBAA"}, "SHA": {"0": {"a": -0.914, "b": 1.066, "g": 0.135, "res_q10": -1.24, "res_q90": 1.29, "gewichten": {"ecmwf_ifs025": 0.302, "gfs_seamless": 0.196, "icon_seamless": 0.351, "gem_seamless": 0.152}, "mae_basis": 0.76, "mae_nieuw": 0.76, "crps_oud": 0.57, "crps": 0.57, "n_eval": 91, "n_totaal": 151, "sig_c": 0.316, "sig_d": 0.432, "qz10": -1.824, "qz90": 1.645, "s_gem": 0.77, "dekking": 0.829}, "1": {"a": -1.04, "b": 1.08, "g": 0.132, "res_q10": -0.94, "res_q90": 1.5, "gewichten": {"ecmwf_ifs025": 0.307, "gfs_seamless": 0.208, "icon_seamless": 0.351, "gem_seamless": 0.134}, "mae_basis": 0.99, "mae_nieuw": 0.98, "crps_oud": 0.73, "crps": 0.71, "n_eval": 91, "n_totaal": 151, "sig_c": 0.781, "sig_d": 0.0, "qz10": -0.932, "qz90": 1.615, "s_gem": 0.89, "dekking": 0.854}, "2": {"a": -0.921, "b": 1.079, "g": 0.035, "res_q10": -1.67, "res_q90": 1.79, "gewichten": {"ecmwf_ifs025": 0.335, "gfs_seamless": 0.151, "icon_seamless": 0.341, "gem_seamless": 0.173}, "mae_basis": 1.1, "mae_nieuw": 1.11, "crps_oud": 0.82, "crps": 0.83, "n_eval": 91, "n_totaal": 151, "sig_c": 0.922, "sig_d": 0.0, "qz10": -1.662, "qz90": 1.777, "s_gem": 0.97, "dekking": 0.878}, "bron": "iem", "station": "ZSPD"}, "CAN": {"0": {"a": -0.737, "b": 1.059, "g": 0.063, "res_q10": -1.44, "res_q90": 1.04, "gewichten": {"ecmwf_ifs025": 0.182, "gfs_seamless": 0.323, "icon_seamless": 0.236, "gem_seamless": 0.259}, "mae_basis": 0.81, "mae_nieuw": 0.81, "crps_oud": 0.57, "crps": 0.57, "n_eval": 91, "n_totaal": 151, "sig_c": 0.386, "sig_d": 0.419, "qz10": -1.839, "qz90": 1.175, "s_gem": 0.79, "dekking": 0.927}, "1": {"a": -0.1, "b": 1.043, "g": 0.0, "res_q10": -1.66, "res_q90": 1.59, "gewichten": {"ecmwf_ifs025": 0.267, "gfs_seamless": 0.285, "icon_seamless": 0.236, "gem_seamless": 0.212}, "mae_basis": 1.07, "mae_nieuw": 1.06, "crps_oud": 0.74, "crps": 0.73, "n_eval": 91, "n_totaal": 151, "sig_c": 0.403, "sig_d": 0.666, "qz10": -2.265, "qz90": 1.514, "s_gem": 0.8, "dekking": 0.829}, "2": {"a": -0.25, "b": 1.055, "g": 0.026, "res_q10": -1.42, "res_q90": 1.74, "gewichten": {"ecmwf_ifs025": 0.234, "gfs_seamless": 0.284, "icon_seamless": 0.249, "gem_seamless": 0.232}, "mae_basis": 1.15, "mae_nieuw": 1.14, "crps_oud": 0.79, "crps": 0.78, "n_eval": 91, "n_totaal": 151, "sig_c": 0.851, "sig_d": 0.133, "qz10": -1.605, "qz90": 1.841, "s_gem": 0.79, "dekking": 0.805}, "bron": "iem", "station": "ZGGG"}, "SZX": {"0": {"a": 4.686, "b": 0.844, "g": 0.0, "res_q10": -1.13, "res_q90": 2.98, "gewichten": {"ecmwf_ifs025": 0.361, "gfs_seamless": 0.109, "icon_seamless": 0.227, "gem_seamless": 0.304}, "mae_basis": 0.78, "mae_nieuw": 0.78, "crps_oud": 0.58, "crps": 0.59, "n_eval": 91, "n_totaal": 151, "sig_c": 0.894, "sig_d": 0.0, "qz10": -1.485, "qz90": 3.727, "s_gem": 0.89, "dekking": 0.829}, "1": {"a": 5.162, "b": 0.833, "g": 0.038, "res_q10": -1.86, "res_q90": 3.05, "gewichten": {"ecmwf_ifs025": 0.327, "gfs_seamless": 0.145, "icon_seamless": 0.246, "gem_seamless": 0.282}, "mae_basis": 0.93, "mae_nieuw": 0.92, "crps_oud": 0.69, "crps": 0.7, "n_eval": 91, "n_totaal": 151, "sig_c": 1.006, "sig_d": 0.0, "qz10": -1.731, "qz90": 3.098, "s_gem": 0.93, "dekking": 0.805}, "2": {"a": 5.61, "b": 0.82, "g": 0.076, "res_q10": -1.67, "res_q90": 2.77, "gewichten": {"ecmwf_ifs025": 0.334, "gfs_seamless": 0.164, "icon_seamless": 0.243, "gem_seamless": 0.258}, "mae_basis": 1.07, "mae_nieuw": 1.07, "crps_oud": 0.79, "crps": 0.77, "n_eval": 91, "n_totaal": 151, "sig_c": 1.068, "sig_d": 0.0, "qz10": -1.473, "qz90": 2.429, "s_gem": 0.96, "dekking": 0.78}, "bron": "iem", "station": "ZGSZ"}, "CTU": {"0": {"a": 0.671, "b": 1.001, "g": 0.0, "res_q10": -1.66, "res_q90": 1.54, "gewichten": {"ecmwf_ifs025": 0.258, "gfs_seamless": 0.114, "icon_seamless": 0.364, "gem_seamless": 0.263}, "mae_basis": 0.97, "mae_nieuw": 0.97, "crps_oud": 0.71, "crps": 0.72, "n_eval": 91, "n_totaal": 151, "sig_c": 0.909, "sig_d": 0.0, "qz10": -1.774, "qz90": 1.617, "s_gem": 1.02, "dekking": 0.78}, "1": {"a": 1.423, "b": 0.975, "g": 0.0, "res_q10": -2.55, "res_q90": 2.41, "gewichten": {"ecmwf_ifs025": 0.31, "gfs_seamless": 0.143, "icon_seamless": 0.312, "gem_seamless": 0.236}, "mae_basis": 1.49, "mae_nieuw": 1.48, "crps_oud": 1.06, "crps": 1.04, "n_eval": 91, "n_totaal": 151, "sig_c": 1.143, "sig_d": 0.16, "qz10": -1.958, "qz90": 1.677, "s_gem": 1.37, "dekking": 0.854}, "2": {"a": 1.464, "b": 0.973, "g": 0.0, "res_q10": -2.27, "res_q90": 2.95, "gewichten": {"ecmwf_ifs025": 0.274, "gfs_seamless": 0.152, "icon_seamless": 0.37, "gem_seamless": 0.204}, "mae_basis": 1.69, "mae_nieuw": 1.68, "crps_oud": 1.2, "crps": 1.21, "n_eval": 91, "n_totaal": 151, "sig_c": 1.494, "sig_d": 0.0, "qz10": -1.47, "qz90": 1.777, "s_gem": 1.69, "dekking": 0.878}, "bron": "iem", "station": "ZUUU"}, "CKG": {"0": {"a": 0.211, "b": 0.993, "g": 0.054, "res_q10": -0.88, "res_q90": 1.22, "gewichten": {"ecmwf_ifs025": 0.22, "gfs_seamless": 0.205, "icon_seamless": 0.372, "gem_seamless": 0.203}, "mae_basis": 0.78, "mae_nieuw": 0.78, "crps_oud": 0.57, "crps": 0.55, "n_eval": 91, "n_totaal": 151, "sig_c": 0.357, "sig_d": 0.356, "qz10": -1.398, "qz90": 1.383, "s_gem": 0.78, "dekking": 0.805}, "1": {"a": -0.489, "b": 1.014, "g": 0.049, "res_q10": -0.96, "res_q90": 1.11, "gewichten": {"ecmwf_ifs025": 0.168, "gfs_seamless": 0.32, "icon_seamless": 0.303, "gem_seamless": 0.209}, "mae_basis": 0.99, "mae_nieuw": 0.99, "crps_oud": 0.75, "crps": 0.75, "n_eval": 91, "n_totaal": 151, "sig_c": 0.319, "sig_d": 0.381, "qz10": -1.555, "qz90": 1.495, "s_gem": 1.06, "dekking": 0.854}, "2": {"a": -0.198, "b": 1.007, "g": 0.009, "res_q10": -1.61, "res_q90": 1.73, "gewichten": {"ecmwf_ifs025": 0.141, "gfs_seamless": 0.26, "icon_seamless": 0.355, "gem_seamless": 0.244}, "mae_basis": 1.2, "mae_nieuw": 1.2, "crps_oud": 0.88, "crps": 0.87, "n_eval": 91, "n_totaal": 151, "sig_c": 0.18, "sig_d": 0.603, "qz10": -1.469, "qz90": 1.47, "s_gem": 1.23, "dekking": 0.829}, "bron": "iem", "station": "ZUCK"}, "WUH": {"0": {"a": 0.379, "b": 1.018, "g": 0.0, "res_q10": -1.1, "res_q90": 1.41, "gewichten": {"ecmwf_ifs025": 0.237, "gfs_seamless": 0.261, "icon_seamless": 0.336, "gem_seamless": 0.166}, "mae_basis": 0.74, "mae_nieuw": 0.74, "crps_oud": 0.53, "crps": 0.55, "n_eval": 91, "n_totaal": 151, "sig_c": 0.679, "sig_d": 0.016, "qz10": -1.623, "qz90": 1.79, "s_gem": 0.94, "dekking": 0.829}, "1": {"a": 0.046, "b": 1.025, "g": 0.0, "res_q10": -1.68, "res_q90": 1.8, "gewichten": {"ecmwf_ifs025": 0.252, "gfs_seamless": 0.296, "icon_seamless": 0.292, "gem_seamless": 0.16}, "mae_basis": 0.94, "mae_nieuw": 0.94, "crps_oud": 0.68, "crps": 0.71, "n_eval": 91, "n_totaal": 151, "sig_c": 0.963, "sig_d": 0.0, "qz10": -1.832, "qz90": 1.759, "s_gem": 1.13, "dekking": 0.805}, "2": {"a": 0.539, "b": 1.015, "g": 0.005, "res_q10": -1.8, "res_q90": 2.23, "gewichten": {"ecmwf_ifs025": 0.251, "gfs_seamless": 0.313, "icon_seamless": 0.247, "gem_seamless": 0.188}, "mae_basis": 1.14, "mae_nieuw": 1.14, "crps_oud": 0.83, "crps": 0.85, "n_eval": 91, "n_totaal": 151, "sig_c": 1.193, "sig_d": 0.0, "qz10": -1.455, "qz90": 1.937, "s_gem": 1.16, "dekking": 0.829}, "bron": "iem", "station": "ZHHH"}, "TAO": {"0": {"a": 0.09, "b": 1.031, "g": 0.059, "res_q10": -2.27, "res_q90": 1.59, "gewichten": {"ecmwf_ifs025": 0.409, "gfs_seamless": 0.419, "icon_seamless": 0.09, "gem_seamless": 0.082}, "mae_basis": 1.11, "mae_nieuw": 1.12, "crps_oud": 0.83, "crps": 0.84, "n_eval": 91, "n_totaal": 151, "sig_c": 1.043, "sig_d": 0.0, "qz10": -2.288, "qz90": 1.636, "s_gem": 1.37, "dekking": 0.78}, "1": {"a": -0.462, "b": 1.057, "g": 0.037, "res_q10": -2.23, "res_q90": 1.65, "gewichten": {"ecmwf_ifs025": 0.364, "gfs_seamless": 0.414, "icon_seamless": 0.127, "gem_seamless": 0.095}, "mae_basis": 1.3, "mae_nieuw": 1.32, "crps_oud": 0.96, "crps": 0.96, "n_eval": 91, "n_totaal": 151, "sig_c": 1.132, "sig_d": 0.0, "qz10": -1.801, "qz90": 1.386, "s_gem": 1.38, "dekking": 0.78}, "2": {"a": 0.514, "b": 1.025, "g": 0.074, "res_q10": -2.46, "res_q90": 1.98, "gewichten": {"ecmwf_ifs025": 0.333, "gfs_seamless": 0.419, "icon_seamless": 0.131, "gem_seamless": 0.117}, "mae_basis": 1.39, "mae_nieuw": 1.39, "crps_oud": 1.01, "crps": 1.02, "n_eval": 91, "n_totaal": 151, "sig_c": 1.163, "sig_d": 0.0, "qz10": -1.827, "qz90": 1.657, "s_gem": 1.43, "dekking": 0.732}, "bron": "iem", "station": "ZSQD"}, "TNA": {"0": {"a": 0.518, "b": 0.98, "g": 0.1, "res_q10": -0.59, "res_q90": 0.61, "gewichten": {"ecmwf_ifs025": 0.625, "gfs_seamless": 0.032, "icon_seamless": 0.206, "gem_seamless": 0.137}, "mae_basis": 0.44, "mae_nieuw": 0.44, "crps_oud": 0.32, "crps": 0.33, "n_eval": 91, "n_totaal": 151, "sig_c": 0.416, "sig_d": 0.0, "qz10": -1.341, "qz90": 1.646, "s_gem": 1.24, "dekking": 0.805}, "1": {"a": 1.488, "b": 0.941, "g": 0.031, "res_q10": -1.43, "res_q90": 1.55, "gewichten": {"ecmwf_ifs025": 0.56, "gfs_seamless": 0.057, "icon_seamless": 0.225, "gem_seamless": 0.158}, "mae_basis": 0.79, "mae_nieuw": 0.8, "crps_oud": 0.59, "crps": 0.63, "n_eval": 91, "n_totaal": 151, "sig_c": 0.636, "sig_d": 0.108, "qz10": -1.57, "qz90": 1.729, "s_gem": 1.52, "dekking": 0.829}, "2": {"a": 1.174, "b": 0.938, "g": 0.006, "res_q10": -1.74, "res_q90": 1.63, "gewichten": {"ecmwf_ifs025": 0.39, "gfs_seamless": 0.074, "icon_seamless": 0.224, "gem_seamless": 0.312}, "mae_basis": 0.99, "mae_nieuw": 0.99, "crps_oud": 0.73, "crps": 0.75, "n_eval": 91, "n_totaal": 151, "sig_c": 0.974, "sig_d": 0.0, "qz10": -1.469, "qz90": 1.476, "s_gem": 1.41, "dekking": 0.854}, "bron": "era5", "station": "ZSJN"}, "CGO": {"0": {"a": 0.55, "b": 0.962, "g": 0.0, "res_q10": -0.92, "res_q90": 1.14, "gewichten": {"ecmwf_ifs025": 0.432, "gfs_seamless": 0.057, "icon_seamless": 0.332, "gem_seamless": 0.179}, "mae_basis": 0.78, "mae_nieuw": 0.78, "crps_oud": 0.56, "crps": 0.58, "n_eval": 91, "n_totaal": 151, "sig_c": 0.442, "sig_d": 0.185, "qz10": -1.038, "qz90": 1.714, "s_gem": 1.19, "dekking": 0.854}, "1": {"a": 0.374, "b": 0.959, "g": 0.014, "res_q10": -1.65, "res_q90": 1.53, "gewichten": {"ecmwf_ifs025": 0.429, "gfs_seamless": 0.071, "icon_seamless": 0.314, "gem_seamless": 0.187}, "mae_basis": 0.96, "mae_nieuw": 0.96, "crps_oud": 0.7, "crps": 0.77, "n_eval": 91, "n_totaal": 151, "sig_c": 0.761, "sig_d": 0.109, "qz10": -1.87, "qz90": 1.603, "s_gem": 1.45, "dekking": 0.902}, "2": {"a": 0.917, "b": 0.939, "g": 0.067, "res_q10": -1.67, "res_q90": 1.78, "gewichten": {"ecmwf_ifs025": 0.348, "gfs_seamless": 0.093, "icon_seamless": 0.305, "gem_seamless": 0.254}, "mae_basis": 1.07, "mae_nieuw": 1.08, "crps_oud": 0.78, "crps": 0.83, "n_eval": 91, "n_totaal": 151, "sig_c": 0.716, "sig_d": 0.25, "qz10": -1.514, "qz90": 1.64, "s_gem": 1.54, "dekking": 0.805}, "bron": "iem", "station": "ZHCC"}, "HKG": {"0": {"a": -1.03, "b": 1.066, "g": 0.0, "res_q10": -1.04, "res_q90": 0.76, "gewichten": {"ecmwf_ifs025": 0.224, "gfs_seamless": 0.066, "icon_seamless": 0.415, "gem_seamless": 0.295}, "mae_basis": 0.75, "mae_nieuw": 0.75, "crps_oud": 0.57, "crps": 0.57, "n_eval": 66, "n_totaal": 126, "sig_c": 0.543, "sig_d": 0.0, "qz10": -1.605, "qz90": 1.107, "s_gem": 0.97, "dekking": 0.929}, "1": {"a": -0.835, "b": 1.062, "g": 0.0, "res_q10": -1.14, "res_q90": 1.08, "gewichten": {"ecmwf_ifs025": 0.255, "gfs_seamless": 0.071, "icon_seamless": 0.428, "gem_seamless": 0.246}, "mae_basis": 0.92, "mae_nieuw": 0.92, "crps_oud": 0.69, "crps": 0.7, "n_eval": 66, "n_totaal": 126, "sig_c": 0.665, "sig_d": 0.065, "qz10": -1.361, "qz90": 1.458, "s_gem": 0.99, "dekking": 0.929}, "2": {"a": -0.17, "b": 1.041, "g": 0.0, "res_q10": -1.23, "res_q90": 1.28, "gewichten": {"ecmwf_ifs025": 0.241, "gfs_seamless": 0.073, "icon_seamless": 0.441, "gem_seamless": 0.246}, "mae_basis": 0.92, "mae_nieuw": 0.92, "crps_oud": 0.71, "crps": 0.7, "n_eval": 66, "n_totaal": 126, "sig_c": 0.496, "sig_d": 0.17, "qz10": -1.635, "qz90": 1.385, "s_gem": 1.01, "dekking": 0.857}, "bron": "hko", "station": "VHHH"}, "MNL": {"0": {"a": 3.614, "b": 0.909, "g": 0.009, "res_q10": -1.26, "res_q90": 1.39, "gewichten": {"ecmwf_ifs025": 0.214, "gfs_seamless": 0.243, "icon_seamless": 0.29, "gem_seamless": 0.253}, "mae_basis": 0.82, "mae_nieuw": 0.79, "crps_oud": 0.57, "crps": 0.6, "n_eval": 91, "n_totaal": 151, "sig_c": 0.387, "sig_d": 0.543, "qz10": -1.602, "qz90": 1.576, "s_gem": 0.69, "dekking": 0.829}, "1": {"a": 4.119, "b": 0.895, "g": 0.0, "res_q10": -1.49, "res_q90": 1.31, "gewichten": {"ecmwf_ifs025": 0.139, "gfs_seamless": 0.253, "icon_seamless": 0.34, "gem_seamless": 0.268}, "mae_basis": 0.89, "mae_nieuw": 0.9, "crps_oud": 0.65, "crps": 0.7, "n_eval": 91, "n_totaal": 151, "sig_c": 0.1, "sig_d": 0.842, "qz10": -2.079, "qz90": 1.253, "s_gem": 1.02, "dekking": 0.805}, "2": {"a": 3.599, "b": 0.914, "g": 0.0, "res_q10": -1.33, "res_q90": 1.34, "gewichten": {"ecmwf_ifs025": 0.14, "gfs_seamless": 0.252, "icon_seamless": 0.353, "gem_seamless": 0.254}, "mae_basis": 0.93, "mae_nieuw": 0.93, "crps_oud": 0.67, "crps": 0.72, "n_eval": 91, "n_totaal": 151, "sig_c": 0.23, "sig_d": 0.619, "qz10": -2.225, "qz90": 2.058, "s_gem": 1.01, "dekking": 0.829}, "bron": "iem", "station": "RPLL"}, "KUL": {"0": {"a": 0.821, "b": 1.003, "g": 0.072, "res_q10": -0.88, "res_q90": 1.32, "gewichten": {"ecmwf_ifs025": 0.271, "gfs_seamless": 0.145, "icon_seamless": 0.452, "gem_seamless": 0.132}, "mae_basis": 0.73, "mae_nieuw": 0.73, "crps_oud": 0.54, "crps": 0.53, "n_eval": 91, "n_totaal": 151, "sig_c": 0.552, "sig_d": 0.137, "qz10": -1.478, "qz90": 2.049, "s_gem": 0.72, "dekking": 0.854}, "1": {"a": 6.013, "b": 0.852, "g": 0.0, "res_q10": -1.47, "res_q90": 1.52, "gewichten": {"ecmwf_ifs025": 0.211, "gfs_seamless": 0.207, "icon_seamless": 0.433, "gem_seamless": 0.149}, "mae_basis": 0.91, "mae_nieuw": 0.91, "crps_oud": 0.67, "crps": 0.66, "n_eval": 91, "n_totaal": 151, "sig_c": 0.521, "sig_d": 0.338, "qz10": -1.651, "qz90": 1.447, "s_gem": 0.98, "dekking": 0.805}, "2": {"a": 6.281, "b": 0.84, "g": 0.0, "res_q10": -1.97, "res_q90": 1.36, "gewichten": {"ecmwf_ifs025": 0.179, "gfs_seamless": 0.161, "icon_seamless": 0.505, "gem_seamless": 0.155}, "mae_basis": 0.98, "mae_nieuw": 0.98, "crps_oud": 0.75, "crps": 0.75, "n_eval": 91, "n_totaal": 151, "sig_c": 0.775, "sig_d": 0.134, "qz10": -2.262, "qz90": 1.476, "s_gem": 1.01, "dekking": 0.805}, "bron": "iem", "station": "WMKK"}, "SIN": {"0": {"a": -1.477, "b": 1.068, "g": 0.032, "res_q10": -0.68, "res_q90": 0.84, "gewichten": {"ecmwf_ifs025": 0.181, "gfs_seamless": 0.232, "icon_seamless": 0.325, "gem_seamless": 0.262}, "mae_basis": 0.52, "mae_nieuw": 0.52, "crps_oud": 0.41, "crps": 0.41, "n_eval": 91, "n_totaal": 151, "sig_c": 0.356, "sig_d": 0.148, "qz10": -1.17, "qz90": 1.435, "s_gem": 0.57, "dekking": 0.927}, "1": {"a": 0.362, "b": 1.012, "g": 0.046, "res_q10": -1.13, "res_q90": 1.11, "gewichten": {"ecmwf_ifs025": 0.105, "gfs_seamless": 0.317, "icon_seamless": 0.338, "gem_seamless": 0.24}, "mae_basis": 0.73, "mae_nieuw": 0.73, "crps_oud": 0.55, "crps": 0.54, "n_eval": 91, "n_totaal": 151, "sig_c": 0.315, "sig_d": 0.447, "qz10": -1.536, "qz90": 1.356, "s_gem": 0.8, "dekking": 0.829}, "2": {"a": 4.888, "b": 0.86, "g": 0.016, "res_q10": -1.59, "res_q90": 1.01, "gewichten": {"ecmwf_ifs025": 0.115, "gfs_seamless": 0.305, "icon_seamless": 0.329, "gem_seamless": 0.251}, "mae_basis": 0.85, "mae_nieuw": 0.86, "crps_oud": 0.65, "crps": 0.65, "n_eval": 91, "n_totaal": 151, "sig_c": 0.523, "sig_d": 0.238, "qz10": -1.819, "qz90": 1.339, "s_gem": 0.86, "dekking": 0.805}, "bron": "iem", "station": "WSSS"}, "KHI": {"0": {"a": 0.981, "b": 0.985, "g": 0.0, "res_q10": -1.0, "res_q90": 0.74, "gewichten": {"ecmwf_ifs025": 0.042, "gfs_seamless": 0.18, "icon_seamless": 0.435, "gem_seamless": 0.343}, "mae_basis": 0.65, "mae_nieuw": 0.66, "crps_oud": 0.47, "crps": 0.45, "n_eval": 91, "n_totaal": 151, "sig_c": 0.169, "sig_d": 0.301, "qz10": -1.267, "qz90": 1.082, "s_gem": 1.34, "dekking": 0.805}, "1": {"a": 3.307, "b": 0.915, "g": 0.0, "res_q10": -1.2, "res_q90": 0.76, "gewichten": {"ecmwf_ifs025": 0.04, "gfs_seamless": 0.15, "icon_seamless": 0.44, "gem_seamless": 0.37}, "mae_basis": 0.7, "mae_nieuw": 0.7, "crps_oud": 0.5, "crps": 0.46, "n_eval": 91, "n_totaal": 151, "sig_c": 0.165, "sig_d": 0.327, "qz10": -1.653, "qz90": 1.165, "s_gem": 1.37, "dekking": 0.732}, "2": {"a": 2.918, "b": 0.927, "g": 0.025, "res_q10": -1.23, "res_q90": 0.74, "gewichten": {"ecmwf_ifs025": 0.04, "gfs_seamless": 0.132, "icon_seamless": 0.404, "gem_seamless": 0.424}, "mae_basis": 0.74, "mae_nieuw": 0.74, "crps_oud": 0.53, "crps": 0.47, "n_eval": 91, "n_totaal": 151, "sig_c": 0.1, "sig_d": 0.408, "qz10": -1.979, "qz90": 0.953, "s_gem": 1.4, "dekking": 0.756}, "bron": "iem", "station": "OPKC"}, "LKO": {"0": {"a": -0.389, "b": 1.008, "g": 0.0, "res_q10": -1.38, "res_q90": 1.28, "gewichten": {"ecmwf_ifs025": 0.36, "gfs_seamless": 0.029, "icon_seamless": 0.435, "gem_seamless": 0.176}, "mae_basis": 0.74, "mae_nieuw": 0.73, "crps_oud": 0.54, "crps": 0.51, "n_eval": 90, "n_totaal": 150, "sig_c": 0.816, "sig_d": 0.0, "qz10": -2.062, "qz90": 1.992, "s_gem": 1.89, "dekking": 0.75}, "1": {"a": 1.219, "b": 0.969, "g": 0.038, "res_q10": -1.74, "res_q90": 1.9, "gewichten": {"ecmwf_ifs025": 0.439, "gfs_seamless": 0.033, "icon_seamless": 0.26, "gem_seamless": 0.268}, "mae_basis": 1.21, "mae_nieuw": 1.2, "crps_oud": 0.86, "crps": 0.81, "n_eval": 90, "n_totaal": 150, "sig_c": 0.496, "sig_d": 0.245, "qz10": -1.491, "qz90": 1.91, "s_gem": 2.5, "dekking": 0.875}, "2": {"a": 3.055, "b": 0.925, "g": 0.0, "res_q10": -1.59, "res_q90": 2.25, "gewichten": {"ecmwf_ifs025": 0.45, "gfs_seamless": 0.052, "icon_seamless": 0.211, "gem_seamless": 0.287}, "mae_basis": 1.5, "mae_nieuw": 1.48, "crps_oud": 1.05, "crps": 0.99, "n_eval": 90, "n_totaal": 150, "sig_c": 1.301, "sig_d": 0.0, "qz10": -1.271, "qz90": 1.946, "s_gem": 2.5, "dekking": 0.775}, "bron": "iem", "station": "VILK"}, "JED": {"0": {"a": 0.09, "b": 1.013, "g": 0.033, "res_q10": -1.42, "res_q90": 1.43, "gewichten": {"ecmwf_ifs025": 0.176, "gfs_seamless": 0.159, "icon_seamless": 0.479, "gem_seamless": 0.186}, "mae_basis": 1.0, "mae_nieuw": 1.0, "crps_oud": 0.71, "crps": 0.74, "n_eval": 91, "n_totaal": 151, "sig_c": 0.311, "sig_d": 0.262, "qz10": -1.452, "qz90": 1.541, "s_gem": 2.27, "dekking": 0.878}, "1": {"a": 0.061, "b": 1.014, "g": 0.007, "res_q10": -1.29, "res_q90": 1.9, "gewichten": {"ecmwf_ifs025": 0.254, "gfs_seamless": 0.159, "icon_seamless": 0.465, "gem_seamless": 0.122}, "mae_basis": 1.08, "mae_nieuw": 1.09, "crps_oud": 0.78, "crps": 0.8, "n_eval": 91, "n_totaal": 151, "sig_c": 0.583, "sig_d": 0.153, "qz10": -1.208, "qz90": 1.838, "s_gem": 2.32, "dekking": 0.878}, "2": {"a": -1.029, "b": 1.043, "g": 0.054, "res_q10": -1.53, "res_q90": 1.93, "gewichten": {"ecmwf_ifs025": 0.227, "gfs_seamless": 0.201, "icon_seamless": 0.446, "gem_seamless": 0.126}, "mae_basis": 1.1, "mae_nieuw": 1.1, "crps_oud": 0.78, "crps": 0.82, "n_eval": 91, "n_totaal": 151, "sig_c": 0.1, "sig_d": 0.373, "qz10": -1.144, "qz90": 1.441, "s_gem": 2.33, "dekking": 0.902}, "bron": "iem", "station": "OEJN"}, "TLV": {"0": {"a": 0.656, "b": 0.971, "g": 0.0, "res_q10": -0.81, "res_q90": 0.63, "gewichten": {"ecmwf_ifs025": 0.036, "gfs_seamless": 0.25, "icon_seamless": 0.454, "gem_seamless": 0.261}, "mae_basis": 0.43, "mae_nieuw": 0.43, "crps_oud": 0.31, "crps": 0.31, "n_eval": 91, "n_totaal": 151, "sig_c": 0.1, "sig_d": 0.415, "qz10": -1.912, "qz90": 1.47, "s_gem": 0.88, "dekking": 0.78}, "1": {"a": 0.882, "b": 0.965, "g": 0.0, "res_q10": -1.02, "res_q90": 0.56, "gewichten": {"ecmwf_ifs025": 0.068, "gfs_seamless": 0.261, "icon_seamless": 0.447, "gem_seamless": 0.224}, "mae_basis": 0.53, "mae_nieuw": 0.53, "crps_oud": 0.38, "crps": 0.39, "n_eval": 91, "n_totaal": 151, "sig_c": 0.117, "sig_d": 0.402, "qz10": -2.079, "qz90": 1.374, "s_gem": 0.83, "dekking": 0.805}, "2": {"a": 0.918, "b": 0.963, "g": 0.0, "res_q10": -1.11, "res_q90": 0.59, "gewichten": {"ecmwf_ifs025": 0.065, "gfs_seamless": 0.207, "icon_seamless": 0.432, "gem_seamless": 0.296}, "mae_basis": 0.54, "mae_nieuw": 0.54, "crps_oud": 0.39, "crps": 0.41, "n_eval": 91, "n_totaal": 151, "sig_c": 0.1, "sig_d": 0.454, "qz10": -2.486, "qz90": 1.265, "s_gem": 0.84, "dekking": 0.829}, "bron": "iem", "station": "LLBG"}, "TOR": {"0": {"a": -0.097, "b": 1.004, "g": 0.045, "res_q10": -0.79, "res_q90": 0.94, "gewichten": {"ecmwf_ifs025": 0.189, "gfs_seamless": 0.479, "icon_seamless": 0.248, "gem_seamless": 0.084}, "mae_basis": 0.49, "mae_nieuw": 0.49, "crps_oud": 0.37, "crps": 0.37, "n_eval": 91, "n_totaal": 151, "sig_c": 0.386, "sig_d": 0.071, "qz10": -1.475, "qz90": 1.867, "s_gem": 0.86, "dekking": 0.829}, "1": {"a": 0.766, "b": 0.956, "g": 0.0, "res_q10": -1.95, "res_q90": 1.95, "gewichten": {"ecmwf_ifs025": 0.251, "gfs_seamless": 0.199, "icon_seamless": 0.398, "gem_seamless": 0.152}, "mae_basis": 0.92, "mae_nieuw": 0.91, "crps_oud": 0.69, "crps": 0.7, "n_eval": 91, "n_totaal": 151, "sig_c": 0.871, "sig_d": 0.138, "qz10": -2.291, "qz90": 1.795, "s_gem": 1.04, "dekking": 0.756}, "2": {"a": 0.757, "b": 0.972, "g": 0.0, "res_q10": -2.4, "res_q90": 1.69, "gewichten": {"ecmwf_ifs025": 0.223, "gfs_seamless": 0.162, "icon_seamless": 0.318, "gem_seamless": 0.298}, "mae_basis": 1.11, "mae_nieuw": 1.12, "crps_oud": 0.85, "crps": 0.87, "n_eval": 91, "n_totaal": 151, "sig_c": 0.931, "sig_d": 0.187, "qz10": -2.455, "qz90": 1.546, "s_gem": 1.01, "dekking": 0.732}, "bron": "iem", "station": "CYYZ"}, "MEX": {"0": {"a": 1.979, "b": 0.911, "g": 0.0, "res_q10": -1.44, "res_q90": 1.38, "gewichten": {"ecmwf_ifs025": 0.233, "gfs_seamless": 0.185, "icon_seamless": 0.348, "gem_seamless": 0.235}, "mae_basis": 0.71, "mae_nieuw": 0.71, "crps_oud": 0.54, "crps": 0.58, "n_eval": 91, "n_totaal": 151, "sig_c": 0.237, "sig_d": 0.491, "qz10": -1.782, "qz90": 2.25, "s_gem": 0.89, "dekking": 0.805}, "1": {"a": 2.041, "b": 0.91, "g": 0.0, "res_q10": -1.76, "res_q90": 1.54, "gewichten": {"ecmwf_ifs025": 0.215, "gfs_seamless": 0.209, "icon_seamless": 0.364, "gem_seamless": 0.211}, "mae_basis": 0.89, "mae_nieuw": 0.89, "crps_oud": 0.68, "crps": 0.74, "n_eval": 91, "n_totaal": 151, "sig_c": 0.507, "sig_d": 0.21, "qz10": -1.62, "qz90": 1.788, "s_gem": 1.06, "dekking": 0.878}, "2": {"a": 2.867, "b": 0.88, "g": 0.0, "res_q10": -1.86, "res_q90": 1.43, "gewichten": {"ecmwf_ifs025": 0.245, "gfs_seamless": 0.25, "icon_seamless": 0.315, "gem_seamless": 0.191}, "mae_basis": 0.97, "mae_nieuw": 0.97, "crps_oud": 0.71, "crps": 0.75, "n_eval": 91, "n_totaal": 151, "sig_c": 0.561, "sig_d": 0.222, "qz10": -1.693, "qz90": 1.412, "s_gem": 1.1, "dekking": 0.902}, "bron": "iem", "station": "MMMX"}, "PTY": {"0": {"a": 2.292, "b": 0.939, "g": 0.0, "res_q10": -1.11, "res_q90": 1.12, "gewichten": {"ecmwf_ifs025": 0.139, "gfs_seamless": 0.148, "icon_seamless": 0.401, "gem_seamless": 0.312}, "mae_basis": 0.66, "mae_nieuw": 0.66, "crps_oud": 0.49, "crps": 0.5, "n_eval": 91, "n_totaal": 151, "sig_c": 0.632, "sig_d": 0.0, "qz10": -1.749, "qz90": 1.726, "s_gem": 0.86, "dekking": 0.805}, "1": {"a": -0.601, "b": 1.038, "g": 0.04, "res_q10": -0.91, "res_q90": 1.13, "gewichten": {"ecmwf_ifs025": 0.121, "gfs_seamless": 0.135, "icon_seamless": 0.357, "gem_seamless": 0.388}, "mae_basis": 0.69, "mae_nieuw": 0.69, "crps_oud": 0.51, "crps": 0.52, "n_eval": 91, "n_totaal": 151, "sig_c": 0.599, "sig_d": 0.0, "qz10": -1.262, "qz90": 1.969, "s_gem": 1.08, "dekking": 0.78}, "2": {"a": 0.176, "b": 1.023, "g": 0.0, "res_q10": -0.87, "res_q90": 1.58, "gewichten": {"ecmwf_ifs025": 0.14, "gfs_seamless": 0.184, "icon_seamless": 0.442, "gem_seamless": 0.234}, "mae_basis": 0.77, "mae_nieuw": 0.76, "crps_oud": 0.57, "crps": 0.58, "n_eval": 91, "n_totaal": 151, "sig_c": 0.423, "sig_d": 0.277, "qz10": -1.115, "qz90": 2.285, "s_gem": 1.05, "dekking": 0.829}, "bron": "iem", "station": "MPMG"}, "BUE": {"0": {"a": 0.518, "b": 1.017, "g": 0.153, "res_q10": -0.77, "res_q90": 1.1, "gewichten": {"ecmwf_ifs025": 0.429, "gfs_seamless": 0.161, "icon_seamless": 0.235, "gem_seamless": 0.175}, "mae_basis": 0.62, "mae_nieuw": 0.62, "crps_oud": 0.48, "crps": 0.51, "n_eval": 91, "n_totaal": 151, "sig_c": 0.219, "sig_d": 0.693, "qz10": -2.42, "qz90": 2.284, "s_gem": 0.6, "dekking": 0.78}, "1": {"a": 0.726, "b": 1.015, "g": 0.158, "res_q10": -1.04, "res_q90": 1.8, "gewichten": {"ecmwf_ifs025": 0.271, "gfs_seamless": 0.254, "icon_seamless": 0.264, "gem_seamless": 0.211}, "mae_basis": 0.93, "mae_nieuw": 0.9, "crps_oud": 0.7, "crps": 0.73, "n_eval": 91, "n_totaal": 151, "sig_c": 0.637, "sig_d": 0.453, "qz10": -1.707, "qz90": 2.131, "s_gem": 0.67, "dekking": 0.756}, "2": {"a": 0.283, "b": 1.037, "g": 0.105, "res_q10": -1.54, "res_q90": 1.75, "gewichten": {"ecmwf_ifs025": 0.264, "gfs_seamless": 0.295, "icon_seamless": 0.226, "gem_seamless": 0.215}, "mae_basis": 1.1, "mae_nieuw": 1.08, "crps_oud": 0.81, "crps": 0.86, "n_eval": 91, "n_totaal": 151, "sig_c": 0.931, "sig_d": 0.224, "qz10": -1.575, "qz90": 1.728, "s_gem": 0.73, "dekking": 0.805}, "bron": "iem", "station": "SAEZ"}, "SAO": {"0": {"a": 0.76, "b": 0.968, "g": 0.0, "res_q10": -0.92, "res_q90": 1.11, "gewichten": {"ecmwf_ifs025": 0.323, "gfs_seamless": 0.223, "icon_seamless": 0.255, "gem_seamless": 0.198}, "mae_basis": 0.76, "mae_nieuw": 0.77, "crps_oud": 0.58, "crps": 0.6, "n_eval": 91, "n_totaal": 151, "sig_c": 0.715, "sig_d": 0.0, "qz10": -1.503, "qz90": 1.61, "s_gem": 0.58, "dekking": 0.854}, "1": {"a": 1.022, "b": 0.95, "g": 0.031, "res_q10": -1.62, "res_q90": 1.23, "gewichten": {"ecmwf_ifs025": 0.281, "gfs_seamless": 0.277, "icon_seamless": 0.276, "gem_seamless": 0.166}, "mae_basis": 0.92, "mae_nieuw": 0.94, "crps_oud": 0.69, "crps": 0.71, "n_eval": 91, "n_totaal": 151, "sig_c": 0.976, "sig_d": 0.0, "qz10": -1.756, "qz90": 1.544, "s_gem": 0.7, "dekking": 0.854}, "2": {"a": 0.952, "b": 0.953, "g": 0.099, "res_q10": -1.34, "res_q90": 1.19, "gewichten": {"ecmwf_ifs025": 0.245, "gfs_seamless": 0.256, "icon_seamless": 0.266, "gem_seamless": 0.233}, "mae_basis": 0.88, "mae_nieuw": 0.87, "crps_oud": 0.66, "crps": 0.67, "n_eval": 91, "n_totaal": 151, "sig_c": 0.939, "sig_d": 0.0, "qz10": -1.672, "qz90": 1.428, "s_gem": 0.83, "dekking": 0.805}, "bron": "iem", "station": "SBGR"}, "CPT": {"0": {"a": -0.218, "b": 1.007, "g": 0.0, "res_q10": -0.86, "res_q90": 1.19, "gewichten": {"ecmwf_ifs025": 0.301, "gfs_seamless": 0.133, "icon_seamless": 0.217, "gem_seamless": 0.348}, "mae_basis": 0.73, "mae_nieuw": 0.73, "crps_oud": 0.55, "crps": 0.56, "n_eval": 91, "n_totaal": 151, "sig_c": 0.1, "sig_d": 0.988, "qz10": -1.252, "qz90": 1.521, "s_gem": 0.74, "dekking": 0.878}, "1": {"a": 0.682, "b": 0.964, "g": 0.0, "res_q10": -1.46, "res_q90": 1.65, "gewichten": {"ecmwf_ifs025": 0.287, "gfs_seamless": 0.144, "icon_seamless": 0.236, "gem_seamless": 0.333}, "mae_basis": 0.92, "mae_nieuw": 0.92, "crps_oud": 0.7, "crps": 0.73, "n_eval": 91, "n_totaal": 151, "sig_c": 0.228, "sig_d": 0.976, "qz10": -1.542, "qz90": 1.751, "s_gem": 0.76, "dekking": 0.829}, "2": {"a": 0.994, "b": 0.946, "g": 0.0, "res_q10": -1.98, "res_q90": 1.79, "gewichten": {"ecmwf_ifs025": 0.272, "gfs_seamless": 0.143, "icon_seamless": 0.304, "gem_seamless": 0.281}, "mae_basis": 0.96, "mae_nieuw": 0.96, "crps_oud": 0.74, "crps": 0.77, "n_eval": 91, "n_totaal": 151, "sig_c": 0.201, "sig_d": 0.978, "qz10": -1.548, "qz90": 2.571, "s_gem": 0.89, "dekking": 0.78}, "bron": "iem", "station": "FACT"}, "WLG": {"0": {"a": 0.598, "b": 1.003, "g": 0.019, "res_q10": -0.92, "res_q90": 0.48, "gewichten": {"ecmwf_ifs025": 0.244, "gfs_seamless": 0.175, "icon_seamless": 0.296, "gem_seamless": 0.285}, "mae_basis": 0.47, "mae_nieuw": 0.47, "crps_oud": 0.36, "crps": 0.34, "n_eval": 91, "n_totaal": 151, "sig_c": 0.267, "sig_d": 0.426, "qz10": -2.198, "qz90": 1.121, "s_gem": 0.32, "dekking": 0.854}, "1": {"a": 0.204, "b": 1.037, "g": 0.068, "res_q10": -1.02, "res_q90": 0.73, "gewichten": {"ecmwf_ifs025": 0.222, "gfs_seamless": 0.175, "icon_seamless": 0.363, "gem_seamless": 0.24}, "mae_basis": 0.51, "mae_nieuw": 0.51, "crps_oud": 0.39, "crps": 0.37, "n_eval": 91, "n_totaal": 151, "sig_c": 0.276, "sig_d": 0.487, "qz10": -2.083, "qz90": 1.506, "s_gem": 0.41, "dekking": 0.805}, "2": {"a": 0.096, "b": 1.047, "g": 0.101, "res_q10": -1.11, "res_q90": 0.77, "gewichten": {"ecmwf_ifs025": 0.217, "gfs_seamless": 0.175, "icon_seamless": 0.363, "gem_seamless": 0.245}, "mae_basis": 0.53, "mae_nieuw": 0.53, "crps_oud": 0.41, "crps": 0.4, "n_eval": 91, "n_totaal": 151, "sig_c": 0.268, "sig_d": 0.452, "qz10": -2.232, "qz90": 1.363, "s_gem": 0.43, "dekking": 0.78}, "bron": "iem", "station": "NZWN"}}, "spreidingsband": true}, "dataversie": "2026-07-27-51steden"};
+const CONFIG = {"nws_gewicht": 0.25, "steden": [{"key": "NYC", "naam": "New York", "station": "LGA", "lat": 40.7794, "lon": -73.8803, "tz": "America/New_York", "eenheid": "°F", "bron": "iem", "nws_url": "https://api.weather.gov/gridpoints/OKX/37,46/forecast"}, {"key": "CHI", "naam": "Chicago", "station": "ORD", "lat": 41.9602, "lon": -87.9316, "tz": "America/Chicago", "eenheid": "°F", "bron": "iem", "nws_url": "https://api.weather.gov/gridpoints/LOT/65,76/forecast"}, {"key": "MIA", "naam": "Miami", "station": "MIA", "lat": 25.788, "lon": -80.3169, "tz": "America/New_York", "eenheid": "°F", "bron": "iem", "nws_url": "https://api.weather.gov/gridpoints/MFL/105,51/forecast"}, {"key": "LAX", "naam": "Los Angeles", "station": "LAX", "lat": 33.9382, "lon": -118.3865, "tz": "America/Los_Angeles", "eenheid": "°F", "bron": "iem", "nws_url": "https://api.weather.gov/gridpoints/LOX/149,41/forecast"}, {"key": "SFO", "naam": "San Francisco", "station": "SFO", "lat": 37.619, "lon": -122.3749, "tz": "America/Los_Angeles", "eenheid": "°F", "bron": "iem", "nws_url": "https://api.weather.gov/gridpoints/MTR/85,98/forecast"}, {"key": "SEA", "naam": "Seattle", "station": "SEA", "lat": 47.4447, "lon": -122.3144, "tz": "America/Los_Angeles", "eenheid": "°F", "bron": "iem", "nws_url": "https://api.weather.gov/gridpoints/SEW/124,60/forecast"}, {"key": "DEN", "naam": "Denver", "station": "BKF", "lat": 39.7017, "lon": -104.7517, "tz": "America/Denver", "eenheid": "°F", "bron": "iem", "nws_url": "https://api.weather.gov/gridpoints/BOU/71,59/forecast"}, {"key": "DAL", "naam": "Dallas", "station": "DAL", "lat": 32.8471, "lon": -96.8518, "tz": "America/Chicago", "eenheid": "°F", "bron": "iem", "nws_url": "https://api.weather.gov/gridpoints/FWD/87,107/forecast"}, {"key": "HOU", "naam": "Houston", "station": "HOU", "lat": 29.6375, "lon": -95.2824, "tz": "America/Chicago", "eenheid": "°F", "bron": "iem", "nws_url": "https://api.weather.gov/gridpoints/HGX/66,89/forecast"}, {"key": "AUS", "naam": "Austin", "station": "AUS", "lat": 30.183, "lon": -97.6799, "tz": "America/Chicago", "eenheid": "°F", "bron": "iem", "nws_url": "https://api.weather.gov/gridpoints/EWX/158,87/forecast"}, {"key": "ATL", "naam": "Atlanta", "station": "ATL", "lat": 33.6301, "lon": -84.4418, "tz": "America/New_York", "eenheid": "°F", "bron": "iem", "nws_url": "https://api.weather.gov/gridpoints/FFC/49,81/forecast"}, {"key": "LON", "naam": "Londen", "station": "EGLC", "lat": 51.5053, "lon": 0.0553, "tz": "Europe/London", "eenheid": "°C", "bron": "iem"}, {"key": "PAR", "naam": "Parijs", "station": "LFPB", "lat": 48.9672, "lon": 2.4272, "tz": "Europe/Paris", "eenheid": "°C", "bron": "iem"}, {"key": "AMS", "naam": "Amsterdam", "station": "EHAM", "lat": 52.3154, "lon": 4.7902, "tz": "Europe/Amsterdam", "eenheid": "°C", "bron": "iem"}, {"key": "MAD", "naam": "Madrid", "station": "LEMD", "lat": 40.4667, "lon": -3.5556, "tz": "Europe/Madrid", "eenheid": "°C", "bron": "iem"}, {"key": "MIL", "naam": "Milaan", "station": "LIMC", "lat": 45.63, "lon": 8.7231, "tz": "Europe/Rome", "eenheid": "°C", "bron": "iem"}, {"key": "MUC", "naam": "München", "station": "EDDM", "lat": 48.3583, "lon": 11.8092, "tz": "Europe/Berlin", "eenheid": "°C", "bron": "iem"}, {"key": "WAW", "naam": "Warschau", "station": "EPWA", "lat": 52.1628, "lon": 20.9611, "tz": "Europe/Warsaw", "eenheid": "°C", "bron": "iem"}, {"key": "HEL", "naam": "Helsinki", "station": "EFHK", "lat": 60.3172, "lon": 24.9633, "tz": "Europe/Helsinki", "eenheid": "°C", "bron": "iem"}, {"key": "ANK", "naam": "Ankara", "station": "LTAC", "lat": 40.1281, "lon": 32.9951, "tz": "Europe/Istanbul", "eenheid": "°C", "bron": "iem"}, {"key": "IST", "naam": "Istanbul", "station": "LTFM", "lat": 41.2629, "lon": 28.7413, "tz": "Europe/Istanbul", "eenheid": "°C", "bron": "iem"}, {"key": "MOW", "naam": "Moskou", "station": "UUWW", "lat": 55.5915, "lon": 37.2615, "tz": "Europe/Moscow", "eenheid": "°C", "bron": "iem"}, {"key": "TYO", "naam": "Tokio", "station": "RJTT", "lat": 35.5533, "lon": 139.7811, "tz": "Asia/Tokyo", "eenheid": "°C", "bron": "iem"}, {"key": "SEL", "naam": "Seoul", "station": "RKSI", "lat": 37.4667, "lon": 126.45, "tz": "Asia/Seoul", "eenheid": "°C", "bron": "iem"}, {"key": "PUS", "naam": "Busan", "station": "RKPK", "lat": 35.1795, "lon": 128.9382, "tz": "Asia/Seoul", "eenheid": "°C", "bron": "iem"}, {"key": "TPE", "naam": "Taipei", "station": "RCSS", "lat": 25.0694, "lon": 121.5517, "tz": "Asia/Taipei", "eenheid": "°C", "bron": "iem"}, {"key": "PEK", "naam": "Peking", "station": "ZBAA", "lat": 40.0741, "lon": 116.587, "tz": "Asia/Shanghai", "eenheid": "°C", "bron": "iem"}, {"key": "SHA", "naam": "Shanghai", "station": "ZSPD", "lat": 31.1167, "lon": 121.7667, "tz": "Asia/Shanghai", "eenheid": "°C", "bron": "iem"}, {"key": "CAN", "naam": "Guangzhou", "station": "ZGGG", "lat": 23.3964, "lon": 113.3008, "tz": "Asia/Shanghai", "eenheid": "°C", "bron": "iem"}, {"key": "SZX", "naam": "Shenzhen", "station": "ZGSZ", "lat": 22.55, "lon": 114.1, "tz": "Asia/Shanghai", "eenheid": "°C", "bron": "iem"}, {"key": "CTU", "naam": "Chengdu", "station": "ZUUU", "lat": 30.6667, "lon": 104.0167, "tz": "Asia/Shanghai", "eenheid": "°C", "bron": "iem"}, {"key": "CKG", "naam": "Chongqing", "station": "ZUCK", "lat": 29.52, "lon": 106.48, "tz": "Asia/Shanghai", "eenheid": "°C", "bron": "iem"}, {"key": "WUH", "naam": "Wuhan", "station": "ZHHH", "lat": 30.62, "lon": 114.13, "tz": "Asia/Shanghai", "eenheid": "°C", "bron": "iem"}, {"key": "TAO", "naam": "Qingdao", "station": "ZSQD", "lat": 36.0667, "lon": 120.3333, "tz": "Asia/Shanghai", "eenheid": "°C", "bron": "iem"}, {"key": "TNA", "naam": "Jinan", "station": "ZSJN", "lat": 36.8555, "lon": 117.206, "tz": "Asia/Shanghai", "eenheid": "°C", "bron": "era5"}, {"key": "CGO", "naam": "Zhengzhou", "station": "ZHCC", "lat": 34.7167, "lon": 113.65, "tz": "Asia/Shanghai", "eenheid": "°C", "bron": "iem"}, {"key": "HKG", "naam": "Hongkong", "station": "HKO", "lat": 22.3094, "lon": 113.9219, "tz": "Asia/Hong_Kong", "eenheid": "°C", "bron": "hko"}, {"key": "MNL", "naam": "Manila", "station": "RPLL", "lat": 14.5069, "lon": 121.0042, "tz": "Asia/Manila", "eenheid": "°C", "bron": "iem"}, {"key": "KUL", "naam": "Kuala Lumpur", "station": "WMKK", "lat": 2.7167, "lon": 101.7, "tz": "Asia/Kuala_Lumpur", "eenheid": "°C", "bron": "iem"}, {"key": "SIN", "naam": "Singapore", "station": "WSSS", "lat": 1.3667, "lon": 103.9833, "tz": "Asia/Singapore", "eenheid": "°C", "bron": "iem"}, {"key": "KHI", "naam": "Karachi", "station": "OPKC", "lat": 24.8456, "lon": 67.1614, "tz": "Asia/Karachi", "eenheid": "°C", "bron": "iem"}, {"key": "LKO", "naam": "Lucknow", "station": "VILK", "lat": 26.7606, "lon": 80.8893, "tz": "Asia/Kolkata", "eenheid": "°C", "bron": "iem"}, {"key": "JED", "naam": "Jeddah", "station": "OEJN", "lat": 21.6598, "lon": 39.1222, "tz": "Asia/Riyadh", "eenheid": "°C", "bron": "iem"}, {"key": "TLV", "naam": "Tel Aviv", "station": "LLBG", "lat": 32.0114, "lon": 34.8867, "tz": "Asia/Jerusalem", "eenheid": "°C", "bron": "iem"}, {"key": "TOR", "naam": "Toronto", "station": "CYYZ", "lat": 43.6772, "lon": -79.6306, "tz": "America/Toronto", "eenheid": "°C", "bron": "iem"}, {"key": "MEX", "naam": "Mexico-Stad", "station": "MMMX", "lat": 19.4363, "lon": -99.0721, "tz": "America/Mexico_City", "eenheid": "°C", "bron": "iem"}, {"key": "PTY", "naam": "Panama-Stad", "station": "MPMG", "lat": 8.9833, "lon": -79.5167, "tz": "America/Panama", "eenheid": "°C", "bron": "iem"}, {"key": "BUE", "naam": "Buenos Aires", "station": "SAEZ", "lat": -34.8222, "lon": -58.5358, "tz": "America/Argentina/Buenos_Aires", "eenheid": "°C", "bron": "iem"}, {"key": "SAO", "naam": "São Paulo", "station": "SBGR", "lat": -23.4321, "lon": -46.4695, "tz": "America/Sao_Paulo", "eenheid": "°C", "bron": "iem"}, {"key": "CPT", "naam": "Kaapstad", "station": "FACT", "lat": -33.9667, "lon": 18.6, "tz": "Africa/Johannesburg", "eenheid": "°C", "bron": "iem"}, {"key": "WLG", "naam": "Wellington", "station": "NZWN", "lat": -41.3272, "lon": 174.8053, "tz": "Pacific/Auckland", "eenheid": "°C", "bron": "iem"}], "params": {"gegenereerd": "2026-07-27", "halfwaarde_dagen": 14.0, "band_factor": 1.1, "band_factor_s": 1.1, "modellen": ["ecmwf_ifs025", "ecmwf_aifs025", "gfs_seamless", "icon_seamless", "gem_seamless"], "steden": {"NYC": {"0": {"a": 2.208, "b": 0.979, "g": 0.119, "res_q10": -2.61, "res_q90": 2.38, "gewichten": {"ecmwf_ifs025": 0.218, "gfs_seamless": 0.371, "icon_seamless": 0.263, "gem_seamless": 0.148}, "mae_basis": 1.29, "mae_nieuw": 1.31, "crps_oud": 0.97, "crps": 0.99, "n_eval": 91, "n_totaal": 151, "sig_c": 1.506, "sig_d": 0.0, "qz10": -1.792, "qz90": 1.639, "s_gem": 1.24, "dekking": 0.829}, "1": {"a": 3.896, "b": 0.955, "g": 0.171, "res_q10": -4.33, "res_q90": 3.39, "gewichten": {"ecmwf_ifs025": 0.193, "gfs_seamless": 0.162, "icon_seamless": 0.395, "gem_seamless": 0.25}, "mae_basis": 1.77, "mae_nieuw": 1.77, "crps_oud": 1.3, "crps": 1.32, "n_eval": 91, "n_totaal": 151, "sig_c": 1.991, "sig_d": 0.014, "qz10": -2.151, "qz90": 1.858, "s_gem": 1.79, "dekking": 0.78}, "2": {"a": 5.03, "b": 0.939, "g": 0.098, "res_q10": -4.46, "res_q90": 3.51, "gewichten": {"ecmwf_ifs025": 0.201, "gfs_seamless": 0.216, "icon_seamless": 0.295, "gem_seamless": 0.287}, "mae_basis": 1.97, "mae_nieuw": 1.96, "crps_oud": 1.48, "crps": 1.46, "n_eval": 91, "n_totaal": 151, "sig_c": 2.032, "sig_d": 0.0, "qz10": -2.352, "qz90": 1.818, "s_gem": 1.95, "dekking": 0.805}, "bron": "iem", "station": "LGA"}, "CHI": {"0": {"a": -1.057, "b": 1.017, "g": 0.0, "res_q10": -2.16, "res_q90": 1.84, "gewichten": {"ecmwf_ifs025": 0.2, "gfs_seamless": 0.472, "icon_seamless": 0.224, "gem_seamless": 0.104}, "mae_basis": 0.94, "mae_nieuw": 0.95, "crps_oud": 0.73, "crps": 0.74, "n_eval": 91, "n_totaal": 151, "sig_c": 0.91, "sig_d": 0.0, "qz10": -2.4, "qz90": 1.77, "s_gem": 1.81, "dekking": 0.805}, "1": {"a": 1.655, "b": 0.975, "g": 0.0, "res_q10": -4.42, "res_q90": 2.7, "gewichten": {"ecmwf_ifs025": 0.257, "gfs_seamless": 0.285, "icon_seamless": 0.318, "gem_seamless": 0.141}, "mae_basis": 1.51, "mae_nieuw": 1.51, "crps_oud": 1.15, "crps": 1.14, "n_eval": 91, "n_totaal": 151, "sig_c": 1.175, "sig_d": 0.286, "qz10": -2.968, "qz90": 2.217, "s_gem": 2.1, "dekking": 0.707}, "2": {"a": 1.452, "b": 0.982, "g": 0.04, "res_q10": -4.19, "res_q90": 3.0, "gewichten": {"ecmwf_ifs025": 0.209, "gfs_seamless": 0.175, "icon_seamless": 0.309, "gem_seamless": 0.307}, "mae_basis": 1.94, "mae_nieuw": 1.95, "crps_oud": 1.46, "crps": 1.37, "n_eval": 91, "n_totaal": 151, "sig_c": 1.154, "sig_d": 0.493, "qz10": -2.065, "qz90": 1.426, "s_gem": 1.78, "dekking": 0.78}, "bron": "iem", "station": "ORD"}, "MIA": {"0": {"a": 8.371, "b": 0.925, "g": 0.042, "res_q10": -1.43, "res_q90": 1.38, "gewichten": {"ecmwf_ifs025": 0.097, "gfs_seamless": 0.379, "icon_seamless": 0.314, "gem_seamless": 0.21}, "mae_basis": 1.12, "mae_nieuw": 1.13, "crps_oud": 0.8, "crps": 0.76, "n_eval": 91, "n_totaal": 151, "sig_c": 0.905, "sig_d": 0.067, "qz10": -1.563, "qz90": 1.431, "s_gem": 1.33, "dekking": 0.829}, "1": {"a": 8.142, "b": 0.928, "g": 0.086, "res_q10": -2.45, "res_q90": 1.41, "gewichten": {"ecmwf_ifs025": 0.084, "gfs_seamless": 0.221, "icon_seamless": 0.369, "gem_seamless": 0.326}, "mae_basis": 1.32, "mae_nieuw": 1.32, "crps_oud": 0.97, "crps": 0.94, "n_eval": 91, "n_totaal": 151, "sig_c": 0.897, "sig_d": 0.192, "qz10": -1.641, "qz90": 1.085, "s_gem": 1.39, "dekking": 0.829}, "2": {"a": 7.871, "b": 0.924, "g": 0.003, "res_q10": -2.68, "res_q90": 1.26, "gewichten": {"ecmwf_ifs025": 0.043, "gfs_seamless": 0.476, "icon_seamless": 0.235, "gem_seamless": 0.246}, "mae_basis": 1.28, "mae_nieuw": 1.28, "crps_oud": 0.93, "crps": 0.87, "n_eval": 91, "n_totaal": 151, "sig_c": 0.735, "sig_d": 0.201, "qz10": -2.169, "qz90": 1.166, "s_gem": 1.82, "dekking": 0.805}, "bron": "iem", "station": "MIA"}, "LAX": {"0": {"a": 4.366, "b": 0.931, "g": 0.0, "res_q10": -1.76, "res_q90": 1.65, "gewichten": {"ecmwf_ifs025": 0.018, "gfs_seamless": 0.758, "icon_seamless": 0.109, "gem_seamless": 0.115}, "mae_basis": 1.04, "mae_nieuw": 1.05, "crps_oud": 0.76, "crps": 0.75, "n_eval": 91, "n_totaal": 151, "sig_c": 1.101, "sig_d": 0.0, "qz10": -1.542, "qz90": 1.47, "s_gem": 3.5, "dekking": 0.756}, "1": {"a": 13.024, "b": 0.805, "g": 0.017, "res_q10": -3.23, "res_q90": 2.57, "gewichten": {"ecmwf_ifs025": 0.051, "gfs_seamless": 0.446, "icon_seamless": 0.298, "gem_seamless": 0.204}, "mae_basis": 1.56, "mae_nieuw": 1.54, "crps_oud": 1.14, "crps": 1.14, "n_eval": 91, "n_totaal": 151, "sig_c": 1.937, "sig_d": 0.0, "qz10": -2.042, "qz90": 1.648, "s_gem": 3.74, "dekking": 0.756}, "2": {"a": 12.257, "b": 0.809, "g": 0.053, "res_q10": -3.72, "res_q90": 2.13, "gewichten": {"ecmwf_ifs025": 0.048, "gfs_seamless": 0.517, "icon_seamless": 0.252, "gem_seamless": 0.184}, "mae_basis": 1.73, "mae_nieuw": 1.72, "crps_oud": 1.31, "crps": 1.31, "n_eval": 91, "n_totaal": 151, "sig_c": 1.084, "sig_d": 0.225, "qz10": -2.024, "qz90": 1.419, "s_gem": 3.39, "dekking": 0.805}, "bron": "iem", "station": "LAX"}, "SFO": {"0": {"a": 1.174, "b": 0.982, "g": 0.0, "res_q10": -3.43, "res_q90": 2.35, "gewichten": {"ecmwf_ifs025": 0.248, "gfs_seamless": 0.298, "icon_seamless": 0.327, "gem_seamless": 0.127}, "mae_basis": 1.54, "mae_nieuw": 1.55, "crps_oud": 1.17, "crps": 1.19, "n_eval": 91, "n_totaal": 151, "sig_c": 0.1, "sig_d": 0.853, "qz10": -2.199, "qz90": 1.66, "s_gem": 2.37, "dekking": 0.951}, "1": {"a": -1.027, "b": 1.018, "g": 0.0, "res_q10": -2.81, "res_q90": 3.58, "gewichten": {"ecmwf_ifs025": 0.368, "gfs_seamless": 0.122, "icon_seamless": 0.345, "gem_seamless": 0.166}, "mae_basis": 2.12, "mae_nieuw": 2.12, "crps_oud": 1.61, "crps": 1.66, "n_eval": 91, "n_totaal": 151, "sig_c": 0.1, "sig_d": 0.86, "qz10": -1.583, "qz90": 2.086, "s_gem": 2.72, "dekking": 0.805}, "2": {"a": -0.509, "b": 0.996, "g": 0.0, "res_q10": -3.66, "res_q90": 3.3, "gewichten": {"ecmwf_ifs025": 0.376, "gfs_seamless": 0.07, "icon_seamless": 0.381, "gem_seamless": 0.173}, "mae_basis": 2.48, "mae_nieuw": 2.47, "crps_oud": 1.84, "crps": 1.88, "n_eval": 91, "n_totaal": 151, "sig_c": 0.838, "sig_d": 0.4, "qz10": -1.326, "qz90": 1.657, "s_gem": 4.3, "dekking": 0.854}, "bron": "iem", "station": "SFO"}, "SEA": {"0": {"a": 0.236, "b": 1.01, "g": 0.0, "res_q10": -3.26, "res_q90": 1.72, "gewichten": {"ecmwf_ifs025": 0.143, "gfs_seamless": 0.43, "icon_seamless": 0.066, "gem_seamless": 0.361}, "mae_basis": 1.09, "mae_nieuw": 1.09, "crps_oud": 0.81, "crps": 0.81, "n_eval": 91, "n_totaal": 151, "sig_c": 0.893, "sig_d": 0.142, "qz10": -3.454, "qz90": 1.548, "s_gem": 1.79, "dekking": 0.732}, "1": {"a": -1.479, "b": 1.031, "g": 0.0, "res_q10": -4.95, "res_q90": 3.2, "gewichten": {"ecmwf_ifs025": 0.252, "gfs_seamless": 0.257, "icon_seamless": 0.156, "gem_seamless": 0.335}, "mae_basis": 2.12, "mae_nieuw": 2.13, "crps_oud": 1.59, "crps": 1.53, "n_eval": 91, "n_totaal": 151, "sig_c": 1.253, "sig_d": 0.382, "qz10": -2.417, "qz90": 1.491, "s_gem": 2.35, "dekking": 0.707}, "2": {"a": -1.051, "b": 1.03, "g": 0.0, "res_q10": -6.13, "res_q90": 4.52, "gewichten": {"ecmwf_ifs025": 0.34, "gfs_seamless": 0.282, "icon_seamless": 0.197, "gem_seamless": 0.182}, "mae_basis": 2.47, "mae_nieuw": 2.46, "crps_oud": 1.88, "crps": 1.82, "n_eval": 91, "n_totaal": 151, "sig_c": 2.477, "sig_d": 0.05, "qz10": -2.631, "qz90": 1.898, "s_gem": 3.21, "dekking": 0.707}, "bron": "iem", "station": "SEA"}, "DEN": {"0": {"a": 1.403, "b": 1.001, "g": 0.0, "res_q10": -1.75, "res_q90": 1.22, "gewichten": {"ecmwf_ifs025": 0.234, "gfs_seamless": 0.36, "icon_seamless": 0.271, "gem_seamless": 0.134}, "mae_basis": 0.94, "mae_nieuw": 0.95, "crps_oud": 0.7, "crps": 0.66, "n_eval": 90, "n_totaal": 150, "sig_c": 0.41, "sig_d": 0.36, "qz10": -1.672, "qz90": 1.883, "s_gem": 0.95, "dekking": 0.8}, "1": {"a": -1.165, "b": 1.03, "g": 0.0, "res_q10": -2.28, "res_q90": 2.23, "gewichten": {"ecmwf_ifs025": 0.298, "gfs_seamless": 0.257, "icon_seamless": 0.312, "gem_seamless": 0.132}, "mae_basis": 1.66, "mae_nieuw": 1.67, "crps_oud": 1.21, "crps": 1.17, "n_eval": 90, "n_totaal": 150, "sig_c": 0.722, "sig_d": 0.434, "qz10": -1.187, "qz90": 1.496, "s_gem": 1.38, "dekking": 0.8}, "2": {"a": -0.362, "b": 1.017, "g": 0.0, "res_q10": -3.01, "res_q90": 2.38, "gewichten": {"ecmwf_ifs025": 0.22, "gfs_seamless": 0.379, "icon_seamless": 0.258, "gem_seamless": 0.142}, "mae_basis": 1.92, "mae_nieuw": 1.91, "crps_oud": 1.4, "crps": 1.42, "n_eval": 90, "n_totaal": 150, "sig_c": 0.981, "sig_d": 0.234, "qz10": -1.225, "qz90": 1.548, "s_gem": 2.15, "dekking": 0.8}, "bron": "iem", "station": "BKF"}, "DAL": {"0": {"a": 3.071, "b": 0.985, "g": 0.19, "res_q10": -3.0, "res_q90": 2.82, "gewichten": {"ecmwf_ifs025": 0.119, "gfs_seamless": 0.475, "icon_seamless": 0.223, "gem_seamless": 0.183}, "mae_basis": 1.24, "mae_nieuw": 1.22, "crps_oud": 0.93, "crps": 0.9, "n_eval": 91, "n_totaal": 151, "sig_c": 1.275, "sig_d": 0.082, "qz10": -2.647, "qz90": 2.446, "s_gem": 1.13, "dekking": 0.732}, "1": {"a": 9.244, "b": 0.92, "g": 0.124, "res_q10": -3.94, "res_q90": 3.91, "gewichten": {"ecmwf_ifs025": 0.174, "gfs_seamless": 0.327, "icon_seamless": 0.256, "gem_seamless": 0.243}, "mae_basis": 1.98, "mae_nieuw": 1.97, "crps_oud": 1.53, "crps": 1.57, "n_eval": 91, "n_totaal": 151, "sig_c": 0.623, "sig_d": 0.934, "qz10": -2.012, "qz90": 2.31, "s_gem": 1.54, "dekking": 0.756}, "2": {"a": 9.46, "b": 0.91, "g": 0.074, "res_q10": -4.1, "res_q90": 3.96, "gewichten": {"ecmwf_ifs025": 0.19, "gfs_seamless": 0.293, "icon_seamless": 0.304, "gem_seamless": 0.213}, "mae_basis": 2.3, "mae_nieuw": 2.28, "crps_oud": 1.73, "crps": 1.69, "n_eval": 91, "n_totaal": 151, "sig_c": 0.1, "sig_d": 1.103, "qz10": -1.781, "qz90": 1.477, "s_gem": 1.98, "dekking": 0.829}, "bron": "iem", "station": "DAL"}, "HOU": {"0": {"a": 1.572, "b": 0.996, "g": 0.117, "res_q10": -2.11, "res_q90": 1.73, "gewichten": {"ecmwf_ifs025": 0.107, "gfs_seamless": 0.444, "icon_seamless": 0.257, "gem_seamless": 0.192}, "mae_basis": 1.05, "mae_nieuw": 1.03, "crps_oud": 0.74, "crps": 0.77, "n_eval": 91, "n_totaal": 151, "sig_c": 1.008, "sig_d": 0.165, "qz10": -2.033, "qz90": 1.555, "s_gem": 1.3, "dekking": 0.78}, "1": {"a": 0.748, "b": 1.007, "g": 0.001, "res_q10": -2.83, "res_q90": 2.71, "gewichten": {"ecmwf_ifs025": 0.153, "gfs_seamless": 0.227, "icon_seamless": 0.384, "gem_seamless": 0.236}, "mae_basis": 1.68, "mae_nieuw": 1.7, "crps_oud": 1.26, "crps": 1.23, "n_eval": 91, "n_totaal": 151, "sig_c": 1.604, "sig_d": 0.016, "qz10": -1.882, "qz90": 2.219, "s_gem": 1.73, "dekking": 0.78}, "2": {"a": -0.433, "b": 1.02, "g": 0.049, "res_q10": -3.37, "res_q90": 3.09, "gewichten": {"ecmwf_ifs025": 0.16, "gfs_seamless": 0.238, "icon_seamless": 0.347, "gem_seamless": 0.254}, "mae_basis": 1.97, "mae_nieuw": 1.98, "crps_oud": 1.43, "crps": 1.44, "n_eval": 91, "n_totaal": 151, "sig_c": 0.637, "sig_d": 0.636, "qz10": -2.01, "qz90": 1.48, "s_gem": 1.87, "dekking": 0.829}, "bron": "iem", "station": "HOU"}, "AUS": {"0": {"a": 4.825, "b": 0.96, "g": 0.0, "res_q10": -1.8, "res_q90": 1.54, "gewichten": {"ecmwf_ifs025": 0.133, "gfs_seamless": 0.261, "icon_seamless": 0.209, "gem_seamless": 0.397}, "mae_basis": 1.03, "mae_nieuw": 1.02, "crps_oud": 0.73, "crps": 0.75, "n_eval": 91, "n_totaal": 151, "sig_c": 0.561, "sig_d": 0.387, "qz10": -1.595, "qz90": 1.426, "s_gem": 1.1, "dekking": 0.854}, "1": {"a": 2.821, "b": 0.977, "g": 0.0, "res_q10": -2.62, "res_q90": 2.24, "gewichten": {"ecmwf_ifs025": 0.216, "gfs_seamless": 0.284, "icon_seamless": 0.296, "gem_seamless": 0.204}, "mae_basis": 1.57, "mae_nieuw": 1.58, "crps_oud": 1.21, "crps": 1.22, "n_eval": 91, "n_totaal": 151, "sig_c": 0.907, "sig_d": 0.277, "qz10": -1.992, "qz90": 1.365, "s_gem": 1.43, "dekking": 0.854}, "2": {"a": 5.275, "b": 0.941, "g": 0.0, "res_q10": -2.04, "res_q90": 2.62, "gewichten": {"ecmwf_ifs025": 0.19, "gfs_seamless": 0.127, "icon_seamless": 0.405, "gem_seamless": 0.279}, "mae_basis": 1.95, "mae_nieuw": 1.98, "crps_oud": 1.5, "crps": 1.47, "n_eval": 91, "n_totaal": 151, "sig_c": 1.244, "sig_d": 0.159, "qz10": -1.201, "qz90": 1.615, "s_gem": 2.1, "dekking": 0.756}, "bron": "iem", "station": "AUS"}, "ATL": {"0": {"a": 0.567, "b": 1.029, "g": 0.005, "res_q10": -1.43, "res_q90": 1.94, "gewichten": {"ecmwf_ifs025": 0.132, "gfs_seamless": 0.433, "icon_seamless": 0.227, "gem_seamless": 0.208}, "mae_basis": 1.04, "mae_nieuw": 1.04, "crps_oud": 0.76, "crps": 0.73, "n_eval": 91, "n_totaal": 151, "sig_c": 0.956, "sig_d": 0.079, "qz10": -1.647, "qz90": 2.527, "s_gem": 1.26, "dekking": 0.78}, "1": {"a": 7.588, "b": 0.941, "g": 0.053, "res_q10": -2.89, "res_q90": 2.3, "gewichten": {"ecmwf_ifs025": 0.261, "gfs_seamless": 0.352, "icon_seamless": 0.255, "gem_seamless": 0.131}, "mae_basis": 1.99, "mae_nieuw": 1.99, "crps_oud": 1.44, "crps": 1.25, "n_eval": 91, "n_totaal": 151, "sig_c": 1.653, "sig_d": 0.0, "qz10": -1.729, "qz90": 1.417, "s_gem": 1.79, "dekking": 0.805}, "2": {"a": 10.603, "b": 0.902, "g": 0.0, "res_q10": -3.85, "res_q90": 2.62, "gewichten": {"ecmwf_ifs025": 0.266, "gfs_seamless": 0.319, "icon_seamless": 0.259, "gem_seamless": 0.156}, "mae_basis": 2.3, "mae_nieuw": 2.31, "crps_oud": 1.71, "crps": 1.55, "n_eval": 91, "n_totaal": 151, "sig_c": 1.156, "sig_d": 0.34, "qz10": -2.176, "qz90": 1.357, "s_gem": 2.37, "dekking": 0.829}, "bron": "iem", "station": "ATL"}, "LON": {"0": {"a": -0.308, "b": 1.003, "g": 0.115, "res_q10": -1.29, "res_q90": 0.94, "gewichten": {"ecmwf_ifs025": 0.246, "gfs_seamless": 0.129, "icon_seamless": 0.38, "gem_seamless": 0.245}, "mae_basis": 0.57, "mae_nieuw": 0.57, "crps_oud": 0.42, "crps": 0.41, "n_eval": 91, "n_totaal": 151, "sig_c": 0.305, "sig_d": 0.381, "qz10": -2.277, "qz90": 1.486, "s_gem": 0.59, "dekking": 0.805}, "1": {"a": -0.663, "b": 1.006, "g": 0.103, "res_q10": -1.63, "res_q90": 1.19, "gewichten": {"ecmwf_ifs025": 0.273, "gfs_seamless": 0.128, "icon_seamless": 0.369, "gem_seamless": 0.23}, "mae_basis": 0.88, "mae_nieuw": 0.88, "crps_oud": 0.66, "crps": 0.65, "n_eval": 91, "n_totaal": 151, "sig_c": 0.1, "sig_d": 1.064, "qz10": -2.157, "qz90": 1.463, "s_gem": 0.78, "dekking": 0.854}, "2": {"a": -0.313, "b": 0.99, "g": 0.041, "res_q10": -2.25, "res_q90": 1.54, "gewichten": {"ecmwf_ifs025": 0.206, "gfs_seamless": 0.122, "icon_seamless": 0.334, "gem_seamless": 0.339}, "mae_basis": 0.99, "mae_nieuw": 0.99, "crps_oud": 0.74, "crps": 0.75, "n_eval": 91, "n_totaal": 151, "sig_c": 0.1, "sig_d": 1.348, "qz10": -1.894, "qz90": 1.494, "s_gem": 0.86, "dekking": 0.805}, "bron": "iem", "station": "EGLC"}, "PAR": {"0": {"a": 0.31, "b": 0.995, "g": 0.001, "res_q10": -0.85, "res_q90": 0.61, "gewichten": {"ecmwf_ifs025": 0.117, "gfs_seamless": 0.12, "icon_seamless": 0.477, "gem_seamless": 0.285}, "mae_basis": 0.49, "mae_nieuw": 0.49, "crps_oud": 0.36, "crps": 0.35, "n_eval": 91, "n_totaal": 151, "sig_c": 0.297, "sig_d": 0.12, "qz10": -1.835, "qz90": 1.097, "s_gem": 0.9, "dekking": 0.854}, "1": {"a": 0.139, "b": 0.991, "g": 0.0, "res_q10": -1.39, "res_q90": 0.96, "gewichten": {"ecmwf_ifs025": 0.242, "gfs_seamless": 0.112, "icon_seamless": 0.342, "gem_seamless": 0.304}, "mae_basis": 0.69, "mae_nieuw": 0.69, "crps_oud": 0.51, "crps": 0.53, "n_eval": 91, "n_totaal": 151, "sig_c": 0.726, "sig_d": 0.012, "qz10": -1.796, "qz90": 1.365, "s_gem": 1.16, "dekking": 0.829}, "2": {"a": 0.051, "b": 0.991, "g": 0.0, "res_q10": -1.8, "res_q90": 0.88, "gewichten": {"ecmwf_ifs025": 0.31, "gfs_seamless": 0.097, "icon_seamless": 0.37, "gem_seamless": 0.223}, "mae_basis": 0.72, "mae_nieuw": 0.73, "crps_oud": 0.54, "crps": 0.53, "n_eval": 91, "n_totaal": 151, "sig_c": 0.24, "sig_d": 0.389, "qz10": -2.305, "qz90": 1.053, "s_gem": 1.27, "dekking": 0.805}, "bron": "iem", "station": "LFPB"}, "AMS": {"0": {"a": 0.996, "b": 0.949, "g": 0.251, "res_q10": -0.66, "res_q90": 0.99, "gewichten": {"ecmwf_ifs025": 0.303, "gfs_seamless": 0.1, "icon_seamless": 0.374, "gem_seamless": 0.222}, "mae_basis": 0.53, "mae_nieuw": 0.51, "crps_oud": 0.37, "crps": 0.39, "n_eval": 91, "n_totaal": 151, "sig_c": 0.463, "sig_d": 0.073, "qz10": -1.373, "qz90": 2.141, "s_gem": 0.67, "dekking": 0.878}, "1": {"a": 1.474, "b": 0.921, "g": 0.202, "res_q10": -1.57, "res_q90": 1.34, "gewichten": {"ecmwf_ifs025": 0.33, "gfs_seamless": 0.102, "icon_seamless": 0.32, "gem_seamless": 0.248}, "mae_basis": 0.83, "mae_nieuw": 0.8, "crps_oud": 0.6, "crps": 0.61, "n_eval": 91, "n_totaal": 151, "sig_c": 0.315, "sig_d": 0.674, "qz10": -1.811, "qz90": 2.272, "s_gem": 0.79, "dekking": 0.78}, "2": {"a": 1.774, "b": 0.903, "g": 0.201, "res_q10": -1.87, "res_q90": 1.53, "gewichten": {"ecmwf_ifs025": 0.323, "gfs_seamless": 0.131, "icon_seamless": 0.316, "gem_seamless": 0.231}, "mae_basis": 0.87, "mae_nieuw": 0.87, "crps_oud": 0.65, "crps": 0.67, "n_eval": 91, "n_totaal": 151, "sig_c": 0.394, "sig_d": 0.679, "qz10": -1.911, "qz90": 1.944, "s_gem": 0.8, "dekking": 0.805}, "bron": "iem", "station": "EHAM"}, "MAD": {"0": {"a": 0.112, "b": 1.011, "g": 0.043, "res_q10": -0.7, "res_q90": 0.41, "gewichten": {"ecmwf_ifs025": 0.279, "gfs_seamless": 0.237, "icon_seamless": 0.389, "gem_seamless": 0.094}, "mae_basis": 0.46, "mae_nieuw": 0.47, "crps_oud": 0.35, "crps": 0.29, "n_eval": 91, "n_totaal": 151, "sig_c": 0.238, "sig_d": 0.245, "qz10": -2.015, "qz90": 0.947, "s_gem": 0.49, "dekking": 0.805}, "1": {"a": -0.06, "b": 1.01, "g": 0.017, "res_q10": -1.16, "res_q90": 0.51, "gewichten": {"ecmwf_ifs025": 0.368, "gfs_seamless": 0.278, "icon_seamless": 0.272, "gem_seamless": 0.082}, "mae_basis": 0.54, "mae_nieuw": 0.53, "crps_oud": 0.4, "crps": 0.34, "n_eval": 91, "n_totaal": 151, "sig_c": 0.397, "sig_d": 0.038, "qz10": -2.363, "qz90": 1.108, "s_gem": 0.55, "dekking": 0.78}, "2": {"a": -0.17, "b": 1.007, "g": 0.02, "res_q10": -1.12, "res_q90": 0.62, "gewichten": {"ecmwf_ifs025": 0.424, "gfs_seamless": 0.194, "icon_seamless": 0.272, "gem_seamless": 0.11}, "mae_basis": 0.6, "mae_nieuw": 0.59, "crps_oud": 0.44, "crps": 0.41, "n_eval": 91, "n_totaal": 151, "sig_c": 0.532, "sig_d": 0.017, "qz10": -2.404, "qz90": 1.263, "s_gem": 0.74, "dekking": 0.805}, "bron": "iem", "station": "LEMD"}, "MIL": {"0": {"a": 0.917, "b": 0.966, "g": 0.059, "res_q10": -1.06, "res_q90": 0.81, "gewichten": {"ecmwf_ifs025": 0.187, "gfs_seamless": 0.092, "icon_seamless": 0.498, "gem_seamless": 0.223}, "mae_basis": 0.48, "mae_nieuw": 0.49, "crps_oud": 0.35, "crps": 0.37, "n_eval": 91, "n_totaal": 151, "sig_c": 0.454, "sig_d": 0.102, "qz10": -1.968, "qz90": 1.621, "s_gem": 0.83, "dekking": 0.829}, "1": {"a": 1.409, "b": 0.947, "g": 0.022, "res_q10": -1.17, "res_q90": 0.94, "gewichten": {"ecmwf_ifs025": 0.275, "gfs_seamless": 0.174, "icon_seamless": 0.443, "gem_seamless": 0.108}, "mae_basis": 0.67, "mae_nieuw": 0.67, "crps_oud": 0.48, "crps": 0.49, "n_eval": 91, "n_totaal": 151, "sig_c": 0.503, "sig_d": 0.113, "qz10": -1.968, "qz90": 1.335, "s_gem": 1.18, "dekking": 0.854}, "2": {"a": 2.048, "b": 0.935, "g": 0.0, "res_q10": -1.34, "res_q90": 1.29, "gewichten": {"ecmwf_ifs025": 0.317, "gfs_seamless": 0.194, "icon_seamless": 0.331, "gem_seamless": 0.158}, "mae_basis": 0.73, "mae_nieuw": 0.73, "crps_oud": 0.54, "crps": 0.57, "n_eval": 91, "n_totaal": 151, "sig_c": 0.631, "sig_d": 0.169, "qz10": -1.991, "qz90": 1.839, "s_gem": 1.22, "dekking": 0.78}, "bron": "iem", "station": "LIMC"}, "MUC": {"0": {"a": 0.525, "b": 1.003, "g": 0.016, "res_q10": -0.95, "res_q90": 0.65, "gewichten": {"ecmwf_ifs025": 0.072, "gfs_seamless": 0.066, "icon_seamless": 0.555, "gem_seamless": 0.307}, "mae_basis": 0.47, "mae_nieuw": 0.48, "crps_oud": 0.34, "crps": 0.36, "n_eval": 91, "n_totaal": 151, "sig_c": 0.462, "sig_d": 0.0, "qz10": -1.693, "qz90": 1.317, "s_gem": 0.92, "dekking": 0.902}, "1": {"a": 0.876, "b": 1.004, "g": 0.036, "res_q10": -1.23, "res_q90": 1.3, "gewichten": {"ecmwf_ifs025": 0.169, "gfs_seamless": 0.13, "icon_seamless": 0.554, "gem_seamless": 0.147}, "mae_basis": 0.74, "mae_nieuw": 0.75, "crps_oud": 0.58, "crps": 0.61, "n_eval": 91, "n_totaal": 151, "sig_c": 0.596, "sig_d": 0.119, "qz10": -1.511, "qz90": 1.784, "s_gem": 1.18, "dekking": 0.854}, "2": {"a": 1.608, "b": 0.991, "g": 0.088, "res_q10": -1.98, "res_q90": 2.34, "gewichten": {"ecmwf_ifs025": 0.209, "gfs_seamless": 0.205, "icon_seamless": 0.372, "gem_seamless": 0.215}, "mae_basis": 0.92, "mae_nieuw": 0.93, "crps_oud": 0.7, "crps": 0.72, "n_eval": 91, "n_totaal": 151, "sig_c": 1.102, "sig_d": 0.0, "qz10": -1.784, "qz90": 2.211, "s_gem": 1.06, "dekking": 0.805}, "bron": "iem", "station": "EDDM"}, "WAW": {"0": {"a": -0.152, "b": 0.993, "g": 0.148, "res_q10": -0.95, "res_q90": 0.47, "gewichten": {"ecmwf_ifs025": 0.349, "gfs_seamless": 0.218, "icon_seamless": 0.34, "gem_seamless": 0.093}, "mae_basis": 0.47, "mae_nieuw": 0.47, "crps_oud": 0.32, "crps": 0.34, "n_eval": 91, "n_totaal": 151, "sig_c": 0.371, "sig_d": 0.144, "qz10": -2.039, "qz90": 1.04, "s_gem": 0.69, "dekking": 0.878}, "1": {"a": -0.414, "b": 1.004, "g": 0.0, "res_q10": -1.11, "res_q90": 0.73, "gewichten": {"ecmwf_ifs025": 0.265, "gfs_seamless": 0.247, "icon_seamless": 0.362, "gem_seamless": 0.126}, "mae_basis": 0.68, "mae_nieuw": 0.69, "crps_oud": 0.51, "crps": 0.54, "n_eval": 91, "n_totaal": 151, "sig_c": 0.474, "sig_d": 0.147, "qz10": -1.799, "qz90": 1.155, "s_gem": 0.85, "dekking": 0.878}, "2": {"a": -0.561, "b": 1.01, "g": 0.0, "res_q10": -1.76, "res_q90": 1.06, "gewichten": {"ecmwf_ifs025": 0.337, "gfs_seamless": 0.247, "icon_seamless": 0.212, "gem_seamless": 0.204}, "mae_basis": 0.86, "mae_nieuw": 0.87, "crps_oud": 0.66, "crps": 0.7, "n_eval": 91, "n_totaal": 151, "sig_c": 0.772, "sig_d": 0.071, "qz10": -1.797, "qz90": 1.266, "s_gem": 0.91, "dekking": 0.78}, "bron": "iem", "station": "EPWA"}, "HEL": {"0": {"a": 0.423, "b": 0.986, "g": 0.0, "res_q10": -1.8, "res_q90": 1.22, "gewichten": {"ecmwf_ifs025": 0.176, "gfs_seamless": 0.147, "icon_seamless": 0.354, "gem_seamless": 0.322}, "mae_basis": 0.67, "mae_nieuw": 0.67, "crps_oud": 0.5, "crps": 0.5, "n_eval": 91, "n_totaal": 151, "sig_c": 0.33, "sig_d": 0.616, "qz10": -2.772, "qz90": 1.659, "s_gem": 0.63, "dekking": 0.756}, "1": {"a": 0.732, "b": 0.977, "g": 0.023, "res_q10": -2.01, "res_q90": 1.71, "gewichten": {"ecmwf_ifs025": 0.19, "gfs_seamless": 0.206, "icon_seamless": 0.363, "gem_seamless": 0.241}, "mae_basis": 0.99, "mae_nieuw": 1.0, "crps_oud": 0.74, "crps": 0.74, "n_eval": 91, "n_totaal": 151, "sig_c": 1.013, "sig_d": 0.019, "qz10": -2.111, "qz90": 1.975, "s_gem": 0.77, "dekking": 0.829}, "2": {"a": 1.295, "b": 0.946, "g": 0.017, "res_q10": -2.77, "res_q90": 2.02, "gewichten": {"ecmwf_ifs025": 0.256, "gfs_seamless": 0.222, "icon_seamless": 0.224, "gem_seamless": 0.297}, "mae_basis": 1.26, "mae_nieuw": 1.26, "crps_oud": 0.95, "crps": 0.95, "n_eval": 91, "n_totaal": 151, "sig_c": 0.441, "sig_d": 0.917, "qz10": -1.873, "qz90": 1.333, "s_gem": 0.92, "dekking": 0.805}, "bron": "iem", "station": "EFHK"}, "ANK": {"0": {"a": 0.561, "b": 1.001, "g": 0.0, "res_q10": -1.26, "res_q90": 0.95, "gewichten": {"ecmwf_ifs025": 0.174, "gfs_seamless": 0.164, "icon_seamless": 0.308, "gem_seamless": 0.353}, "mae_basis": 0.59, "mae_nieuw": 0.59, "crps_oud": 0.44, "crps": 0.46, "n_eval": 91, "n_totaal": 151, "sig_c": 0.1, "sig_d": 1.056, "qz10": -2.754, "qz90": 2.429, "s_gem": 0.51, "dekking": 0.756}, "1": {"a": 0.362, "b": 1.003, "g": 0.0, "res_q10": -1.67, "res_q90": 0.92, "gewichten": {"ecmwf_ifs025": 0.187, "gfs_seamless": 0.223, "icon_seamless": 0.336, "gem_seamless": 0.254}, "mae_basis": 0.7, "mae_nieuw": 0.7, "crps_oud": 0.52, "crps": 0.53, "n_eval": 91, "n_totaal": 151, "sig_c": 0.235, "sig_d": 0.663, "qz10": -2.331, "qz90": 1.254, "s_gem": 0.65, "dekking": 0.829}, "2": {"a": 0.231, "b": 0.998, "g": 0.088, "res_q10": -2.16, "res_q90": 1.24, "gewichten": {"ecmwf_ifs025": 0.197, "gfs_seamless": 0.21, "icon_seamless": 0.336, "gem_seamless": 0.257}, "mae_basis": 0.81, "mae_nieuw": 0.82, "crps_oud": 0.61, "crps": 0.61, "n_eval": 91, "n_totaal": 151, "sig_c": 0.106, "sig_d": 1.016, "qz10": -2.434, "qz90": 1.39, "s_gem": 0.77, "dekking": 0.829}, "bron": "iem", "station": "LTAC"}, "IST": {"0": {"a": 0.053, "b": 0.996, "g": 0.0, "res_q10": -1.23, "res_q90": 1.21, "gewichten": {"ecmwf_ifs025": 0.284, "gfs_seamless": 0.072, "icon_seamless": 0.358, "gem_seamless": 0.285}, "mae_basis": 0.73, "mae_nieuw": 0.73, "crps_oud": 0.52, "crps": 0.52, "n_eval": 91, "n_totaal": 151, "sig_c": 0.196, "sig_d": 0.535, "qz10": -2.102, "qz90": 1.679, "s_gem": 0.87, "dekking": 0.732}, "1": {"a": 0.194, "b": 1.001, "g": 0.0, "res_q10": -1.12, "res_q90": 1.08, "gewichten": {"ecmwf_ifs025": 0.286, "gfs_seamless": 0.148, "icon_seamless": 0.266, "gem_seamless": 0.3}, "mae_basis": 0.97, "mae_nieuw": 0.97, "crps_oud": 0.69, "crps": 0.7, "n_eval": 91, "n_totaal": 151, "sig_c": 0.1, "sig_d": 0.829, "qz10": -1.506, "qz90": 1.246, "s_gem": 1.1, "dekking": 0.829}, "2": {"a": -0.127, "b": 1.01, "g": 0.0, "res_q10": -1.31, "res_q90": 1.19, "gewichten": {"ecmwf_ifs025": 0.29, "gfs_seamless": 0.124, "icon_seamless": 0.208, "gem_seamless": 0.378}, "mae_basis": 0.88, "mae_nieuw": 0.88, "crps_oud": 0.65, "crps": 0.68, "n_eval": 91, "n_totaal": 151, "sig_c": 0.1, "sig_d": 0.831, "qz10": -1.553, "qz90": 1.243, "s_gem": 1.05, "dekking": 0.878}, "bron": "iem", "station": "LTFM"}, "MOW": {"0": {"a": 0.002, "b": 1.006, "g": 0.091, "res_q10": -1.18, "res_q90": 0.78, "gewichten": {"ecmwf_ifs025": 0.264, "gfs_seamless": 0.157, "icon_seamless": 0.274, "gem_seamless": 0.305}, "mae_basis": 0.67, "mae_nieuw": 0.67, "crps_oud": 0.48, "crps": 0.49, "n_eval": 91, "n_totaal": 151, "sig_c": 0.618, "sig_d": 0.0, "qz10": -1.981, "qz90": 1.249, "s_gem": 0.5, "dekking": 0.854}, "1": {"a": 0.655, "b": 0.984, "g": 0.148, "res_q10": -1.75, "res_q90": 1.01, "gewichten": {"ecmwf_ifs025": 0.236, "gfs_seamless": 0.155, "icon_seamless": 0.272, "gem_seamless": 0.337}, "mae_basis": 0.89, "mae_nieuw": 0.89, "crps_oud": 0.63, "crps": 0.61, "n_eval": 91, "n_totaal": 151, "sig_c": 0.581, "sig_d": 0.211, "qz10": -1.947, "qz90": 1.262, "s_gem": 0.89, "dekking": 0.854}, "2": {"a": 0.08, "b": 1.006, "g": 0.0, "res_q10": -1.91, "res_q90": 1.39, "gewichten": {"ecmwf_ifs025": 0.232, "gfs_seamless": 0.157, "icon_seamless": 0.309, "gem_seamless": 0.301}, "mae_basis": 1.06, "mae_nieuw": 1.05, "crps_oud": 0.76, "crps": 0.74, "n_eval": 91, "n_totaal": 151, "sig_c": 0.635, "sig_d": 0.355, "qz10": -2.2, "qz90": 1.404, "s_gem": 0.87, "dekking": 0.78}, "bron": "iem", "station": "UUWW"}, "TYO": {"0": {"a": 0.461, "b": 0.982, "g": 0.0, "res_q10": -1.35, "res_q90": 1.83, "gewichten": {"ecmwf_ifs025": 0.08, "gfs_seamless": 0.351, "icon_seamless": 0.298, "gem_seamless": 0.271}, "mae_basis": 0.78, "mae_nieuw": 0.78, "crps_oud": 0.56, "crps": 0.56, "n_eval": 91, "n_totaal": 151, "sig_c": 0.704, "sig_d": 0.174, "qz10": -1.694, "qz90": 2.317, "s_gem": 1.05, "dekking": 0.78}, "1": {"a": 0.654, "b": 0.976, "g": 0.0, "res_q10": -1.47, "res_q90": 1.9, "gewichten": {"ecmwf_ifs025": 0.113, "gfs_seamless": 0.295, "icon_seamless": 0.299, "gem_seamless": 0.293}, "mae_basis": 0.98, "mae_nieuw": 0.97, "crps_oud": 0.73, "crps": 0.75, "n_eval": 91, "n_totaal": 151, "sig_c": 1.033, "sig_d": 0.065, "qz10": -1.075, "qz90": 2.835, "s_gem": 1.07, "dekking": 0.78}, "2": {"a": 1.466, "b": 0.949, "g": 0.0, "res_q10": -1.89, "res_q90": 3.04, "gewichten": {"ecmwf_ifs025": 0.189, "gfs_seamless": 0.263, "icon_seamless": 0.339, "gem_seamless": 0.209}, "mae_basis": 1.11, "mae_nieuw": 1.11, "crps_oud": 0.85, "crps": 0.88, "n_eval": 91, "n_totaal": 151, "sig_c": 1.398, "sig_d": 0.0, "qz10": -1.955, "qz90": 2.878, "s_gem": 1.05, "dekking": 0.756}, "bron": "iem", "station": "RJTT"}, "SEL": {"0": {"a": 1.094, "b": 1.001, "g": 0.088, "res_q10": -1.26, "res_q90": 1.23, "gewichten": {"ecmwf_ifs025": 0.285, "gfs_seamless": 0.034, "icon_seamless": 0.437, "gem_seamless": 0.245}, "mae_basis": 0.79, "mae_nieuw": 0.79, "crps_oud": 0.56, "crps": 0.58, "n_eval": 91, "n_totaal": 151, "sig_c": 0.661, "sig_d": 0.059, "qz10": -1.833, "qz90": 1.709, "s_gem": 1.66, "dekking": 0.854}, "1": {"a": 1.004, "b": 1.01, "g": 0.079, "res_q10": -1.47, "res_q90": 1.64, "gewichten": {"ecmwf_ifs025": 0.273, "gfs_seamless": 0.045, "icon_seamless": 0.47, "gem_seamless": 0.212}, "mae_basis": 1.01, "mae_nieuw": 1.0, "crps_oud": 0.71, "crps": 0.73, "n_eval": 91, "n_totaal": 151, "sig_c": 0.923, "sig_d": 0.028, "qz10": -1.577, "qz90": 1.738, "s_gem": 1.71, "dekking": 0.805}, "2": {"a": 1.391, "b": 1.003, "g": 0.058, "res_q10": -1.25, "res_q90": 2.18, "gewichten": {"ecmwf_ifs025": 0.31, "gfs_seamless": 0.053, "icon_seamless": 0.395, "gem_seamless": 0.241}, "mae_basis": 1.12, "mae_nieuw": 1.12, "crps_oud": 0.82, "crps": 0.83, "n_eval": 91, "n_totaal": 151, "sig_c": 1.057, "sig_d": 0.036, "qz10": -1.024, "qz90": 1.971, "s_gem": 1.69, "dekking": 0.854}, "bron": "iem", "station": "RKSI"}, "PUS": {"0": {"a": 1.15, "b": 0.965, "g": 0.063, "res_q10": -1.39, "res_q90": 1.0, "gewichten": {"ecmwf_ifs025": 0.313, "gfs_seamless": 0.316, "icon_seamless": 0.072, "gem_seamless": 0.298}, "mae_basis": 0.7, "mae_nieuw": 0.7, "crps_oud": 0.52, "crps": 0.51, "n_eval": 91, "n_totaal": 151, "sig_c": 0.728, "sig_d": 0.0, "qz10": -2.311, "qz90": 1.282, "s_gem": 1.24, "dekking": 0.78}, "1": {"a": 1.22, "b": 0.968, "g": 0.046, "res_q10": -1.88, "res_q90": 1.52, "gewichten": {"ecmwf_ifs025": 0.34, "gfs_seamless": 0.309, "icon_seamless": 0.096, "gem_seamless": 0.255}, "mae_basis": 0.97, "mae_nieuw": 0.97, "crps_oud": 0.72, "crps": 0.73, "n_eval": 91, "n_totaal": 151, "sig_c": 0.95, "sig_d": 0.0, "qz10": -1.949, "qz90": 1.509, "s_gem": 1.21, "dekking": 0.756}, "2": {"a": -0.579, "b": 1.034, "g": 0.0, "res_q10": -1.45, "res_q90": 1.4, "gewichten": {"ecmwf_ifs025": 0.368, "gfs_seamless": 0.298, "icon_seamless": 0.104, "gem_seamless": 0.23}, "mae_basis": 1.03, "mae_nieuw": 1.04, "crps_oud": 0.8, "crps": 0.8, "n_eval": 91, "n_totaal": 151, "sig_c": 0.836, "sig_d": 0.0, "qz10": -1.471, "qz90": 1.592, "s_gem": 1.28, "dekking": 0.829}, "bron": "iem", "station": "RKPK"}, "TPE": {"0": {"a": -0.038, "b": 1.031, "g": 0.0, "res_q10": -1.95, "res_q90": 1.04, "gewichten": {"ecmwf_ifs025": 0.267, "gfs_seamless": 0.351, "icon_seamless": 0.273, "gem_seamless": 0.109}, "mae_basis": 0.87, "mae_nieuw": 0.88, "crps_oud": 0.67, "crps": 0.66, "n_eval": 91, "n_totaal": 151, "sig_c": 0.191, "sig_d": 0.514, "qz10": -2.501, "qz90": 1.23, "s_gem": 1.03, "dekking": 0.829}, "1": {"a": 0.503, "b": 1.024, "g": 0.058, "res_q10": -1.8, "res_q90": 0.88, "gewichten": {"ecmwf_ifs025": 0.212, "gfs_seamless": 0.342, "icon_seamless": 0.333, "gem_seamless": 0.113}, "mae_basis": 1.07, "mae_nieuw": 1.08, "crps_oud": 0.8, "crps": 0.79, "n_eval": 91, "n_totaal": 151, "sig_c": 0.104, "sig_d": 0.609, "qz10": -1.752, "qz90": 0.902, "s_gem": 1.19, "dekking": 0.878}, "2": {"a": 0.563, "b": 1.021, "g": 0.093, "res_q10": -1.71, "res_q90": 1.56, "gewichten": {"ecmwf_ifs025": 0.208, "gfs_seamless": 0.383, "icon_seamless": 0.296, "gem_seamless": 0.113}, "mae_basis": 1.09, "mae_nieuw": 1.07, "crps_oud": 0.84, "crps": 0.81, "n_eval": 91, "n_totaal": 151, "sig_c": 0.707, "sig_d": 0.127, "qz10": -2.034, "qz90": 1.629, "s_gem": 1.29, "dekking": 0.78}, "bron": "iem", "station": "RCSS"}, "PEK": {"0": {"a": 1.099, "b": 0.973, "g": 0.011, "res_q10": -1.21, "res_q90": 2.29, "gewichten": {"ecmwf_ifs025": 0.302, "gfs_seamless": 0.134, "icon_seamless": 0.348, "gem_seamless": 0.217}, "mae_basis": 0.98, "mae_nieuw": 0.97, "crps_oud": 0.75, "crps": 0.77, "n_eval": 91, "n_totaal": 151, "sig_c": 0.596, "sig_d": 0.289, "qz10": -1.447, "qz90": 2.305, "s_gem": 1.11, "dekking": 0.78}, "1": {"a": 1.232, "b": 0.962, "g": 0.0, "res_q10": -2.34, "res_q90": 1.98, "gewichten": {"ecmwf_ifs025": 0.313, "gfs_seamless": 0.157, "icon_seamless": 0.319, "gem_seamless": 0.21}, "mae_basis": 1.3, "mae_nieuw": 1.3, "crps_oud": 0.98, "crps": 1.03, "n_eval": 91, "n_totaal": 151, "sig_c": 1.105, "sig_d": 0.104, "qz10": -1.887, "qz90": 1.517, "s_gem": 1.32, "dekking": 0.78}, "2": {"a": 1.209, "b": 0.964, "g": 0.0, "res_q10": -2.63, "res_q90": 2.42, "gewichten": {"ecmwf_ifs025": 0.309, "gfs_seamless": 0.174, "icon_seamless": 0.306, "gem_seamless": 0.211}, "mae_basis": 1.43, "mae_nieuw": 1.43, "crps_oud": 1.07, "crps": 1.12, "n_eval": 91, "n_totaal": 151, "sig_c": 1.013, "sig_d": 0.222, "qz10": -1.772, "qz90": 1.854, "s_gem": 1.5, "dekking": 0.732}, "bron": "iem", "station": "ZBAA"}, "SHA": {"0": {"a": -0.914, "b": 1.066, "g": 0.135, "res_q10": -1.24, "res_q90": 1.29, "gewichten": {"ecmwf_ifs025": 0.302, "gfs_seamless": 0.196, "icon_seamless": 0.351, "gem_seamless": 0.152}, "mae_basis": 0.76, "mae_nieuw": 0.76, "crps_oud": 0.57, "crps": 0.57, "n_eval": 91, "n_totaal": 151, "sig_c": 0.316, "sig_d": 0.432, "qz10": -1.824, "qz90": 1.645, "s_gem": 0.77, "dekking": 0.829}, "1": {"a": -1.04, "b": 1.08, "g": 0.132, "res_q10": -0.94, "res_q90": 1.5, "gewichten": {"ecmwf_ifs025": 0.307, "gfs_seamless": 0.208, "icon_seamless": 0.351, "gem_seamless": 0.134}, "mae_basis": 0.99, "mae_nieuw": 0.98, "crps_oud": 0.73, "crps": 0.71, "n_eval": 91, "n_totaal": 151, "sig_c": 0.781, "sig_d": 0.0, "qz10": -0.932, "qz90": 1.615, "s_gem": 0.89, "dekking": 0.854}, "2": {"a": -0.921, "b": 1.079, "g": 0.035, "res_q10": -1.67, "res_q90": 1.79, "gewichten": {"ecmwf_ifs025": 0.335, "gfs_seamless": 0.151, "icon_seamless": 0.341, "gem_seamless": 0.173}, "mae_basis": 1.1, "mae_nieuw": 1.11, "crps_oud": 0.82, "crps": 0.83, "n_eval": 91, "n_totaal": 151, "sig_c": 0.922, "sig_d": 0.0, "qz10": -1.662, "qz90": 1.777, "s_gem": 0.97, "dekking": 0.878}, "bron": "iem", "station": "ZSPD"}, "CAN": {"0": {"a": -0.737, "b": 1.059, "g": 0.063, "res_q10": -1.44, "res_q90": 1.04, "gewichten": {"ecmwf_ifs025": 0.182, "gfs_seamless": 0.323, "icon_seamless": 0.236, "gem_seamless": 0.259}, "mae_basis": 0.81, "mae_nieuw": 0.81, "crps_oud": 0.57, "crps": 0.57, "n_eval": 91, "n_totaal": 151, "sig_c": 0.386, "sig_d": 0.419, "qz10": -1.839, "qz90": 1.175, "s_gem": 0.79, "dekking": 0.927}, "1": {"a": -0.1, "b": 1.043, "g": 0.0, "res_q10": -1.66, "res_q90": 1.59, "gewichten": {"ecmwf_ifs025": 0.267, "gfs_seamless": 0.285, "icon_seamless": 0.236, "gem_seamless": 0.212}, "mae_basis": 1.07, "mae_nieuw": 1.06, "crps_oud": 0.74, "crps": 0.73, "n_eval": 91, "n_totaal": 151, "sig_c": 0.403, "sig_d": 0.666, "qz10": -2.265, "qz90": 1.514, "s_gem": 0.8, "dekking": 0.829}, "2": {"a": -0.25, "b": 1.055, "g": 0.026, "res_q10": -1.42, "res_q90": 1.74, "gewichten": {"ecmwf_ifs025": 0.234, "gfs_seamless": 0.284, "icon_seamless": 0.249, "gem_seamless": 0.232}, "mae_basis": 1.15, "mae_nieuw": 1.14, "crps_oud": 0.79, "crps": 0.78, "n_eval": 91, "n_totaal": 151, "sig_c": 0.851, "sig_d": 0.133, "qz10": -1.605, "qz90": 1.841, "s_gem": 0.79, "dekking": 0.805}, "bron": "iem", "station": "ZGGG"}, "SZX": {"0": {"a": 4.686, "b": 0.844, "g": 0.0, "res_q10": -1.13, "res_q90": 2.98, "gewichten": {"ecmwf_ifs025": 0.361, "gfs_seamless": 0.109, "icon_seamless": 0.227, "gem_seamless": 0.304}, "mae_basis": 0.78, "mae_nieuw": 0.78, "crps_oud": 0.58, "crps": 0.59, "n_eval": 91, "n_totaal": 151, "sig_c": 0.894, "sig_d": 0.0, "qz10": -1.485, "qz90": 3.727, "s_gem": 0.89, "dekking": 0.829}, "1": {"a": 5.162, "b": 0.833, "g": 0.038, "res_q10": -1.86, "res_q90": 3.05, "gewichten": {"ecmwf_ifs025": 0.327, "gfs_seamless": 0.145, "icon_seamless": 0.246, "gem_seamless": 0.282}, "mae_basis": 0.93, "mae_nieuw": 0.92, "crps_oud": 0.69, "crps": 0.7, "n_eval": 91, "n_totaal": 151, "sig_c": 1.006, "sig_d": 0.0, "qz10": -1.731, "qz90": 3.098, "s_gem": 0.93, "dekking": 0.805}, "2": {"a": 5.61, "b": 0.82, "g": 0.076, "res_q10": -1.67, "res_q90": 2.77, "gewichten": {"ecmwf_ifs025": 0.334, "gfs_seamless": 0.164, "icon_seamless": 0.243, "gem_seamless": 0.258}, "mae_basis": 1.07, "mae_nieuw": 1.07, "crps_oud": 0.79, "crps": 0.77, "n_eval": 91, "n_totaal": 151, "sig_c": 1.068, "sig_d": 0.0, "qz10": -1.473, "qz90": 2.429, "s_gem": 0.96, "dekking": 0.78}, "bron": "iem", "station": "ZGSZ"}, "CTU": {"0": {"a": 0.671, "b": 1.001, "g": 0.0, "res_q10": -1.66, "res_q90": 1.54, "gewichten": {"ecmwf_ifs025": 0.258, "gfs_seamless": 0.114, "icon_seamless": 0.364, "gem_seamless": 0.263}, "mae_basis": 0.97, "mae_nieuw": 0.97, "crps_oud": 0.71, "crps": 0.72, "n_eval": 91, "n_totaal": 151, "sig_c": 0.909, "sig_d": 0.0, "qz10": -1.774, "qz90": 1.617, "s_gem": 1.02, "dekking": 0.78}, "1": {"a": 1.423, "b": 0.975, "g": 0.0, "res_q10": -2.55, "res_q90": 2.41, "gewichten": {"ecmwf_ifs025": 0.31, "gfs_seamless": 0.143, "icon_seamless": 0.312, "gem_seamless": 0.236}, "mae_basis": 1.49, "mae_nieuw": 1.48, "crps_oud": 1.06, "crps": 1.04, "n_eval": 91, "n_totaal": 151, "sig_c": 1.143, "sig_d": 0.16, "qz10": -1.958, "qz90": 1.677, "s_gem": 1.37, "dekking": 0.854}, "2": {"a": 1.464, "b": 0.973, "g": 0.0, "res_q10": -2.27, "res_q90": 2.95, "gewichten": {"ecmwf_ifs025": 0.274, "gfs_seamless": 0.152, "icon_seamless": 0.37, "gem_seamless": 0.204}, "mae_basis": 1.69, "mae_nieuw": 1.68, "crps_oud": 1.2, "crps": 1.21, "n_eval": 91, "n_totaal": 151, "sig_c": 1.494, "sig_d": 0.0, "qz10": -1.47, "qz90": 1.777, "s_gem": 1.69, "dekking": 0.878}, "bron": "iem", "station": "ZUUU"}, "CKG": {"0": {"a": 0.211, "b": 0.993, "g": 0.054, "res_q10": -0.88, "res_q90": 1.22, "gewichten": {"ecmwf_ifs025": 0.22, "gfs_seamless": 0.205, "icon_seamless": 0.372, "gem_seamless": 0.203}, "mae_basis": 0.78, "mae_nieuw": 0.78, "crps_oud": 0.57, "crps": 0.55, "n_eval": 91, "n_totaal": 151, "sig_c": 0.357, "sig_d": 0.356, "qz10": -1.398, "qz90": 1.383, "s_gem": 0.78, "dekking": 0.805}, "1": {"a": -0.489, "b": 1.014, "g": 0.049, "res_q10": -0.96, "res_q90": 1.11, "gewichten": {"ecmwf_ifs025": 0.168, "gfs_seamless": 0.32, "icon_seamless": 0.303, "gem_seamless": 0.209}, "mae_basis": 0.99, "mae_nieuw": 0.99, "crps_oud": 0.75, "crps": 0.75, "n_eval": 91, "n_totaal": 151, "sig_c": 0.319, "sig_d": 0.381, "qz10": -1.555, "qz90": 1.495, "s_gem": 1.06, "dekking": 0.854}, "2": {"a": -0.198, "b": 1.007, "g": 0.009, "res_q10": -1.61, "res_q90": 1.73, "gewichten": {"ecmwf_ifs025": 0.141, "gfs_seamless": 0.26, "icon_seamless": 0.355, "gem_seamless": 0.244}, "mae_basis": 1.2, "mae_nieuw": 1.2, "crps_oud": 0.88, "crps": 0.87, "n_eval": 91, "n_totaal": 151, "sig_c": 0.18, "sig_d": 0.603, "qz10": -1.469, "qz90": 1.47, "s_gem": 1.23, "dekking": 0.829}, "bron": "iem", "station": "ZUCK"}, "WUH": {"0": {"a": 0.379, "b": 1.018, "g": 0.0, "res_q10": -1.1, "res_q90": 1.41, "gewichten": {"ecmwf_ifs025": 0.237, "gfs_seamless": 0.261, "icon_seamless": 0.336, "gem_seamless": 0.166}, "mae_basis": 0.74, "mae_nieuw": 0.74, "crps_oud": 0.53, "crps": 0.55, "n_eval": 91, "n_totaal": 151, "sig_c": 0.679, "sig_d": 0.016, "qz10": -1.623, "qz90": 1.79, "s_gem": 0.94, "dekking": 0.829}, "1": {"a": 0.046, "b": 1.025, "g": 0.0, "res_q10": -1.68, "res_q90": 1.8, "gewichten": {"ecmwf_ifs025": 0.252, "gfs_seamless": 0.296, "icon_seamless": 0.292, "gem_seamless": 0.16}, "mae_basis": 0.94, "mae_nieuw": 0.94, "crps_oud": 0.68, "crps": 0.71, "n_eval": 91, "n_totaal": 151, "sig_c": 0.963, "sig_d": 0.0, "qz10": -1.832, "qz90": 1.759, "s_gem": 1.13, "dekking": 0.805}, "2": {"a": 0.539, "b": 1.015, "g": 0.005, "res_q10": -1.8, "res_q90": 2.23, "gewichten": {"ecmwf_ifs025": 0.251, "gfs_seamless": 0.313, "icon_seamless": 0.247, "gem_seamless": 0.188}, "mae_basis": 1.14, "mae_nieuw": 1.14, "crps_oud": 0.83, "crps": 0.85, "n_eval": 91, "n_totaal": 151, "sig_c": 1.193, "sig_d": 0.0, "qz10": -1.455, "qz90": 1.937, "s_gem": 1.16, "dekking": 0.829}, "bron": "iem", "station": "ZHHH"}, "TAO": {"0": {"a": 0.09, "b": 1.031, "g": 0.059, "res_q10": -2.27, "res_q90": 1.59, "gewichten": {"ecmwf_ifs025": 0.409, "gfs_seamless": 0.419, "icon_seamless": 0.09, "gem_seamless": 0.082}, "mae_basis": 1.11, "mae_nieuw": 1.12, "crps_oud": 0.83, "crps": 0.84, "n_eval": 91, "n_totaal": 151, "sig_c": 1.043, "sig_d": 0.0, "qz10": -2.288, "qz90": 1.636, "s_gem": 1.37, "dekking": 0.78}, "1": {"a": -0.462, "b": 1.057, "g": 0.037, "res_q10": -2.23, "res_q90": 1.65, "gewichten": {"ecmwf_ifs025": 0.364, "gfs_seamless": 0.414, "icon_seamless": 0.127, "gem_seamless": 0.095}, "mae_basis": 1.3, "mae_nieuw": 1.32, "crps_oud": 0.96, "crps": 0.96, "n_eval": 91, "n_totaal": 151, "sig_c": 1.132, "sig_d": 0.0, "qz10": -1.801, "qz90": 1.386, "s_gem": 1.38, "dekking": 0.78}, "2": {"a": 0.514, "b": 1.025, "g": 0.074, "res_q10": -2.46, "res_q90": 1.98, "gewichten": {"ecmwf_ifs025": 0.333, "gfs_seamless": 0.419, "icon_seamless": 0.131, "gem_seamless": 0.117}, "mae_basis": 1.39, "mae_nieuw": 1.39, "crps_oud": 1.01, "crps": 1.02, "n_eval": 91, "n_totaal": 151, "sig_c": 1.163, "sig_d": 0.0, "qz10": -1.827, "qz90": 1.657, "s_gem": 1.43, "dekking": 0.732}, "bron": "iem", "station": "ZSQD"}, "TNA": {"0": {"a": 0.518, "b": 0.98, "g": 0.1, "res_q10": -0.59, "res_q90": 0.61, "gewichten": {"ecmwf_ifs025": 0.625, "gfs_seamless": 0.032, "icon_seamless": 0.206, "gem_seamless": 0.137}, "mae_basis": 0.44, "mae_nieuw": 0.44, "crps_oud": 0.32, "crps": 0.33, "n_eval": 91, "n_totaal": 151, "sig_c": 0.416, "sig_d": 0.0, "qz10": -1.341, "qz90": 1.646, "s_gem": 1.24, "dekking": 0.805}, "1": {"a": 1.488, "b": 0.941, "g": 0.031, "res_q10": -1.43, "res_q90": 1.55, "gewichten": {"ecmwf_ifs025": 0.56, "gfs_seamless": 0.057, "icon_seamless": 0.225, "gem_seamless": 0.158}, "mae_basis": 0.79, "mae_nieuw": 0.8, "crps_oud": 0.59, "crps": 0.63, "n_eval": 91, "n_totaal": 151, "sig_c": 0.636, "sig_d": 0.108, "qz10": -1.57, "qz90": 1.729, "s_gem": 1.52, "dekking": 0.829}, "2": {"a": 1.174, "b": 0.938, "g": 0.006, "res_q10": -1.74, "res_q90": 1.63, "gewichten": {"ecmwf_ifs025": 0.39, "gfs_seamless": 0.074, "icon_seamless": 0.224, "gem_seamless": 0.312}, "mae_basis": 0.99, "mae_nieuw": 0.99, "crps_oud": 0.73, "crps": 0.75, "n_eval": 91, "n_totaal": 151, "sig_c": 0.974, "sig_d": 0.0, "qz10": -1.469, "qz90": 1.476, "s_gem": 1.41, "dekking": 0.854}, "bron": "era5", "station": "ZSJN"}, "CGO": {"0": {"a": 0.55, "b": 0.962, "g": 0.0, "res_q10": -0.92, "res_q90": 1.14, "gewichten": {"ecmwf_ifs025": 0.432, "gfs_seamless": 0.057, "icon_seamless": 0.332, "gem_seamless": 0.179}, "mae_basis": 0.78, "mae_nieuw": 0.78, "crps_oud": 0.56, "crps": 0.58, "n_eval": 91, "n_totaal": 151, "sig_c": 0.442, "sig_d": 0.185, "qz10": -1.038, "qz90": 1.714, "s_gem": 1.19, "dekking": 0.854}, "1": {"a": 0.374, "b": 0.959, "g": 0.014, "res_q10": -1.65, "res_q90": 1.53, "gewichten": {"ecmwf_ifs025": 0.429, "gfs_seamless": 0.071, "icon_seamless": 0.314, "gem_seamless": 0.187}, "mae_basis": 0.96, "mae_nieuw": 0.96, "crps_oud": 0.7, "crps": 0.77, "n_eval": 91, "n_totaal": 151, "sig_c": 0.761, "sig_d": 0.109, "qz10": -1.87, "qz90": 1.603, "s_gem": 1.45, "dekking": 0.902}, "2": {"a": 0.917, "b": 0.939, "g": 0.067, "res_q10": -1.67, "res_q90": 1.78, "gewichten": {"ecmwf_ifs025": 0.348, "gfs_seamless": 0.093, "icon_seamless": 0.305, "gem_seamless": 0.254}, "mae_basis": 1.07, "mae_nieuw": 1.08, "crps_oud": 0.78, "crps": 0.83, "n_eval": 91, "n_totaal": 151, "sig_c": 0.716, "sig_d": 0.25, "qz10": -1.514, "qz90": 1.64, "s_gem": 1.54, "dekking": 0.805}, "bron": "iem", "station": "ZHCC"}, "HKG": {"0": {"a": -1.03, "b": 1.066, "g": 0.0, "res_q10": -1.04, "res_q90": 0.76, "gewichten": {"ecmwf_ifs025": 0.224, "gfs_seamless": 0.066, "icon_seamless": 0.415, "gem_seamless": 0.295}, "mae_basis": 0.75, "mae_nieuw": 0.75, "crps_oud": 0.57, "crps": 0.57, "n_eval": 66, "n_totaal": 126, "sig_c": 0.543, "sig_d": 0.0, "qz10": -1.605, "qz90": 1.107, "s_gem": 0.97, "dekking": 0.929}, "1": {"a": -0.835, "b": 1.062, "g": 0.0, "res_q10": -1.14, "res_q90": 1.08, "gewichten": {"ecmwf_ifs025": 0.255, "gfs_seamless": 0.071, "icon_seamless": 0.428, "gem_seamless": 0.246}, "mae_basis": 0.92, "mae_nieuw": 0.92, "crps_oud": 0.69, "crps": 0.7, "n_eval": 66, "n_totaal": 126, "sig_c": 0.665, "sig_d": 0.065, "qz10": -1.361, "qz90": 1.458, "s_gem": 0.99, "dekking": 0.929}, "2": {"a": -0.17, "b": 1.041, "g": 0.0, "res_q10": -1.23, "res_q90": 1.28, "gewichten": {"ecmwf_ifs025": 0.241, "gfs_seamless": 0.073, "icon_seamless": 0.441, "gem_seamless": 0.246}, "mae_basis": 0.92, "mae_nieuw": 0.92, "crps_oud": 0.71, "crps": 0.7, "n_eval": 66, "n_totaal": 126, "sig_c": 0.496, "sig_d": 0.17, "qz10": -1.635, "qz90": 1.385, "s_gem": 1.01, "dekking": 0.857}, "bron": "hko", "station": "VHHH"}, "MNL": {"0": {"a": 3.614, "b": 0.909, "g": 0.009, "res_q10": -1.26, "res_q90": 1.39, "gewichten": {"ecmwf_ifs025": 0.214, "gfs_seamless": 0.243, "icon_seamless": 0.29, "gem_seamless": 0.253}, "mae_basis": 0.82, "mae_nieuw": 0.79, "crps_oud": 0.57, "crps": 0.6, "n_eval": 91, "n_totaal": 151, "sig_c": 0.387, "sig_d": 0.543, "qz10": -1.602, "qz90": 1.576, "s_gem": 0.69, "dekking": 0.829}, "1": {"a": 4.119, "b": 0.895, "g": 0.0, "res_q10": -1.49, "res_q90": 1.31, "gewichten": {"ecmwf_ifs025": 0.139, "gfs_seamless": 0.253, "icon_seamless": 0.34, "gem_seamless": 0.268}, "mae_basis": 0.89, "mae_nieuw": 0.9, "crps_oud": 0.65, "crps": 0.7, "n_eval": 91, "n_totaal": 151, "sig_c": 0.1, "sig_d": 0.842, "qz10": -2.079, "qz90": 1.253, "s_gem": 1.02, "dekking": 0.805}, "2": {"a": 3.599, "b": 0.914, "g": 0.0, "res_q10": -1.33, "res_q90": 1.34, "gewichten": {"ecmwf_ifs025": 0.14, "gfs_seamless": 0.252, "icon_seamless": 0.353, "gem_seamless": 0.254}, "mae_basis": 0.93, "mae_nieuw": 0.93, "crps_oud": 0.67, "crps": 0.72, "n_eval": 91, "n_totaal": 151, "sig_c": 0.23, "sig_d": 0.619, "qz10": -2.225, "qz90": 2.058, "s_gem": 1.01, "dekking": 0.829}, "bron": "iem", "station": "RPLL"}, "KUL": {"0": {"a": 0.821, "b": 1.003, "g": 0.072, "res_q10": -0.88, "res_q90": 1.32, "gewichten": {"ecmwf_ifs025": 0.271, "gfs_seamless": 0.145, "icon_seamless": 0.452, "gem_seamless": 0.132}, "mae_basis": 0.73, "mae_nieuw": 0.73, "crps_oud": 0.54, "crps": 0.53, "n_eval": 91, "n_totaal": 151, "sig_c": 0.552, "sig_d": 0.137, "qz10": -1.478, "qz90": 2.049, "s_gem": 0.72, "dekking": 0.854}, "1": {"a": 6.013, "b": 0.852, "g": 0.0, "res_q10": -1.47, "res_q90": 1.52, "gewichten": {"ecmwf_ifs025": 0.211, "gfs_seamless": 0.207, "icon_seamless": 0.433, "gem_seamless": 0.149}, "mae_basis": 0.91, "mae_nieuw": 0.91, "crps_oud": 0.67, "crps": 0.66, "n_eval": 91, "n_totaal": 151, "sig_c": 0.521, "sig_d": 0.338, "qz10": -1.651, "qz90": 1.447, "s_gem": 0.98, "dekking": 0.805}, "2": {"a": 6.281, "b": 0.84, "g": 0.0, "res_q10": -1.97, "res_q90": 1.36, "gewichten": {"ecmwf_ifs025": 0.179, "gfs_seamless": 0.161, "icon_seamless": 0.505, "gem_seamless": 0.155}, "mae_basis": 0.98, "mae_nieuw": 0.98, "crps_oud": 0.75, "crps": 0.75, "n_eval": 91, "n_totaal": 151, "sig_c": 0.775, "sig_d": 0.134, "qz10": -2.262, "qz90": 1.476, "s_gem": 1.01, "dekking": 0.805}, "bron": "iem", "station": "WMKK"}, "SIN": {"0": {"a": -1.477, "b": 1.068, "g": 0.032, "res_q10": -0.68, "res_q90": 0.84, "gewichten": {"ecmwf_ifs025": 0.181, "gfs_seamless": 0.232, "icon_seamless": 0.325, "gem_seamless": 0.262}, "mae_basis": 0.52, "mae_nieuw": 0.52, "crps_oud": 0.41, "crps": 0.41, "n_eval": 91, "n_totaal": 151, "sig_c": 0.356, "sig_d": 0.148, "qz10": -1.17, "qz90": 1.435, "s_gem": 0.57, "dekking": 0.927}, "1": {"a": 0.362, "b": 1.012, "g": 0.046, "res_q10": -1.13, "res_q90": 1.11, "gewichten": {"ecmwf_ifs025": 0.105, "gfs_seamless": 0.317, "icon_seamless": 0.338, "gem_seamless": 0.24}, "mae_basis": 0.73, "mae_nieuw": 0.73, "crps_oud": 0.55, "crps": 0.54, "n_eval": 91, "n_totaal": 151, "sig_c": 0.315, "sig_d": 0.447, "qz10": -1.536, "qz90": 1.356, "s_gem": 0.8, "dekking": 0.829}, "2": {"a": 4.888, "b": 0.86, "g": 0.016, "res_q10": -1.59, "res_q90": 1.01, "gewichten": {"ecmwf_ifs025": 0.115, "gfs_seamless": 0.305, "icon_seamless": 0.329, "gem_seamless": 0.251}, "mae_basis": 0.85, "mae_nieuw": 0.86, "crps_oud": 0.65, "crps": 0.65, "n_eval": 91, "n_totaal": 151, "sig_c": 0.523, "sig_d": 0.238, "qz10": -1.819, "qz90": 1.339, "s_gem": 0.86, "dekking": 0.805}, "bron": "iem", "station": "WSSS"}, "KHI": {"0": {"a": 0.981, "b": 0.985, "g": 0.0, "res_q10": -1.0, "res_q90": 0.74, "gewichten": {"ecmwf_ifs025": 0.042, "gfs_seamless": 0.18, "icon_seamless": 0.435, "gem_seamless": 0.343}, "mae_basis": 0.65, "mae_nieuw": 0.66, "crps_oud": 0.47, "crps": 0.45, "n_eval": 91, "n_totaal": 151, "sig_c": 0.169, "sig_d": 0.301, "qz10": -1.267, "qz90": 1.082, "s_gem": 1.34, "dekking": 0.805}, "1": {"a": 3.307, "b": 0.915, "g": 0.0, "res_q10": -1.2, "res_q90": 0.76, "gewichten": {"ecmwf_ifs025": 0.04, "gfs_seamless": 0.15, "icon_seamless": 0.44, "gem_seamless": 0.37}, "mae_basis": 0.7, "mae_nieuw": 0.7, "crps_oud": 0.5, "crps": 0.46, "n_eval": 91, "n_totaal": 151, "sig_c": 0.165, "sig_d": 0.327, "qz10": -1.653, "qz90": 1.165, "s_gem": 1.37, "dekking": 0.732}, "2": {"a": 2.918, "b": 0.927, "g": 0.025, "res_q10": -1.23, "res_q90": 0.74, "gewichten": {"ecmwf_ifs025": 0.04, "gfs_seamless": 0.132, "icon_seamless": 0.404, "gem_seamless": 0.424}, "mae_basis": 0.74, "mae_nieuw": 0.74, "crps_oud": 0.53, "crps": 0.47, "n_eval": 91, "n_totaal": 151, "sig_c": 0.1, "sig_d": 0.408, "qz10": -1.979, "qz90": 0.953, "s_gem": 1.4, "dekking": 0.756}, "bron": "iem", "station": "OPKC"}, "LKO": {"0": {"a": -0.389, "b": 1.008, "g": 0.0, "res_q10": -1.38, "res_q90": 1.28, "gewichten": {"ecmwf_ifs025": 0.36, "gfs_seamless": 0.029, "icon_seamless": 0.435, "gem_seamless": 0.176}, "mae_basis": 0.74, "mae_nieuw": 0.73, "crps_oud": 0.54, "crps": 0.51, "n_eval": 90, "n_totaal": 150, "sig_c": 0.816, "sig_d": 0.0, "qz10": -2.062, "qz90": 1.992, "s_gem": 1.89, "dekking": 0.75}, "1": {"a": 1.219, "b": 0.969, "g": 0.038, "res_q10": -1.74, "res_q90": 1.9, "gewichten": {"ecmwf_ifs025": 0.439, "gfs_seamless": 0.033, "icon_seamless": 0.26, "gem_seamless": 0.268}, "mae_basis": 1.21, "mae_nieuw": 1.2, "crps_oud": 0.86, "crps": 0.81, "n_eval": 90, "n_totaal": 150, "sig_c": 0.496, "sig_d": 0.245, "qz10": -1.491, "qz90": 1.91, "s_gem": 2.5, "dekking": 0.875}, "2": {"a": 3.055, "b": 0.925, "g": 0.0, "res_q10": -1.59, "res_q90": 2.25, "gewichten": {"ecmwf_ifs025": 0.45, "gfs_seamless": 0.052, "icon_seamless": 0.211, "gem_seamless": 0.287}, "mae_basis": 1.5, "mae_nieuw": 1.48, "crps_oud": 1.05, "crps": 0.99, "n_eval": 90, "n_totaal": 150, "sig_c": 1.301, "sig_d": 0.0, "qz10": -1.271, "qz90": 1.946, "s_gem": 2.5, "dekking": 0.775}, "bron": "iem", "station": "VILK"}, "JED": {"0": {"a": 0.09, "b": 1.013, "g": 0.033, "res_q10": -1.42, "res_q90": 1.43, "gewichten": {"ecmwf_ifs025": 0.176, "gfs_seamless": 0.159, "icon_seamless": 0.479, "gem_seamless": 0.186}, "mae_basis": 1.0, "mae_nieuw": 1.0, "crps_oud": 0.71, "crps": 0.74, "n_eval": 91, "n_totaal": 151, "sig_c": 0.311, "sig_d": 0.262, "qz10": -1.452, "qz90": 1.541, "s_gem": 2.27, "dekking": 0.878}, "1": {"a": 0.061, "b": 1.014, "g": 0.007, "res_q10": -1.29, "res_q90": 1.9, "gewichten": {"ecmwf_ifs025": 0.254, "gfs_seamless": 0.159, "icon_seamless": 0.465, "gem_seamless": 0.122}, "mae_basis": 1.08, "mae_nieuw": 1.09, "crps_oud": 0.78, "crps": 0.8, "n_eval": 91, "n_totaal": 151, "sig_c": 0.583, "sig_d": 0.153, "qz10": -1.208, "qz90": 1.838, "s_gem": 2.32, "dekking": 0.878}, "2": {"a": -1.029, "b": 1.043, "g": 0.054, "res_q10": -1.53, "res_q90": 1.93, "gewichten": {"ecmwf_ifs025": 0.227, "gfs_seamless": 0.201, "icon_seamless": 0.446, "gem_seamless": 0.126}, "mae_basis": 1.1, "mae_nieuw": 1.1, "crps_oud": 0.78, "crps": 0.82, "n_eval": 91, "n_totaal": 151, "sig_c": 0.1, "sig_d": 0.373, "qz10": -1.144, "qz90": 1.441, "s_gem": 2.33, "dekking": 0.902}, "bron": "iem", "station": "OEJN"}, "TLV": {"0": {"a": 0.656, "b": 0.971, "g": 0.0, "res_q10": -0.81, "res_q90": 0.63, "gewichten": {"ecmwf_ifs025": 0.036, "gfs_seamless": 0.25, "icon_seamless": 0.454, "gem_seamless": 0.261}, "mae_basis": 0.43, "mae_nieuw": 0.43, "crps_oud": 0.31, "crps": 0.31, "n_eval": 91, "n_totaal": 151, "sig_c": 0.1, "sig_d": 0.415, "qz10": -1.912, "qz90": 1.47, "s_gem": 0.88, "dekking": 0.78}, "1": {"a": 0.882, "b": 0.965, "g": 0.0, "res_q10": -1.02, "res_q90": 0.56, "gewichten": {"ecmwf_ifs025": 0.068, "gfs_seamless": 0.261, "icon_seamless": 0.447, "gem_seamless": 0.224}, "mae_basis": 0.53, "mae_nieuw": 0.53, "crps_oud": 0.38, "crps": 0.39, "n_eval": 91, "n_totaal": 151, "sig_c": 0.117, "sig_d": 0.402, "qz10": -2.079, "qz90": 1.374, "s_gem": 0.83, "dekking": 0.805}, "2": {"a": 0.918, "b": 0.963, "g": 0.0, "res_q10": -1.11, "res_q90": 0.59, "gewichten": {"ecmwf_ifs025": 0.065, "gfs_seamless": 0.207, "icon_seamless": 0.432, "gem_seamless": 0.296}, "mae_basis": 0.54, "mae_nieuw": 0.54, "crps_oud": 0.39, "crps": 0.41, "n_eval": 91, "n_totaal": 151, "sig_c": 0.1, "sig_d": 0.454, "qz10": -2.486, "qz90": 1.265, "s_gem": 0.84, "dekking": 0.829}, "bron": "iem", "station": "LLBG"}, "TOR": {"0": {"a": -0.097, "b": 1.004, "g": 0.045, "res_q10": -0.79, "res_q90": 0.94, "gewichten": {"ecmwf_ifs025": 0.189, "gfs_seamless": 0.479, "icon_seamless": 0.248, "gem_seamless": 0.084}, "mae_basis": 0.49, "mae_nieuw": 0.49, "crps_oud": 0.37, "crps": 0.37, "n_eval": 91, "n_totaal": 151, "sig_c": 0.386, "sig_d": 0.071, "qz10": -1.475, "qz90": 1.867, "s_gem": 0.86, "dekking": 0.829}, "1": {"a": 0.766, "b": 0.956, "g": 0.0, "res_q10": -1.95, "res_q90": 1.95, "gewichten": {"ecmwf_ifs025": 0.251, "gfs_seamless": 0.199, "icon_seamless": 0.398, "gem_seamless": 0.152}, "mae_basis": 0.92, "mae_nieuw": 0.91, "crps_oud": 0.69, "crps": 0.7, "n_eval": 91, "n_totaal": 151, "sig_c": 0.871, "sig_d": 0.138, "qz10": -2.291, "qz90": 1.795, "s_gem": 1.04, "dekking": 0.756}, "2": {"a": 0.757, "b": 0.972, "g": 0.0, "res_q10": -2.4, "res_q90": 1.69, "gewichten": {"ecmwf_ifs025": 0.223, "gfs_seamless": 0.162, "icon_seamless": 0.318, "gem_seamless": 0.298}, "mae_basis": 1.11, "mae_nieuw": 1.12, "crps_oud": 0.85, "crps": 0.87, "n_eval": 91, "n_totaal": 151, "sig_c": 0.931, "sig_d": 0.187, "qz10": -2.455, "qz90": 1.546, "s_gem": 1.01, "dekking": 0.732}, "bron": "iem", "station": "CYYZ"}, "MEX": {"0": {"a": 1.979, "b": 0.911, "g": 0.0, "res_q10": -1.44, "res_q90": 1.38, "gewichten": {"ecmwf_ifs025": 0.233, "gfs_seamless": 0.185, "icon_seamless": 0.348, "gem_seamless": 0.235}, "mae_basis": 0.71, "mae_nieuw": 0.71, "crps_oud": 0.54, "crps": 0.58, "n_eval": 91, "n_totaal": 151, "sig_c": 0.237, "sig_d": 0.491, "qz10": -1.782, "qz90": 2.25, "s_gem": 0.89, "dekking": 0.805}, "1": {"a": 2.041, "b": 0.91, "g": 0.0, "res_q10": -1.76, "res_q90": 1.54, "gewichten": {"ecmwf_ifs025": 0.215, "gfs_seamless": 0.209, "icon_seamless": 0.364, "gem_seamless": 0.211}, "mae_basis": 0.89, "mae_nieuw": 0.89, "crps_oud": 0.68, "crps": 0.74, "n_eval": 91, "n_totaal": 151, "sig_c": 0.507, "sig_d": 0.21, "qz10": -1.62, "qz90": 1.788, "s_gem": 1.06, "dekking": 0.878}, "2": {"a": 2.867, "b": 0.88, "g": 0.0, "res_q10": -1.86, "res_q90": 1.43, "gewichten": {"ecmwf_ifs025": 0.245, "gfs_seamless": 0.25, "icon_seamless": 0.315, "gem_seamless": 0.191}, "mae_basis": 0.97, "mae_nieuw": 0.97, "crps_oud": 0.71, "crps": 0.75, "n_eval": 91, "n_totaal": 151, "sig_c": 0.561, "sig_d": 0.222, "qz10": -1.693, "qz90": 1.412, "s_gem": 1.1, "dekking": 0.902}, "bron": "iem", "station": "MMMX"}, "PTY": {"0": {"a": 2.292, "b": 0.939, "g": 0.0, "res_q10": -1.11, "res_q90": 1.12, "gewichten": {"ecmwf_ifs025": 0.139, "gfs_seamless": 0.148, "icon_seamless": 0.401, "gem_seamless": 0.312}, "mae_basis": 0.66, "mae_nieuw": 0.66, "crps_oud": 0.49, "crps": 0.5, "n_eval": 91, "n_totaal": 151, "sig_c": 0.632, "sig_d": 0.0, "qz10": -1.749, "qz90": 1.726, "s_gem": 0.86, "dekking": 0.805}, "1": {"a": -0.601, "b": 1.038, "g": 0.04, "res_q10": -0.91, "res_q90": 1.13, "gewichten": {"ecmwf_ifs025": 0.121, "gfs_seamless": 0.135, "icon_seamless": 0.357, "gem_seamless": 0.388}, "mae_basis": 0.69, "mae_nieuw": 0.69, "crps_oud": 0.51, "crps": 0.52, "n_eval": 91, "n_totaal": 151, "sig_c": 0.599, "sig_d": 0.0, "qz10": -1.262, "qz90": 1.969, "s_gem": 1.08, "dekking": 0.78}, "2": {"a": 0.176, "b": 1.023, "g": 0.0, "res_q10": -0.87, "res_q90": 1.58, "gewichten": {"ecmwf_ifs025": 0.14, "gfs_seamless": 0.184, "icon_seamless": 0.442, "gem_seamless": 0.234}, "mae_basis": 0.77, "mae_nieuw": 0.76, "crps_oud": 0.57, "crps": 0.58, "n_eval": 91, "n_totaal": 151, "sig_c": 0.423, "sig_d": 0.277, "qz10": -1.115, "qz90": 2.285, "s_gem": 1.05, "dekking": 0.829}, "bron": "iem", "station": "MPMG"}, "BUE": {"0": {"a": 0.518, "b": 1.017, "g": 0.153, "res_q10": -0.77, "res_q90": 1.1, "gewichten": {"ecmwf_ifs025": 0.429, "gfs_seamless": 0.161, "icon_seamless": 0.235, "gem_seamless": 0.175}, "mae_basis": 0.62, "mae_nieuw": 0.62, "crps_oud": 0.48, "crps": 0.51, "n_eval": 91, "n_totaal": 151, "sig_c": 0.219, "sig_d": 0.693, "qz10": -2.42, "qz90": 2.284, "s_gem": 0.6, "dekking": 0.78}, "1": {"a": 0.726, "b": 1.015, "g": 0.158, "res_q10": -1.04, "res_q90": 1.8, "gewichten": {"ecmwf_ifs025": 0.271, "gfs_seamless": 0.254, "icon_seamless": 0.264, "gem_seamless": 0.211}, "mae_basis": 0.93, "mae_nieuw": 0.9, "crps_oud": 0.7, "crps": 0.73, "n_eval": 91, "n_totaal": 151, "sig_c": 0.637, "sig_d": 0.453, "qz10": -1.707, "qz90": 2.131, "s_gem": 0.67, "dekking": 0.756}, "2": {"a": 0.283, "b": 1.037, "g": 0.105, "res_q10": -1.54, "res_q90": 1.75, "gewichten": {"ecmwf_ifs025": 0.264, "gfs_seamless": 0.295, "icon_seamless": 0.226, "gem_seamless": 0.215}, "mae_basis": 1.1, "mae_nieuw": 1.08, "crps_oud": 0.81, "crps": 0.86, "n_eval": 91, "n_totaal": 151, "sig_c": 0.931, "sig_d": 0.224, "qz10": -1.575, "qz90": 1.728, "s_gem": 0.73, "dekking": 0.805}, "bron": "iem", "station": "SAEZ"}, "SAO": {"0": {"a": 0.76, "b": 0.968, "g": 0.0, "res_q10": -0.92, "res_q90": 1.11, "gewichten": {"ecmwf_ifs025": 0.323, "gfs_seamless": 0.223, "icon_seamless": 0.255, "gem_seamless": 0.198}, "mae_basis": 0.76, "mae_nieuw": 0.77, "crps_oud": 0.58, "crps": 0.6, "n_eval": 91, "n_totaal": 151, "sig_c": 0.715, "sig_d": 0.0, "qz10": -1.503, "qz90": 1.61, "s_gem": 0.58, "dekking": 0.854}, "1": {"a": 1.022, "b": 0.95, "g": 0.031, "res_q10": -1.62, "res_q90": 1.23, "gewichten": {"ecmwf_ifs025": 0.281, "gfs_seamless": 0.277, "icon_seamless": 0.276, "gem_seamless": 0.166}, "mae_basis": 0.92, "mae_nieuw": 0.94, "crps_oud": 0.69, "crps": 0.71, "n_eval": 91, "n_totaal": 151, "sig_c": 0.976, "sig_d": 0.0, "qz10": -1.756, "qz90": 1.544, "s_gem": 0.7, "dekking": 0.854}, "2": {"a": 0.952, "b": 0.953, "g": 0.099, "res_q10": -1.34, "res_q90": 1.19, "gewichten": {"ecmwf_ifs025": 0.245, "gfs_seamless": 0.256, "icon_seamless": 0.266, "gem_seamless": 0.233}, "mae_basis": 0.88, "mae_nieuw": 0.87, "crps_oud": 0.66, "crps": 0.67, "n_eval": 91, "n_totaal": 151, "sig_c": 0.939, "sig_d": 0.0, "qz10": -1.672, "qz90": 1.428, "s_gem": 0.83, "dekking": 0.805}, "bron": "iem", "station": "SBGR"}, "CPT": {"0": {"a": -0.218, "b": 1.007, "g": 0.0, "res_q10": -0.86, "res_q90": 1.19, "gewichten": {"ecmwf_ifs025": 0.301, "gfs_seamless": 0.133, "icon_seamless": 0.217, "gem_seamless": 0.348}, "mae_basis": 0.73, "mae_nieuw": 0.73, "crps_oud": 0.55, "crps": 0.56, "n_eval": 91, "n_totaal": 151, "sig_c": 0.1, "sig_d": 0.988, "qz10": -1.252, "qz90": 1.521, "s_gem": 0.74, "dekking": 0.878}, "1": {"a": 0.682, "b": 0.964, "g": 0.0, "res_q10": -1.46, "res_q90": 1.65, "gewichten": {"ecmwf_ifs025": 0.287, "gfs_seamless": 0.144, "icon_seamless": 0.236, "gem_seamless": 0.333}, "mae_basis": 0.92, "mae_nieuw": 0.92, "crps_oud": 0.7, "crps": 0.73, "n_eval": 91, "n_totaal": 151, "sig_c": 0.228, "sig_d": 0.976, "qz10": -1.542, "qz90": 1.751, "s_gem": 0.76, "dekking": 0.829}, "2": {"a": 0.994, "b": 0.946, "g": 0.0, "res_q10": -1.98, "res_q90": 1.79, "gewichten": {"ecmwf_ifs025": 0.272, "gfs_seamless": 0.143, "icon_seamless": 0.304, "gem_seamless": 0.281}, "mae_basis": 0.96, "mae_nieuw": 0.96, "crps_oud": 0.74, "crps": 0.77, "n_eval": 91, "n_totaal": 151, "sig_c": 0.201, "sig_d": 0.978, "qz10": -1.548, "qz90": 2.571, "s_gem": 0.89, "dekking": 0.78}, "bron": "iem", "station": "FACT"}, "WLG": {"0": {"a": 0.598, "b": 1.003, "g": 0.019, "res_q10": -0.92, "res_q90": 0.48, "gewichten": {"ecmwf_ifs025": 0.244, "gfs_seamless": 0.175, "icon_seamless": 0.296, "gem_seamless": 0.285}, "mae_basis": 0.47, "mae_nieuw": 0.47, "crps_oud": 0.36, "crps": 0.34, "n_eval": 91, "n_totaal": 151, "sig_c": 0.267, "sig_d": 0.426, "qz10": -2.198, "qz90": 1.121, "s_gem": 0.32, "dekking": 0.854}, "1": {"a": 0.204, "b": 1.037, "g": 0.068, "res_q10": -1.02, "res_q90": 0.73, "gewichten": {"ecmwf_ifs025": 0.222, "gfs_seamless": 0.175, "icon_seamless": 0.363, "gem_seamless": 0.24}, "mae_basis": 0.51, "mae_nieuw": 0.51, "crps_oud": 0.39, "crps": 0.37, "n_eval": 91, "n_totaal": 151, "sig_c": 0.276, "sig_d": 0.487, "qz10": -2.083, "qz90": 1.506, "s_gem": 0.41, "dekking": 0.805}, "2": {"a": 0.096, "b": 1.047, "g": 0.101, "res_q10": -1.11, "res_q90": 0.77, "gewichten": {"ecmwf_ifs025": 0.217, "gfs_seamless": 0.175, "icon_seamless": 0.363, "gem_seamless": 0.245}, "mae_basis": 0.53, "mae_nieuw": 0.53, "crps_oud": 0.41, "crps": 0.4, "n_eval": 91, "n_totaal": 151, "sig_c": 0.268, "sig_d": 0.452, "qz10": -2.232, "qz90": 1.363, "s_gem": 0.43, "dekking": 0.78}, "bron": "iem", "station": "NZWN"}}, "spreidingsband": true}, "dataversie": "2026-08-05-weerbot2-minmax"};
 </script>
 <script>
 (function () {
@@ -487,8 +630,19 @@ const CONFIG = {"nws_gewicht": 0.25, "steden": [{"key": "NYC", "naam": "New York
     return uit;
   }
 
-  function bewaar(sleutel, obj) { try { localStorage.setItem(sleutel, JSON.stringify(obj)); } catch (e) {} }
-  function lees(sleutel) { try { return JSON.parse(localStorage.getItem(sleutel)); } catch (e) { return null; } }
+  /* Weerbot 2 draait op dezelfde herkomst als de eerste versie (github.io deelt
+     localStorage over alle paden). Alle sleutels krijgen daarom een eigen naam,
+     zodat de twee apps elkaars cache, log en kalibraties niet overschrijven. */
+  function opslagSleutel(sleutel) {
+    return sleutel.indexOf("weerbot-") === 0 ? "weerbot2-" + sleutel.slice(8) : sleutel;
+  }
+  function bewaar(sleutel, obj) {
+    try { localStorage.setItem(opslagSleutel(sleutel), JSON.stringify(obj)); } catch (e) {}
+  }
+  function lees(sleutel) {
+    try { return JSON.parse(localStorage.getItem(opslagSleutel(sleutel))); } catch (e) { return null; }
+  }
+  window.WEERBOT2_OPSLAG = opslagSleutel;   /* de ML-koppelbestanden lezen mee */
 
   /* \u2500\u2500 Logboek: 1 = melding, 2 = waarschuwing, 3 = fout \u2500\u2500 */
   const LOG_MAX = 200;
@@ -536,10 +690,11 @@ const CONFIG = {"nws_gewicht": 0.25, "steden": [{"key": "NYC", "naam": "New York
     const vorige = lees("weerbot-dataversie");
     if (vorige === CONFIG.dataversie) return;
     let ietsGewist = false;
-    ["weerbot-cache-v2", "weerbot-verificatie-v1", "weerbot-herijk-v1"].forEach(function (k) {
+    ["weerbot-cache-v2", "weerbot-verificatie-v1", "weerbot-herijk-v1",
+     "weerbot-minkal-v1"].forEach(function (k) {
       try {
-        if (localStorage.getItem(k) !== null) ietsGewist = true;
-        localStorage.removeItem(k);
+        if (localStorage.getItem(opslagSleutel(k)) !== null) ietsGewist = true;
+        localStorage.removeItem(opslagSleutel(k));
       } catch (e) {}
     });
     bewaar("weerbot-dataversie", CONFIG.dataversie);
@@ -689,6 +844,8 @@ const CONFIG = {"nws_gewicht": 0.25, "steden": [{"key": "NYC", "naam": "New York
         return new Promise(function (res) { setTimeout(res, 2500); }).then(function () { return poging(rest - 1); });
       });
     }
+    /* Geeft {max: {dag: waarde}, min: {dag: waarde}}. Het minimum komt uit
+       dezelfde waarnemingsreeks, dus het kost geen tweede aanroep. */
     return poging(2).then(function (tekst) {
       const per = {};
       tekst.split("\n").forEach(function (regel) {
@@ -699,13 +856,18 @@ const CONFIG = {"nws_gewicht": 0.25, "steden": [{"key": "NYC", "naam": "New York
         if (isNaN(tv)) return;
         const dag = d[1].slice(0, 10);
         const uur = parseInt(d[1].slice(11, 13), 10) || 0;
-        const e = per[dag] = per[dag] || { maxf: -999, n: 0, uur: 0 };
-        e.n++; if (uur > e.uur) e.uur = uur; if (tv > e.maxf) e.maxf = tv;
+        const e = per[dag] = per[dag] || { maxf: -999, minf: 999, n: 0, uur: 0 };
+        e.n++; if (uur > e.uur) e.uur = uur;
+        if (tv > e.maxf) e.maxf = tv;
+        if (tv < e.minf) e.minf = tv;
       });
-      const uit = {};
+      const uit = { max: {}, min: {} };
+      const om = function (f) { return (s.eenheid === "\u00B0F") ? f : (f - 32) * 5 / 9; };
       for (const dag in per) {
         const e = per[dag];
-        if (e.n >= 8 && e.uur >= 18) uit[dag] = (s.eenheid === "\u00B0F") ? e.maxf : (e.maxf - 32) * 5 / 9;
+        if (e.n < 8 || e.uur < 18) continue;   // te dunne of afgekapte dag
+        uit.max[dag] = om(e.maxf);
+        uit.min[dag] = om(e.minf);
       }
       return uit;
     });
@@ -713,15 +875,19 @@ const CONFIG = {"nws_gewicht": 0.25, "steden": [{"key": "NYC", "naam": "New York
 
   function haalEra5Actuals(s, d1, d2) {
     const url = "https://archive-api.open-meteo.com/v1/archive?latitude=" + s.lat + "&longitude=" + s.lon +
-      "&daily=temperature_2m_max&temperature_unit=" + (s.eenheid === "\u00B0F" ? "fahrenheit" : "celsius") +
+      "&daily=temperature_2m_max,temperature_2m_min" +
+      "&temperature_unit=" + (s.eenheid === "\u00B0F" ? "fahrenheit" : "celsius") +
       "&start_date=" + isoDag(d1) + "&end_date=" + isoDag(d2) +
       "&timezone=" + encodeURIComponent(s.tz);
     return fetch(url).then(function (r) { if (!r.ok) throw new Error("HTTP " + r.status); return r.json(); })
       .then(function (j) {
-        const uit = {};
-        ((j.daily && j.daily.time) || []).forEach(function (dag, i) {
-          const v = j.daily.temperature_2m_max[i];
-          if (v !== null && v !== undefined) uit[dag] = v;
+        const uit = { max: {}, min: {} };
+        const D = j.daily || {};
+        (D.time || []).forEach(function (dag, i) {
+          const v = D.temperature_2m_max && D.temperature_2m_max[i];
+          const w = D.temperature_2m_min && D.temperature_2m_min[i];
+          if (v !== null && v !== undefined) uit.max[dag] = v;
+          if (w !== null && w !== undefined) uit.min[dag] = w;
         });
         return uit;
       });
@@ -942,13 +1108,37 @@ const CONFIG = {"nws_gewicht": 0.25, "steden": [{"key": "NYC", "naam": "New York
     return uit;
   }
 
-  function histUit(json) {
+  /* Idem, maar dan het dagminimum uit dezelfde uurreeksen. */
+  function prevUitMin(json, horizon) {
+    const H = (json && json.hourly) || {};
+    const tijden = H.time || [];
+    const uit = {};
+    for (const sleutel in H) {
+      const kop = "temperature_2m_previous_day" + horizon + "_";
+      if (sleutel.indexOf(kop) !== 0) continue;
+      const kort = KORT_VAN[sleutel.slice(kop.length)];
+      if (!kort) continue;
+      const per = {};
+      for (let i = 0; i < tijden.length; i++) {
+        const v = H[sleutel][i];
+        if (v === null || v === undefined) continue;
+        (per[tijden[i].slice(0, 10)] = per[tijden[i].slice(0, 10)] || []).push(v);
+      }
+      for (const dag in per) {
+        if (per[dag].length >= 12) (uit[dag] = uit[dag] || {})[kort] = Math.min.apply(null, per[dag]);
+      }
+    }
+    return uit;
+  }
+
+  function histUit(json, veld) {
     const D = (json && json.daily) || {};
     const tijden = D.time || [];
+    const kop = "temperature_2m_" + (veld || "max") + "_";
     const uit = {};
     for (const sleutel in D) {
-      if (sleutel.indexOf("temperature_2m_max_") !== 0) continue;
-      const kort = KORT_VAN[sleutel.slice("temperature_2m_max_".length)];
+      if (sleutel.indexOf(kop) !== 0) continue;
+      const kort = KORT_VAN[sleutel.slice(kop.length)];
       if (!kort) continue;
       tijden.forEach(function (dag, i) {
         const v = D[sleutel][i];
@@ -987,7 +1177,7 @@ const CONFIG = {"nws_gewicht": 0.25, "steden": [{"key": "NYC", "naam": "New York
       if (!st) return haalEra5Actuals(s, begin, eind).then(function (a) { return { act: a, bron: "ERA5 reanalyse", station: null }; });
       return haalMetarActuals(s, st.id, begin, eindRuim)
         .then(function (a) {
-          if (Object.keys(a).length < KAL.burnE + 10) throw new Error("dun");
+          if (Object.keys(a.max).length < KAL.burnE + 10) throw new Error("dun");
           return { act: a, bron: "station " + st.id + " (" + st.afstand + " km)", station: st.id };
         })
         .catch(function () {
@@ -995,7 +1185,7 @@ const CONFIG = {"nws_gewicht": 0.25, "steden": [{"key": "NYC", "naam": "New York
         });
     });
     return Promise.all([prevP, actP, histP]).then(function (uit2) {
-      const act = uit2[1].act;
+      const act = uit2[1].act.max;
       const fc = { 0: histUit(uit2[2]), 1: prevUit(uit2[0], 1), 2: prevUit(uit2[0], 2) };
       const params = { gegenereerd: isoDag(new Date()), bron: uit2[1].bron };
       [0, 1, 2].forEach(function (h) {
@@ -1155,11 +1345,15 @@ const CONFIG = {"nws_gewicht": 0.25, "steden": [{"key": "NYC", "naam": "New York
     return uit;
   }
 
+  /* Weerbot 2 haalt naast het dagmaximum ook het dagminimum op. Dat is een
+     extra veld in dezelfde aanroep en kost dus geen extra verzoek. */
+  const ENS_VELDEN = "temperature_2m_max,temperature_2m_min";
+
   function bundelVoorspellingen(steden) {
     for (const k in ENS_BAK) delete ENS_BAK[k];
     return bundel(steden, function (groep) {
       return "https://ensemble-api.open-meteo.com/v1/ensemble" + coord(groep) +
-        "&daily=temperature_2m_max&models=" + ENS_MODELLEN.join(",") +
+        "&daily=" + ENS_VELDEN + "&models=" + ENS_MODELLEN.join(",") +
         "&temperature_unit=" + eenheidVan(groep) +
         "&forecast_days=3&timezone=auto";
     }, ENS_BAK);
@@ -1169,7 +1363,7 @@ const CONFIG = {"nws_gewicht": 0.25, "steden": [{"key": "NYC", "naam": "New York
   function haalStad(s) {
     const url = "https://ensemble-api.open-meteo.com/v1/ensemble" +
       "?latitude=" + s.lat + "&longitude=" + s.lon +
-      "&daily=temperature_2m_max&models=" + ENS_MODELLEN.join(",") +
+      "&daily=" + ENS_VELDEN + "&models=" + ENS_MODELLEN.join(",") +
       "&temperature_unit=" + (s.eenheid === "\u00B0F" ? "fahrenheit" : "celsius") +
       "&forecast_days=3&timezone=" + encodeURIComponent(s.tz);
     const bron = ENS_BAK[s.key]
@@ -1179,49 +1373,41 @@ const CONFIG = {"nws_gewicht": 0.25, "steden": [{"key": "NYC", "naam": "New York
     return bron.then(function (j) {
       const daily = j.daily || {};
       const datums = daily.time || [];
-      const perModel = {};   // ensemblemodel -> [ledenreeksen]
+      const perModel = {};      // ensemblemodel -> [ledenreeksen] dagmaximum
+      const perModelMin = {};   // idem voor het dagminimum
       for (const k in daily) {
-        if (k.indexOf("temperature_2m_max") !== 0) continue;
+        const isMax = k.indexOf("temperature_2m_max") === 0;
+        const isMin = k.indexOf("temperature_2m_min") === 0;
+        if (!isMax && !isMin) continue;
+        const doel = isMax ? perModel : perModelMin;
         for (let i = 0; i < ENS_MODELLEN.length; i++) {
           if (k.indexOf(ENS_MODELLEN[i]) !== -1) {
-            (perModel[ENS_MODELLEN[i]] = perModel[ENS_MODELLEN[i]] || []).push(daily[k]);
+            (doel[ENS_MODELLEN[i]] = doel[ENS_MODELLEN[i]] || []).push(daily[k]);
             break;
           }
         }
       }
       // paramsVan: een verse herijking in de browser wint van het weekbestand
       const pr = paramsVan(s);
+      const mk = minKalVan(s);
       const dagen = [];
       datums.slice(0, 3).forEach(function (datum, i) {
-        const modelGem = {};
-        const pool = [];
-        for (const m in perModel) {
-          const vals = perModel[m].map(function (r) { return r[i]; })
-            .filter(function (v) { return v !== null && v !== undefined; });
-          if (!vals.length) continue;
-          modelGem[m] = vals.reduce(function (a, b) { return a + b; }, 0) / vals.length;
-          pool.push.apply(pool, vals);
-        }
-        if (!pool.length) return;
-        pool.sort(function (a, b) { return a - b; });
-        const poolGem = pool.reduce(function (a, b) { return a + b; }, 0) / pool.length;
-        const q = function (p) { return pool[Math.round((pool.length - 1) * p)]; };
-        const dLid10 = q(0.1) - poolGem;
-        const dLid90 = q(0.9) - poolGem;
+        const A = ledenUit(perModel, i);
+        if (!A) return;
 
         // horizonparameters: dag 0 leent de morgenparameters (kortere horizon, kleinere fout)
         const hp = pr ? (pr[String(i)] || pr["1"] || null) : null;
 
-        const kort = kortMap(modelGem);           // ensemblenamen -> korte namen
+        const kort = kortMap(A.modelGem);         // ensemblenamen -> korte namen
         const muW = kernMu(hp, kort);             // gewogen modelgemiddelde
-        const muRuw = muW === null ? poolGem : muW;
+        const muRuw = muW === null ? A.poolGem : muW;
 
         // spreiding tussen de modelsystemen: live onzekerheidsproxy
         const sLive = Object.keys(kort).length >= 2 ? kernSpreiding(kort) : null;
         const lag = lagVoor(s, i, hp);
 
         // correctiekern, lagterm en gekalibreerde band
-        let verw = muRuw, lo = dLid10, hi = dLid90, gekalibreerd = false;
+        let verw = muRuw, lo = A.d10, hi = A.d90, gekalibreerd = false;
         let bLo = null, bHi = null;
         if (hp && (hp.qz10 !== undefined ||
                    (hp.res_q10 !== null && hp.res_q10 !== undefined))) {
@@ -1233,18 +1419,90 @@ const CONFIG = {"nws_gewicht": 0.25, "steden": [{"key": "NYC", "naam": "New York
             const sig = Math.max(0.2, hp.sig_c + hp.sig_d * sp);
             bLo = hp.qz10 * sig; bHi = hp.qz90 * sig;
           }
-          lo = Math.min(bLo, dLid10); hi = Math.max(bHi, dLid90);
+          lo = Math.min(bLo, A.d10); hi = Math.max(bHi, A.d90);
           gekalibreerd = true;
         }
         dagen.push({ datum: datum, verwachting: verw, p10: verw + lo, p90: verw + hi,
-                     mlx: { m: Object.assign({}, modelGem), s: sLive, lag: lag },
-                     n_leden: pool.length, gekalibreerd: gekalibreerd,
+                     mlx: { m: Object.assign({}, A.modelGem), s: sLive, lag: lag },
+                     n_leden: A.pool.length, gekalibreerd: gekalibreerd,
                      piek: (pieken && pieken[datum]) || null,
-                     verbreed: gekalibreerd && (dLid10 < bLo || dLid90 > bHi) });
+                     verbreed: gekalibreerd && (A.d10 < bLo || A.d90 > bHi),
+                     mn: minDagUit(perModelMin, i, hp, mk) });
       });
       if (!dagen.length) throw new Error("geen bruikbare leden");
       return { dagen: dagen };
     });
+  }
+
+  /* Ledenstatistiek voor dag `i`: gemiddelde per modelsysteem, de gepoolde
+     leden en de 10/90 ledenkwantielen als afstand tot het poolgemiddelde. */
+  function ledenUit(perModel, i) {
+    const modelGem = {};
+    const pool = [];
+    for (const m in perModel) {
+      const vals = perModel[m].map(function (r) { return r[i]; })
+        .filter(function (v) { return v !== null && v !== undefined; });
+      if (!vals.length) continue;
+      modelGem[m] = vals.reduce(function (a, b) { return a + b; }, 0) / vals.length;
+      pool.push.apply(pool, vals);
+    }
+    if (!pool.length) return null;
+    pool.sort(function (a, b) { return a - b; });
+    const poolGem = pool.reduce(function (a, b) { return a + b; }, 0) / pool.length;
+    const q = function (p) { return pool[Math.round((pool.length - 1) * p)]; };
+    return { modelGem: modelGem, pool: pool, poolGem: poolGem,
+             d10: q(0.1) - poolGem, d90: q(0.9) - poolGem };
+  }
+
+  /* ── Dagminimum ──
+     De weekkalibratie leert alleen op dagmaxima, dus voor het minimum bestaat er
+     geen correctiekern. Wat er wel is: de skillgewichten per modelsysteem (die
+     zeggen welk model het op dit station goed doet) en de eigen controle, die in
+     de browser meeloopt en per horizon een bias en restfoutkwantielen oplevert.
+     Zonder die controle blijft het een kaal gewogen modelgemiddelde met de
+     ledenspreiding als band. */
+  function minDagUit(perModelMin, i, hp, mk) {
+    const B = ledenUit(perModelMin, i);
+    if (!B) return null;
+    const kort = kortMap(B.modelGem);
+    const muW = kernMu(hp, kort);
+    return minPas({ ruw: muW === null ? B.poolGem : muW,
+                    d10: B.d10, d90: B.d90, n_leden: B.pool.length,
+                    spreiding: Object.keys(kort).length >= 2 ? kernSpreiding(kort) : null },
+                  mk && mk[String(i)]);
+  }
+
+  /* Legt de geleerde bias en band over het ruwe modelgemiddelde. Apart gehouden
+     zodat een verse ijking op de al opgehaalde dagen kan worden toegepast, zonder
+     dat er opnieuw ensembles bij Open-Meteo hoeven te worden opgehaald. */
+  function minPas(basis, m) {
+    let verw = basis.ruw, lo = basis.d10, hi = basis.d90;
+    let gekalibreerd = false, verbreed = false;
+    if (m && m.n >= MINKAL.minN) {
+      verw = basis.ruw + m.bias;
+      lo = Math.min(m.q10, basis.d10); hi = Math.max(m.q90, basis.d90);
+      gekalibreerd = true;
+      verbreed = (basis.d10 < m.q10 || basis.d90 > m.q90);
+    }
+    return { verwachting: verw, p10: verw + lo, p90: verw + hi,
+             ruw: basis.ruw, d10: basis.d10, d90: basis.d90,
+             n_leden: basis.n_leden, spreiding: basis.spreiding,
+             gekalibreerd: gekalibreerd, verbreed: verbreed,
+             n: m ? m.n : 0, mae: m ? m.mae : null };
+  }
+
+  /* Na een verse controle de minima van een stad opnieuw doorrekenen. */
+  function herberekenMin(s) {
+    const rij = (LAATSTE || []).filter(function (o) { return o.s.key === s.key; })[0];
+    if (!rij || !rij.data || !rij.data.dagen) return false;
+    const mk = minKalVan(s);
+    let iets = false;
+    rij.data.dagen.forEach(function (d, i) {
+      if (!d.mn || d.mn.ruw === undefined) return;
+      d.mn = minPas(d.mn, mk && mk[String(i)]);
+      iets = true;
+    });
+    return iets;
   }
 
   /* ── NWS bijmenging voor de US steden (dag 0 en 1) ── */
@@ -1288,6 +1546,41 @@ const CONFIG = {"nws_gewicht": 0.25, "steden": [{"key": "NYC", "naam": "New York
     const c = lees("weerbot-verificatie-v1");
     if (c) for (const k in c) VERIF[k] = c[k];
   })();
+
+  /* ── Kalibratie van het dagminimum ──
+     De weekkalibratie in app_params.js kent alleen dagmaxima. Het minimum wordt
+     daarom in de browser geijkt op precies dezelfde meetreeks die de controle al
+     ophaalt: per horizon een EWMA-gewogen bias en de 10/90 restfoutkwantielen.
+     Onder minN geverifieerde dagen blijft de correctie uit, dan toont de app het
+     kale gewogen modelgemiddelde met de ledenspreiding als band. */
+  const MINKAL = { half: 10, minN: 8 };          // halfwaardetijd in dagen, drempel
+  const MINKAL_STORE = lees("weerbot-minkal-v1") || {};
+
+  function minKalVan(s) {
+    const m = MINKAL_STORE[s.key];
+    return m && m.per ? m.per : null;
+  }
+
+  /* Bias en band per horizon uit de restfouten (echt - ruwe voorspelling),
+     nieuwe dagen wegen zwaarder. Geeft {bias, q10, q90, mae, n}. */
+  function minStatUit(paren) {
+    if (paren.length < 3) return null;
+    const nu = Math.round(Date.now() / 86400000);
+    const gew = paren.map(function (p) {
+      const d = Math.max(0, nu - Math.round(Date.parse(p[0] + "T00:00:00Z") / 86400000));
+      return [Math.pow(0.5, d / MINKAL.half), p[1]];
+    });
+    const bias = wGem2(gew);
+    if (bias === null) return null;
+    const rest = gew.map(function (g) { return [g[0], g[1] - bias]; });
+    let W = 0, S = 0;
+    rest.forEach(function (g) { W += g[0]; S += g[0] * Math.abs(g[1]); });
+    return { bias: Math.round(bias * 100) / 100,
+             q10: Math.round(wKwant2(rest, 0.1) * 100) / 100,
+             q90: Math.round(wKwant2(rest, 0.9) * 100) / 100,
+             mae: W > 0 ? Math.round(S / W * 100) / 100 : null,
+             n: paren.length };
+  }
 
   function altBron(s) { return !s.eigen && s.bron && s.bron !== "iem" ? s.bron : null; }
   function metarVan(s) {
@@ -1541,7 +1834,7 @@ const CONFIG = {"nws_gewicht": 0.25, "steden": [{"key": "NYC", "naam": "New York
     const histP = HIST_BAK[s.key] ? Promise.resolve(HIST_BAK[s.key]) :
       haalMetAifs("hist", function (modellen) {
         return "https://historical-forecast-api.open-meteo.com/v1/forecast?latitude=" + s.lat +
-          "&longitude=" + s.lon + "&daily=temperature_2m_max&models=" + modellen.join(",") +
+          "&longitude=" + s.lon + "&daily=" + ENS_VELDEN + "&models=" + modellen.join(",") +
           "&temperature_unit=" + unit + "&start_date=" + begin + "&end_date=" + eind + "&timezone=" + tz;
       }, function (j, aifs) {
         const r = (j.daily || {})["temperature_2m_max_" + aifs];
@@ -1563,7 +1856,7 @@ const CONFIG = {"nws_gewicht": 0.25, "steden": [{"key": "NYC", "naam": "New York
           .then(function (a) { return { act: a, bron: "ERA5" }; }));
 
     return Promise.all([prevP, histP, actP]).then(function (u) {
-      const act = u[2].act;
+      const act = u[2].act.max;
       const fc = { 0: histUit(u[1]), 1: prevUit(u[0], 1), 2: prevUit(u[0], 2) };
 
       const pr = paramsVan(s);
@@ -1613,8 +1906,58 @@ const CONFIG = {"nws_gewicht": 0.25, "steden": [{"key": "NYC", "naam": "New York
       if (u[2].bron === "ERA5" && !altBron(s)) {
         log(1, s.naam, "controle op ERA5 raster, geen bruikbaar weerstation");
       }
-      return { op: isoDag(new Date()), bron: u[2].bron, rijen: rijen, mae: mae };
+      return { op: isoDag(new Date()), bron: u[2].bron, rijen: rijen, mae: mae,
+               min: minControle(s, pr, u[2].act.min,
+                                { 0: histUit(u[1], "min"), 1: prevUitMin(u[0], 1),
+                                  2: prevUitMin(u[0], 2) }) };
     });
+  }
+
+  /* Rekent uit dezelfde reeksen de minimumcontrole uit: per horizon de restfout
+     van het gewogen modelgemiddelde tegen de gemeten dagminima, en daaruit de
+     bias en band die de app live toepast. */
+  function minControle(s, pr, act, fc) {
+    if (!act || !Object.keys(act).length) return null;
+    const dagen = Object.keys(act).sort().slice(-VERIF_VENSTER);
+    const paren = { 0: [], 1: [], 2: [] };
+    const perDag = {};
+    dagen.forEach(function (dag) {
+      const per = {};
+      [0, 1, 2].forEach(function (h) {
+        if (!fc[h] || !fc[h][dag]) return;
+        const hp = pr ? (pr[String(h)] || pr["1"]) : null;
+        const mu = kernMu(hp, fc[h][dag]);       // alleen de skillgewichten, geen kern
+        if (mu === null) return;
+        const f = Math.round((act[dag] - mu) * 10) / 10;
+        per[h] = f;
+        paren[h].push([dag, f]);
+      });
+      if (Object.keys(per).length) perDag[dag] = per;
+    });
+    const rijen = [];
+    dagen.slice().reverse().forEach(function (dag) {
+      if (perDag[dag]) rijen.push({ datum: dag, echt: Math.round(act[dag] * 10) / 10, per: perDag[dag] });
+    });
+    if (!rijen.length) return null;
+    const per = {};
+    [0, 1, 2].forEach(function (h) {
+      const st = minStatUit(paren[h]);
+      if (st) per[String(h)] = st;
+    });
+    return { rijen: rijen, per: per };
+  }
+
+  /* Een verse minimumijking verandert de getallen op de kaart. De hertekening
+     wordt gebundeld, anders zou hij bij 51 steden 51 keer achter elkaar lopen. */
+  let minOpnieuwTekenen = false;
+  let minTekenTimer = null;
+  function planMinTekenen() {
+    if (!minOpnieuwTekenen || minTekenTimer) return;
+    minTekenTimer = setTimeout(function () {
+      minTekenTimer = null;
+      minOpnieuwTekenen = false;
+      teken();
+    }, 1200);
   }
 
   function startVerificaties(steden) {
@@ -1632,9 +1975,17 @@ const CONFIG = {"nws_gewicht": 0.25, "steden": [{"key": "NYC", "naam": "New York
       actief++;
       verifBezig.add(s.key);
       verifieerStad(s).then(function (r) {
+        const nieuwMin = !!(r.min && Object.keys(r.min.per).length) &&
+                         !MINKAL_STORE[s.key];
         VERIF[s.key] = r;
         verifMislukt.delete(s.key);
         bewaar("weerbot-verificatie-v1", VERIF);
+        if (r.min) {
+          MINKAL_STORE[s.key] = { op: r.op, bron: r.bron, per: r.min.per, rijen: r.min.rijen };
+          bewaar("weerbot-minkal-v1", MINKAL_STORE);
+          if (nieuwMin) log(1, s.naam, "minimumtemperatuur geijkt op " + r.bron);
+          if (herberekenMin(s)) minOpnieuwTekenen = true;
+        }
       }).catch(function () {
         verifMislukt.add(s.key);
         if (netwerkOk) log(2, s.naam, "controle van de afgelopen dagen mislukt");
@@ -1642,6 +1993,7 @@ const CONFIG = {"nws_gewicht": 0.25, "steden": [{"key": "NYC", "naam": "New York
         verifBezig.delete(s.key);
         werkDetailBij(s);
         planHerijkingen([s]);
+        planMinTekenen();
         actief--;
         volgende();
       });
@@ -1659,7 +2011,7 @@ const CONFIG = {"nws_gewicht": 0.25, "steden": [{"key": "NYC", "naam": "New York
       }, PREV_BAK),
       bundel(teDoen, function (groep) {
         return "https://historical-forecast-api.open-meteo.com/v1/forecast" + coord(groep) +
-          "&daily=temperature_2m_max&models=" + kalModellen("hist").join(",") +
+          "&daily=" + ENS_VELDEN + "&models=" + kalModellen("hist").join(",") +
           "&temperature_unit=" + eenheidVan(groep) +
           "&start_date=" + beginD + "&end_date=" + eindD + "&timezone=auto";
       }, HIST_BAK),
@@ -1827,6 +2179,7 @@ const CONFIG = {"nws_gewicht": 0.25, "steden": [{"key": "NYC", "naam": "New York
       det += '<div class="detail-regel">de controle hieronder loopt op ERA5 en wijkt dus af van de ' +
              "afrekenbron; alleen indicatief, herijken gaat wekelijks via de kalibratie</div>";
     }
+    det += minHtml(s);
     det += verifHtml(s);
     det += herijkHtml(s);
     if (s.eigen) {
@@ -1834,6 +2187,35 @@ const CONFIG = {"nws_gewicht": 0.25, "steden": [{"key": "NYC", "naam": "New York
              s.key + '">stad verwijderen</span></div>';
     }
     return det;
+  }
+
+  /* Wat de app over het dagminimum weet: de eigen ijking en hoe die tot stand
+     kwam. Zonder ijking staat er wat er wel gebeurt, zodat het cijfer op de
+     kaart niet nauwkeuriger lijkt dan het is. */
+  function minHtml(s) {
+    const m = MINKAL_STORE[s.key];
+    if (!m || !m.per || !Object.keys(m.per).length) {
+      return '<div class="detail-regel">minimum <span class="w">kaal gewogen modelgemiddelde</span>' +
+             " · ijking volgt zodra de controle genoeg dagen heeft</div>";
+    }
+    const regel = [0, 1, 2].map(function (h) {
+      const p = m.per[String(h)];
+      return p ? metTeken(p.bias, 2) : "?";
+    }).join(" · ");
+    const misser = [0, 1, 2].map(function (h) {
+      const p = m.per[String(h)];
+      return p && p.mae !== null ? "±" + nl(p.mae) : "?";
+    }).join(" · ");
+    const h1 = m.per["1"];
+    let uit = '<div class="detail-regel">minimum bias vd/mo/ov <span class="w">' + regel +
+              "°</span> · misser " + misser + "° · n=" + (h1 ? h1.n : "?") + "</div>";
+    if (h1) {
+      uit += '<div class="detail-regel">minimum band morgen <span class="w">' + metTeken(h1.q10) +
+             " tot " + metTeken(h1.q90) + "°</span> · restfoutkwantielen, EWMA " + MINKAL.half + "d</div>";
+    }
+    uit += '<div class="detail-regel">geijkt op ' + (m.bron || "?") +
+           " · gewichten geleend van de maximumkalibratie</div>";
+    return uit;
   }
 
   function elementVan(key) {
@@ -1897,28 +2279,57 @@ const CONFIG = {"nws_gewicht": 0.25, "steden": [{"key": "NYC", "naam": "New York
       let dagenHtml = "";
       dagen.slice(0, 3).forEach(function (d, i) {
         const lbl = labelMap[d.datum] || weekdag(d.datum);
-        const z = zekerheid(d.p90 - d.p10, s.eenheid);
         const hp = pr ? (pr[String(i)] || pr["1"]) : null;
         const eigenH = pr && pr[String(i)];
-        let histHtml = "geen backtest";
-        if (hp && hp.mae_nieuw !== null && hp.mae_nieuw !== undefined) {
-          histHtml = (eigenH ? "misser \u00B1" : "misser &lt;\u00B1") + nl(hp.mae_nieuw) + "\u00B0";
-        }
-        let bijregels = piekTekst(s, d, i === 0 && d.datum === vandaag);
-        if (d.nws !== undefined) {
-          bijregels += '<div class="dag-wu">NWS ' + heel(d.nws) + "\u00B0" + (d.nws_gemengd ? " \u2713" : "") + "</div>";
-        }
-        dagenHtml +=
-          '<div class="dag">' +
-            '<div class="dag-label">' + lbl + "</div>" +
-            '<div class="dag-datum">' + dagMaand(d.datum) + "</div>" +
+        let maxHtml = "";
+        if (toonMax()) {
+          const z = zekerheid(d.p90 - d.p10, s.eenheid);
+          let histHtml = "geen backtest";
+          if (hp && hp.mae_nieuw !== null && hp.mae_nieuw !== undefined) {
+            histHtml = (eigenH ? "misser \u00B1" : "misser &lt;\u00B1") + nl(hp.mae_nieuw) + "\u00B0";
+          }
+          let bijregels = piekTekst(s, d, i === 0 && d.datum === vandaag);
+          if (d.nws !== undefined) {
+            bijregels += '<div class="dag-wu">NWS ' + heel(d.nws) + "\u00B0" + (d.nws_gemengd ? " \u2713" : "") + "</div>";
+          }
+          maxHtml =
             '<div class="dag-temp" style="color:' + tint(d.verwachting, s.eenheid) + '">' +
               heel(d.verwachting) + '<span class="eenh">' + s.eenheid + "</span>" +
             "</div>" +
             '<div class="dag-interval">80%: ' + heel(d.p10) + " tot " + heel(d.p90) + "</div>" +
             '<div><span class="zeker-chip ' + z[1] + '">' + z[0] + "</span></div>" +
             '<div class="dag-hist">' + histHtml + "</div>" +
-            bijregels +
+            bijregels;
+        }
+        let minHtml = "";
+        if (toonMin()) {
+          const mn = d.mn;
+          const enkel = TOON === "min" ? " enkel" : "";
+          if (!mn) {
+            minHtml = '<div class="dag-min' + enkel + '">' +
+                        '<span class="dag-min-label">min</span>' +
+                        '<div class="dag-min-waarde" style="color:#5E6B82">\u00B7</div>' +
+                        '<div class="dag-min-band">geen ledenreeks</div>' +
+                      "</div>";
+          } else {
+            minHtml = '<div class="dag-min' + enkel + '">' +
+                        '<span class="dag-min-label">min</span>' +
+                        '<div class="dag-min-waarde" style="color:' + tint(mn.verwachting, s.eenheid) + '">' +
+                          heel(mn.verwachting) + '<span class="eenh">' + s.eenheid + "</span>" +
+                        "</div>" +
+                        '<div class="dag-min-band">80%: ' + heel(mn.p10) + " tot " + heel(mn.p90) + "</div>" +
+                        (mn.gekalibreerd
+                          ? (TOON === "min" && mn.mae !== null
+                              ? '<div class="dag-hist">misser \u00B1' + nl(mn.mae) + "\u00B0</div>" : "")
+                          : '<div class="dag-min-band">ongeijkt</div>') +
+                      "</div>";
+          }
+        }
+        dagenHtml +=
+          '<div class="dag">' +
+            '<div class="dag-label">' + lbl + "</div>" +
+            '<div class="dag-datum">' + dagMaand(d.datum) + "</div>" +
+            maxHtml + minHtml +
           "</div>";
       });
       midden = '<div class="dagen">' + dagenHtml + "</div>";
@@ -1929,17 +2340,20 @@ const CONFIG = {"nws_gewicht": 0.25, "steden": [{"key": "NYC", "naam": "New York
 
     /* details */
     const kaart = document.createElement("div");
-    kaart.className = "kaart";
+    kaart.className = "kaart" + (isVerborgen(s.key) ? " verborgen-kaart" : "");
     kaart.setAttribute("data-key", s.key);
     kaart.innerHTML =
       '<div class="kaart-kop">' +
         '<span class="greep" title="slepen om te ordenen">\u283F</span>' +
+        favKnopHtml(s) + verbergKnopHtml(s) +
         '<div class="stad-naam">' + s.naam + "</div>" +
         (rangChip(s, dagen) || "") +
         '<div class="klok" data-tz="' + s.tz + '"></div>' +
+        (isVerborgen(s.key) ? '<div class="verborgen-chip">verborgen</div>' : "") +
         (kaartOud ? '<div class="oud-chip">verouderd</div>' : "") +
         (s.eigen ? '<div class="nieuw-chip">nieuw</div>' : "") +
         driftChip(s) +
+        marktKnopHtml(s) +
         '<div class="station-chip">' + s.station + "</div>" +
       "</div>" +
       midden +
@@ -1947,6 +2361,25 @@ const CONFIG = {"nws_gewicht": 0.25, "steden": [{"key": "NYC", "naam": "New York
         '<div class="detail-blok">' + detailHtml(s) + "</div>" +
       "</details>";
     return kaart;
+  }
+
+  /* ── Knoppen in de kop van kaart en lijstrij ── */
+  function favKnopHtml(s) {
+    const aan = isFavoriet(s.key);
+    return '<button class="kop-knop fav' + (aan ? " aan" : "") + '" data-fav="' + s.key +
+           '" title="' + (aan ? "favoriet weghalen" : "als favoriet markeren") + '">' +
+           (aan ? "★" : "☆") + "</button>";
+  }
+  function verbergKnopHtml(s) {
+    const aan = isVerborgen(s.key);
+    return '<button class="kop-knop verberg' + (aan ? " aan" : "") + '" data-verberg="' + s.key +
+           '" title="' + (aan ? "stad weer tonen" : "stad verbergen") + '">' +
+           (aan ? "⊕" : "⊘") + "</button>";
+  }
+  function marktKnopHtml(s) {
+    if (!window.WeerbotMarkt || !WeerbotMarkt.heeftMarkt(s)) return "";
+    return '<button class="markt-knop" data-markt="' + s.key +
+           '" title="Polymarket-statistieken">markt</button>';
   }
 
   /* ── Automatische herijking bij drift ──
@@ -2108,6 +2541,37 @@ const CONFIG = {"nws_gewicht": 0.25, "steden": [{"key": "NYC", "naam": "New York
   let WEERGAVE = lees("weerbot-weergave");
   if (!WEERGAVE) WEERGAVE = alleSteden().length > 20 ? "lijst" : "kaarten";
 
+  /* ── Wat wordt getoond: alle voorspellingen, alleen het maximum of alleen
+     het minimum. Favorieten staan altijd bovenaan; verborgen steden worden
+     overgeslagen tot je ze met de knop verborgen weer tevoorschijn haalt. ── */
+  let TOON = lees("weerbot-toon") || "alles";
+  if (["alles", "max", "min"].indexOf(TOON) === -1) TOON = "alles";
+  let ALLEEN_FAV = lees("weerbot-alleen-fav") === true;
+  let TOON_VERBORGEN = false;              // alleen deze sessie, niet bewaard
+  const FAVORIET = new Set(lees("weerbot-favorieten") || []);
+  const VERBORGEN = new Set(lees("weerbot-verborgen") || []);
+
+  function isFavoriet(key) { return FAVORIET.has(key); }
+  function isVerborgen(key) { return VERBORGEN.has(key); }
+  function toonMax() { return TOON !== "min"; }
+  function toonMin() { return TOON !== "max"; }
+
+  function wisselFavoriet(key, naam) {
+    if (FAVORIET.has(key)) FAVORIET.delete(key);
+    else { FAVORIET.add(key); if (VERBORGEN.has(key)) VERBORGEN.delete(key); }
+    bewaar("weerbot-favorieten", Array.from(FAVORIET));
+    bewaar("weerbot-verborgen", Array.from(VERBORGEN));
+    log(1, naam, FAVORIET.has(key) ? "als favoriet gemarkeerd" : "niet langer favoriet");
+  }
+
+  function wisselVerborgen(key, naam) {
+    if (VERBORGEN.has(key)) VERBORGEN.delete(key);
+    else { VERBORGEN.add(key); FAVORIET.delete(key); }
+    bewaar("weerbot-verborgen", Array.from(VERBORGEN));
+    bewaar("weerbot-favorieten", Array.from(FAVORIET));
+    log(1, naam, VERBORGEN.has(key) ? "stad verborgen" : "stad weer zichtbaar");
+  }
+
   /* handmatige volgorde via slepen */
   let EIGEN_ORDER = lees("weerbot-volgorde") || [];
 
@@ -2184,10 +2648,19 @@ const CONFIG = {"nws_gewicht": 0.25, "steden": [{"key": "NYC", "naam": "New York
       const m = maeVan(s, SORT.horizon);
       return m === null ? "" : '<div class="rang-chip">\u00B1' + nl(m, 2) + "</div>";
     }
-    if (SORT.modus === "warmst" && dagen && dagen[SORT.horizon]) {
-      return '<div class="rang-chip">' + heel(dagen[SORT.horizon].verwachting) + "\u00B0</div>";
+    if ((SORT.modus === "warmst" || SORT.modus === "koudst") && dagen && dagen[SORT.horizon]) {
+      const v = toonWaarde(dagen[SORT.horizon]);
+      if (v !== null) return '<div class="rang-chip">' + heel(v) + "\u00B0</div>";
     }
     return "";
+  }
+
+  /* De temperatuur waar sorteren en rangschikken op kijken: het maximum, tenzij
+     de gebruiker alleen minima toont. */
+  function toonWaarde(d) {
+    if (!d) return null;
+    if (TOON === "min") return d.mn ? d.mn.verwachting : null;
+    return d.verwachting;
   }
 
   function sorteer(items) {
@@ -2211,20 +2684,28 @@ const CONFIG = {"nws_gewicht": 0.25, "steden": [{"key": "NYC", "naam": "New York
         if (y === null) return -1;
         return x - y || a.i - b.i;
       });
-    } else if (m === "warmst") {
+    } else if (m === "warmst" || m === "koudst") {
+      const teken = m === "warmst" ? -1 : 1;
       const w = function (o) {
         const d = o.u && o.u.status === "fulfilled" ? o.u.value.dagen : (o.cache && o.cache.dagen);
-        return (d && d[h]) ? tempNaarC(d[h].verwachting, o.s.eenheid) : null;
+        const v = (d && d[h]) ? toonWaarde(d[h]) : null;
+        return v === null ? null : tempNaarC(v, o.s.eenheid);
       };
       kopie.sort(function (a, b) {
         const x = w(a), y = w(b);
         if (x === null && y === null) return a.i - b.i;
         if (x === null) return 1;
         if (y === null) return -1;
-        return y - x || a.i - b.i;
+        return teken * (x - y) || a.i - b.i;
       });
     } else {
       kopie.sort(function (a, b) { return a.i - b.i; });
+    }
+    /* Favorieten staan altijd vooraan, in de volgorde die de sortering geeft. */
+    if (FAVORIET.size) {
+      const fav = [], rest = [];
+      kopie.forEach(function (o) { (isFavoriet(o.s.key) ? fav : rest).push(o); });
+      return fav.concat(rest);
     }
     return kopie;
   }
@@ -2237,7 +2718,19 @@ const CONFIG = {"nws_gewicht": 0.25, "steden": [{"key": "NYC", "naam": "New York
     balk.querySelectorAll("[data-weergave]").forEach(function (k) {
       k.classList.toggle("aan", k.getAttribute("data-weergave") === WEERGAVE);
     });
-    const horizonZichtbaar = (SORT.modus === "nauwkeurig" || SORT.modus === "warmst");
+    balk.querySelectorAll("[data-toon]").forEach(function (k) {
+      k.classList.toggle("aan", k.getAttribute("data-toon") === TOON);
+    });
+    const favK = document.getElementById("favKnop");
+    favK.classList.toggle("aan", ALLEEN_FAV);
+    favK.innerHTML = "\u2605 favorieten" + (FAVORIET.size ? " (" + FAVORIET.size + ")" : "");
+    const verbK = document.getElementById("verborgKnop");
+    verbK.classList.toggle("aan", TOON_VERBORGEN);
+    verbK.textContent = "verborgen" + (VERBORGEN.size ? " (" + VERBORGEN.size + ")" : "");
+    verbK.style.display = (VERBORGEN.size || TOON_VERBORGEN) ? "" : "none";
+
+    const temperatuurModus = (SORT.modus === "warmst" || SORT.modus === "koudst");
+    const horizonZichtbaar = (SORT.modus === "nauwkeurig" || temperatuurModus);
     balk.querySelectorAll("[data-horizon]").forEach(function (k) {
       k.style.display = horizonZichtbaar ? "" : "none";
       k.classList.toggle("aan", parseInt(k.getAttribute("data-horizon"), 10) === SORT.horizon);
@@ -2246,16 +2739,36 @@ const CONFIG = {"nws_gewicht": 0.25, "steden": [{"key": "NYC", "naam": "New York
     const hint = document.getElementById("balkHint");
     hint.style.display = horizonZichtbaar ? "" : "none";
     hint.textContent = SORT.modus === "nauwkeurig"
-      ? "gemiddelde misser, vergeleken in \u00B0C zodat Fahrenheit niet oneerlijk slecht lijkt"
-      : "verwachte maximumtemperatuur, vergeleken in \u00B0C";
+      ? "gemiddelde misser op het dagmaximum, vergeleken in \u00B0C zodat Fahrenheit niet oneerlijk slecht lijkt"
+      : "verwachte " + (TOON === "min" ? "minimum" : "maximum") + "temperatuur, vergeleken in \u00B0C";
   }
 
   document.getElementById("sorteerBalk").addEventListener("click", function (e) {
-    const kn = e.target.closest && e.target.closest("[data-modus],[data-horizon],[data-weergave]");
+    const doel = e.target.closest && e.target.closest("button");
+    if (!doel) return;
+    if (doel.id === "favKnop") {
+      ALLEEN_FAV = !ALLEEN_FAV;
+      bewaar("weerbot-alleen-fav", ALLEEN_FAV);
+      tekenBalk(); teken();
+      return;
+    }
+    if (doel.id === "verborgKnop") {
+      TOON_VERBORGEN = !TOON_VERBORGEN;
+      tekenBalk(); teken();
+      return;
+    }
+    const kn = doel.closest("[data-modus],[data-horizon],[data-weergave],[data-toon]");
     if (!kn) return;
     if (kn.hasAttribute("data-weergave")) {
       WEERGAVE = kn.getAttribute("data-weergave");
       bewaar("weerbot-weergave", WEERGAVE);
+      tekenBalk();
+      teken();
+      return;
+    }
+    if (kn.hasAttribute("data-toon")) {
+      TOON = kn.getAttribute("data-toon");
+      bewaar("weerbot-toon", TOON);
       tekenBalk();
       teken();
       return;
@@ -2276,28 +2789,50 @@ const CONFIG = {"nws_gewicht": 0.25, "steden": [{"key": "NYC", "naam": "New York
   function bouwRij(s, uitkomst) {
     const dagen = uitkomst && uitkomst.dagen;
     const vandaag = isoInTz(s.tz, 0);
+    const dubbel = TOON === "alles";
     let temps = "";
     if (dagen && dagen.length) {
-      ["vd", "mo", "ov"].forEach(function (lbl, i) {
-        const d = dagen[i];
-        const uur = (d && d.piek) ? "\u00B7" + d.piek.uur + "u" : "";
-        temps += '<div class="rij-temp"' + (d ? ' style="color:' + tint(d.verwachting, s.eenheid) + '"' : "") + ">" +
-                 (d ? heel(d.verwachting) : "\u00B7") + "<small>" + lbl + uur + "</small></div>";
-      });
+      const groep = function (soort) {
+        let h = dubbel ? '<span class="rij-groep-label">' + (soort === "min" ? "min" : "max") + "</span>" : "";
+        ["vd", "mo", "ov"].forEach(function (lbl, i) {
+          const d = dagen[i];
+          const w = d ? (soort === "min" ? (d.mn && d.mn.verwachting) : d.verwachting) : null;
+          const uur = (soort === "max" && d && d.piek) ? "\u00B7" + d.piek.uur + "u" : "";
+          h += '<div class="rij-temp' + (soort === "min" ? " min" : "") + '"' +
+               (w === null || w === undefined ? "" : ' style="color:' + tint(w, s.eenheid) + '"') + ">" +
+               (w === null || w === undefined ? "\u00B7" : heel(w)) +
+               (dubbel ? "" : "<small>" + lbl + uur + "</small>") + "</div>";
+        });
+        return dubbel ? '<div class="rij-groep">' + h + "</div>" : h;
+      };
+      if (toonMax()) temps += groep("max");
+      if (toonMin()) temps += groep("min");
+      if (dubbel) {
+        temps = '<div class="rij-groep" style="gap:10px">' +
+                  '<span class="rij-groep-label"></span>' +
+                  ["vd", "mo", "ov"].map(function (lbl) {
+                    return '<div class="rij-temp" style="font-size:8.5px;color:#4A5468;font-weight:600">' +
+                           lbl + "</div>";
+                  }).join("") +
+                "</div>" + temps;
+      }
     } else {
       temps = '<div class="rij-temp" style="color:#E06C5B">\u2014<small>offline</small></div>';
     }
     const rij = document.createElement("div");
-    rij.className = "rij";
+    rij.className = "rij" + (isVerborgen(s.key) ? " verborgen-kaart" : "");
     rij.setAttribute("data-key", s.key);
     rij.innerHTML =
       '<div class="rij-kop">' +
         '<span class="greep" title="slepen om te ordenen">\u283F</span>' +
+        favKnopHtml(s) + verbergKnopHtml(s) +
         '<div class="rij-naam">' + s.naam + "</div>" +
         driftChip(s) +
+        (isVerborgen(s.key) ? '<div class="verborgen-chip">verborgen</div>' : "") +
         (dagen && dagen.length && dagen[0].datum < vandaag ? '<div class="oud-chip">oud</div>' : "") +
+        marktKnopHtml(s) +
         '<div class="station-chip">' + s.station + "</div>" +
-        '<div class="rij-temps">' + temps + "</div>" +
+        '<div class="rij-temps' + (dubbel ? " dubbel" : "") + '">' + temps + "</div>" +
       "</div>" +
       "<details><summary>model en controles</summary>" +
         '<div class="detail-blok">' + detailHtml(s) + "</div>" +
@@ -2337,7 +2872,10 @@ const CONFIG = {"nws_gewicht": 0.25, "steden": [{"key": "NYC", "naam": "New York
   function teken() {
     if (!LAATSTE) return;
     const items = LAATSTE.filter(function (o) {
-      return !filterTekst || o.s.naam.toLowerCase().indexOf(filterTekst) !== -1;
+      if (filterTekst && o.s.naam.toLowerCase().indexOf(filterTekst) === -1) return false;
+      if (isVerborgen(o.s.key) && !TOON_VERBORGEN) return false;
+      if (ALLEEN_FAV && !isFavoriet(o.s.key)) return false;
+      return true;
     });
     const compact = WEERGAVE === "lijst";
     const bak = compact ? lijstEl : grid;
@@ -2346,6 +2884,10 @@ const CONFIG = {"nws_gewicht": 0.25, "steden": [{"key": "NYC", "naam": "New York
     lijstEl.style.display = compact ? "flex" : "none";
     if (compact) grid.innerHTML = ""; else lijstEl.innerHTML = "";
     bak.innerHTML = "";
+    if (!items.length) {
+      bak.innerHTML = '<div class="leeg-tekst">' + leegTekst() + "</div>";
+      return;
+    }
     sorteer(items.map(function (o) {
       return { s: o.s, i: o.i, u: { status: o.data ? "fulfilled" : "rejected", value: o.data },
                cache: null, data: o.data };
@@ -2354,6 +2896,17 @@ const CONFIG = {"nws_gewicht": 0.25, "steden": [{"key": "NYC", "naam": "New York
       bak.appendChild(bouw(o.s, bron.data, bron.fout || undefined));
     });
     tikKlokken();
+  }
+
+  function leegTekst() {
+    if (ALLEEN_FAV && !FAVORIET.size) {
+      return "Nog geen favorieten. Tik op de ster naast een stad om er een te maken, " +
+             "of zet de knop ★ favorieten weer uit.";
+    }
+    if (ALLEEN_FAV) return "Geen favoriet voldoet aan het naamfilter.";
+    if (filterTekst) return "Geen stad met “" + filterTekst + "” in de naam.";
+    if (VERBORGEN.size) return "Alle steden staan verborgen. Tik op verborgen om ze terug te halen.";
+    return "Geen steden om te tonen.";
   }
 
   function ververs() {
@@ -2506,6 +3059,31 @@ const CONFIG = {"nws_gewicht": 0.25, "steden": [{"key": "NYC", "naam": "New York
   zoekInvoer.addEventListener("keydown", function (e) { if (e.key === "Enter") zoek(); });
 
   function kaartKlik(e) {
+    const el = e.target;
+    const attr = function (naam) {
+      return el && el.getAttribute ? el.getAttribute(naam) : null;
+    };
+    const fk = attr("data-fav");
+    if (fk) {
+      const sf = alleSteden().filter(function (x) { return x.key === fk; })[0];
+      wisselFavoriet(fk, sf ? sf.naam : fk);
+      tekenBalk(); teken();
+      return;
+    }
+    const vk = attr("data-verberg");
+    if (vk) {
+      const sv = alleSteden().filter(function (x) { return x.key === vk; })[0];
+      wisselVerborgen(vk, sv ? sv.naam : vk);
+      tekenBalk(); teken();
+      return;
+    }
+    const mk2 = attr("data-markt");
+    if (mk2 && window.WeerbotMarkt) {
+      const sm = alleSteden().filter(function (x) { return x.key === mk2; })[0];
+      const rij = (LAATSTE || []).filter(function (x) { return x.s.key === mk2; })[0];
+      if (sm) WeerbotMarkt.open(sm, rij && rij.data ? rij.data.dagen : null, TOON === "min" ? "min" : "max");
+      return;
+    }
     const hk = e.target && e.target.getAttribute && e.target.getAttribute("data-herijk");
     if (hk) {
       const s = alleSteden().filter(function (x) { return x.key === hk; })[0];
@@ -2534,11 +3112,17 @@ const CONFIG = {"nws_gewicht": 0.25, "steden": [{"key": "NYC", "naam": "New York
   });
 
   document.getElementById("voet").innerHTML =
-    "Verwachting: skillgewogen modelgemiddelde (EWMA halfwaardetijd " + PARAMS.halfwaarde_dagen +
+    "Maximum: skillgewogen modelgemiddelde (EWMA halfwaardetijd " + PARAMS.halfwaarde_dagen +
     " dagen) met een lerende correctie op de laatste geverifieerde fout, de modelspreiding " +
     "en de afwijking van elk model afzonderlijk.<br>" +
+    "Minimum: hetzelfde gewogen modelgemiddelde, met een bias en band die de app zelf leert " +
+    "uit de dagelijkse controle tegen het station (EWMA " + MINKAL.half + " dagen, vanaf " +
+    MINKAL.minN + " geverifieerde dagen). De weekkalibratie rekent alleen aan maxima, " +
+    "dus het minimum leunt op de eigen controle.<br>" +
     "80% band: gekalibreerde walk forward restfoutkwantielen, verbreed als de leden verder uiteenlopen dan normaal.<br>" +
     "De app controleert elke dag zelf de laatste 4 dagen na tegen de stationsmeting; zie model en controles per stad.<br>" +
+    "Markt: publieke Gamma-API van Polymarket, dezelfde afrekenstations als hierboven \u00B7 " +
+    "alleen ter vergelijking, de app handelt niet.<br>" +
     "Modellen: ECMWF IFS + AIFS, NCEP GEFS, ICON, GEM via Open\u2011Meteo \u00B7 gescoord tegen METAR stationswaarnemingen.";
 
   const klokFmt = {};
