@@ -2199,10 +2199,14 @@ const CONFIG = {"nws_gewicht": 0.25, "steden": [{"key": "NYC", "naam": "New York
     return "";
   }
 
+  /* Het paneel volgt de knop "toon": bij alleen max staan er geen mingegevens
+     en omgekeerd. De afrekenbron en het verwijderen van een eigen stad gelden
+     voor allebei en staan daarom buiten de blokken. */
   function detailHtml(s) {
     const pr = paramsVan(s);
-    let det = '<div class="detail-kop">maximumtemperatuur</div>';
-    if (pr && pr["1"]) {
+    let det = "";
+    if (toonMax()) det += '<div class="detail-kop">maximumtemperatuur</div>';
+    if (toonMax() && pr && pr["1"]) {
       const h1 = pr["1"];
       if (h1.gewichten) {
         const delen = Object.keys(h1.gewichten).sort(function (a, b) { return h1.gewichten[b] - h1.gewichten[a]; })
@@ -2242,7 +2246,7 @@ const CONFIG = {"nws_gewicht": 0.25, "steden": [{"key": "NYC", "naam": "New York
       det += '<div class="detail-regel">backtest vd/mo/ov <span class="w">' + backMae + "\u00B0</span></div>";
       det += '<div class="detail-regel">gekalibreerd op ' + datumKort(pr.gegenereerd || PARAMS.gegenereerd) + "</div>";
     }
-    if (s.eigen) {
+    if (toonMax() && s.eigen) {
       if (s.params) {
         det += '<div class="detail-regel">bron <span class="w">' + (s.params.bron || "?") + "</span></div>";
       } else if (kalibratieBezig.has(s.key)) {
@@ -2253,7 +2257,7 @@ const CONFIG = {"nws_gewicht": 0.25, "steden": [{"key": "NYC", "naam": "New York
         det += '<div class="detail-regel">nog niet gekalibreerd \u00B7 kale ensembleband</div>';
       }
     }
-    if (s.nws_url) {
+    if (toonMax() && s.nws_url) {
       if (pr && pr.nws) {
         const w0 = pr.nws["0"], w1 = pr.nws["1"];
         det += '<div class="detail-regel">NWS geleerd gewicht <span class="w">vandaag ' +
@@ -2267,24 +2271,29 @@ const CONFIG = {"nws_gewicht": 0.25, "steden": [{"key": "NYC", "naam": "New York
     }
     const dg = (LAATSTE || []).filter(function (o) { return o.s.key === s.key; })[0];
     const pk = dg && dg.data && dg.data.dagen && dg.data.dagen[1] && dg.data.dagen[1].piek;
-    if (pk) {
+    if (toonMax() && pk) {
       det += '<div class="detail-regel">warmste moment morgen <span class="w">' + pk.uur +
              "u</span> \u00B7 modellen tussen " + pk.lo + " en " + pk.hi +
              "u \u00B7 uit de uurcurve van de vijf modelsystemen</div>";
     }
+    if (toonMax()) {
+      det += verifHtml(s, "max");
+      det += herijkHtml(s);
+    }
+    if (toonMin()) {
+      det += '<div class="detail-kop">minimumtemperatuur</div>';
+      det += minHtml(s);
+      det += verifHtml(s, "min");
+    }
     const alt = altBron(s);
     if (alt) {
-      det += '<div class="detail-regel">afrekenbron <span class="w">' +
+      det += '<div class="detail-kop">afrekenbron</div>';
+      det += '<div class="detail-regel"><span class="w">' +
              (alt === "hko" ? "Hong Kong Observatory, hoofdstation" : "ERA5 raster") + "</span>" +
              (alt === "era5" ? " \u00B7 geen bruikbaar METAR archief" : "") + "</div>";
-      det += '<div class="detail-regel">de controle hieronder loopt op ERA5 en wijkt dus af van de ' +
+      det += '<div class="detail-regel">de controle hierboven loopt op ERA5 en wijkt dus af van de ' +
              "afrekenbron; alleen indicatief, herijken gaat wekelijks via de kalibratie</div>";
     }
-    det += verifHtml(s, "max");
-    det += herijkHtml(s);
-    det += '<div class="detail-kop">minimumtemperatuur</div>';
-    det += minHtml(s);
-    det += verifHtml(s, "min");
     if (s.eigen) {
       det += '<div class="detail-regel" style="margin-top:5px"><span class="verwijder" data-verwijder="' +
              s.key + '">stad verwijderen</span></div>';
