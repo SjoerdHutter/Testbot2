@@ -1,4 +1,7 @@
 name: Wekelijkse hertraining
+# Draait alleen op de default branch: GitHub plant schema's uitsluitend
+# daarvandaan, en een workflow verschijnt pas in het Actions-overzicht nadat
+# hij een keer op die branch is gedraaid of ernaartoe is gepusht.
 on:
   schedule:
     - cron: "17 3 * * 1"      # elke maandag 03:17 UTC

@@ -7,6 +7,9 @@ name: Wekelijkse kalibratie
 # Gepland op maandag 05:23 UTC: ruim na de dagelijkse klim-berekening (02:23)
 # en de wekelijkse hertraining (03:17), zodat er nooit twee acties tegelijk
 # naar main pushen.
+# Draait alleen op de default branch: GitHub plant schema's uitsluitend
+# daarvandaan, en een workflow verschijnt pas in het Actions-overzicht nadat
+# hij een keer op die branch is gedraaid of ernaartoe is gepusht.
 on:
   schedule:
     - cron: "23 5 * * 1"

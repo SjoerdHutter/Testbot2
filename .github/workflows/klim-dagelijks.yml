@@ -1,4 +1,7 @@
 name: Dagelijkse klim-berekening
+# Draait alleen op de default branch: GitHub plant schema's uitsluitend
+# daarvandaan, en een workflow verschijnt pas in het Actions-overzicht nadat
+# hij een keer op die branch is gedraaid of ernaartoe is gepusht.
 on:
   schedule:
     - cron: "23 2,14 * * *"
