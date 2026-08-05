@@ -75,12 +75,32 @@ Er wordt niets verhandeld en er gaat niets naar buiten: het venster doet alleen
 leesverzoeken naar de publieke Gamma-API van Polymarket. Zhengzhou en Jinan
 hebben geen markt; daar staat de knop niet.
 
-## Opslag
+## Onafhankelijk van TestBot
 
-Weerbot 2 draait op dezelfde herkomst als de eerste versie (GitHub Pages deelt
-`localStorage` over alle paden van één domein). Alle sleutels heten daarom
-`weerbot2-…` in plaats van `weerbot-…`, zodat de twee apps elkaars cache, log,
-kalibraties en voorkeuren niet overschrijven.
+Weerbot 2 is een volledige, zelfstandige app: alle bestandsverwijzingen zijn
+relatief, geen enkel bestand of eindpunt wijst naar de TestBot-repo, en de
+workflows checken hun eigen repo uit en pushen naar hun eigen `origin`. Er zijn
+geen secrets nodig.
+
+Twee dingen die de browser wél deelt tussen apps op hetzelfde domein — GitHub
+Pages zet `sjoerdhutter.github.io/TestBot/` en `/Testbot2/` op één herkomst — en
+hoe ze hier gescheiden zijn:
+
+* **`localStorage`** is per herkomst, niet per pad. Alle sleutels heten daarom
+  `weerbot2-…` in plaats van `weerbot-…`; zie `opslagSleutel()` in `index.html`
+  en `SLEUTEL()` in de twee `weerbot-ml*.js`-bestanden. Cache, logboek,
+  kalibraties, eigen steden en voorkeuren staan dus los van elkaar.
+* **`CacheStorage`** is óók per herkomst. De servicewerker gebruikt daarom het
+  voorvoegsel `weerbot2-` en ruimt bij het activeren alleen caches met dát
+  voorvoegsel op; hij leest offline ook alleen uit zijn eigen cache. Zonder die
+  filter gooit elke app bij een nieuwe servicewerkerversie de offlineschil van
+  de ander weg.
+
+Let op: de eerste TestBot heeft die filter niet. Zolang die zijn `sw.js` niet
+wijzigt gebeurt er niets, maar brengt TestBot ooit een nieuwe
+servicewerkerversie uit, dan wist die eenmalig de offlineschil van Weerbot 2.
+Weerbot 2 vult die bij het eerstvolgende online bezoek vanzelf weer aan. Wie dat
+helemaal wil dichtzetten, past in TestBot `sw.js` dezelfde filter toe.
 
 ## Zelftests
 

@@ -1,4 +1,9 @@
-const VERSIE = "weerbot2-v1";
+/* CacheStorage geldt per herkomst, niet per pad: op github.io deelt Weerbot 2
+   zijn cachelijst met de eerste Weerbot. Daarom draagt elke cache hier het
+   voorvoegsel weerbot2- en ruimt de activate-stap alleen die op. Zonder die
+   filter gooit elke app bij het activeren de schil van de ander weg. */
+const VOORVOEGSEL = "weerbot2-";
+const VERSIE = VOORVOEGSEL + "v1";
 const SCHIL = ["./", "./index.html", "./manifest.webmanifest", "./app_params.js", "./weerbot-modellen/polymarkt.js", "./weerbot-modellen/weerbot-ml.js", "./weerbot-modellen/weerbot-ml-koppel.js", "./weerbot-modellen/modellen/modellen.json", "./icon-192.png", "./icon-512.png", "./apple-touch-icon.png"];
 
 self.addEventListener("install", function (e) {
@@ -13,8 +18,9 @@ self.addEventListener("install", function (e) {
 self.addEventListener("activate", function (e) {
   e.waitUntil(
     caches.keys().then(function (sleutels) {
-      return Promise.all(sleutels.filter(function (k) { return k !== VERSIE; })
-        .map(function (k) { return caches.delete(k); }));
+      return Promise.all(sleutels.filter(function (k) {
+        return k.indexOf(VOORVOEGSEL) === 0 && k !== VERSIE;   // alleen eigen oude versies
+      }).map(function (k) { return caches.delete(k); }));
     }).then(function () { return self.clients.claim(); })
   );
 });
@@ -29,8 +35,11 @@ self.addEventListener("fetch", function (e) {
       caches.open(VERSIE).then(function (c) { c.put(e.request, kopie); });
       return antwoord;
     }).catch(function () {
-      return caches.match(e.request).then(function (m) {
-        return m || caches.match("./index.html");
+      /* uit de eigen cache, niet uit die van een andere app op deze herkomst */
+      return caches.open(VERSIE).then(function (c) {
+        return c.match(e.request).then(function (m) {
+          return m || c.match("./index.html");
+        });
       });
     })
   );
