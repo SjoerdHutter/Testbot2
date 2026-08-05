@@ -340,6 +340,7 @@
     letter-spacing: 0.08em; text-transform: uppercase;
     border-radius: 4px; padding: 2px 7px;
   }
+  .zeker-chip.klein { margin-top: 5px; font-size: 8.5px; padding: 1px 5px; letter-spacing: 0.06em; }
   .z-hoog { color: #57C48A; background: rgba(87, 196, 138, 0.12); }
   .z-gem  { color: #E3B341; background: rgba(227, 179, 65, 0.12); }
   .z-laag { color: #E06C5B; background: rgba(224, 108, 91, 0.12); }
@@ -365,6 +366,12 @@
   summary::before { content: "▸ "; color: var(--accent); }
   details[open] summary::before { content: "▾ "; }
   .detail-blok { margin-top: 8px; font-family: var(--mono); font-size: 11px; line-height: 1.75; color: var(--dim); }
+  .detail-kop {
+    font-family: var(--mono); font-size: 9.5px; letter-spacing: 0.12em;
+    text-transform: uppercase; color: #5E6B82; margin: 12px 0 4px;
+    border-top: 1px solid var(--rand); padding-top: 8px;
+  }
+  .detail-kop:first-child { margin-top: 0; border-top: none; padding-top: 0; }
   .detail-blok .w { color: var(--inkt); }
   .detail-regel { white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
   .verwijder { color: #E06C5B; cursor: pointer; text-decoration: underline; }
@@ -535,6 +542,7 @@
     <button class="chip-knop" data-modus="nauwkeurig">nauwkeurig</button>
     <button class="chip-knop" data-modus="warmst">warmst</button>
     <button class="chip-knop" data-modus="koudst">koudst</button>
+    <button class="chip-knop" data-modus="zekerst">zekerst</button>
     <button class="chip-knop" data-modus="naam">naam</button>
     <button class="chip-knop" data-modus="eigen">eigen</button>
     <span class="balk-scheiding" id="balkScheiding"></span>
@@ -2104,25 +2112,69 @@ const CONFIG = {"nws_gewicht": 0.25, "steden": [{"key": "NYC", "naam": "New York
     return svg + "</svg>";
   }
 
-  function verifHtml(s) {
-    const v2 = VERIF[s.key];
+  /* De controle van het maximum en die van het minimum staan in twee losse
+     opslagen maar hebben dezelfde vorm: per dag de gemeten waarde en de misser
+     per horizon. Deze functie tekent ze allebei.
+
+     Eén verschil: de rijen van het minimum bevatten de ruwe restfout, dus vóór
+     de geleerde bias. Die trekken we hier af, zodat de grafiek de misser toont
+     die de app werkelijk maakt, net als bij het maximum. */
+  function verifBron(s, soort) {
+    if (soort !== "min") {
+      const v = VERIF[s.key];
+      if (!v) return null;
+      const pr = paramsVan(s);
+      return { rijen: v.rijen, bron: v.bron,
+               mae: function (h) { return v.mae[h]; },
+               belofte: function (h) {
+                 const hp = pr && (pr[String(h)] || pr["1"]);
+                 return hp && hp.mae_nieuw ? hp.mae_nieuw : null;
+               } };
+    }
+    const m = MINKAL_STORE[s.key];
+    if (!m || !m.rijen || !m.rijen.length) return null;
+    const per = m.per || {};
+    const rijen = m.rijen.map(function (r) {
+      const uit = {};
+      [0, 1, 2].forEach(function (h) {
+        if (r.per[h] === undefined) return;
+        const st = per[String(h)];
+        uit[h] = Math.round((r.per[h] - (st ? st.bias : 0)) * 10) / 10;
+      });
+      return { datum: r.datum, echt: r.echt, per: uit };
+    });
+    return { rijen: rijen, bron: m.bron,
+             mae: function (h) { return per[String(h)] ? per[String(h)].mae : undefined; },
+             belofte: function (h) { return per[String(h)] ? per[String(h)].mae : null; } };
+  }
+
+  function verifHtml(s, soort) {
+    const v2 = verifBron(s, soort);
     if (!v2) {
+      if (soort === "min") {
+        return MINKAL_STORE[s.key]
+          ? "" : '<div class="detail-regel">controle van het minimum volgt zodra de eerste meetdagen binnen zijn</div>';
+      }
       if (verifBezig.has(s.key)) return '<div class="detail-regel">controle wordt opgehaald\u2026</div>';
       if (verifMislukt.has(s.key)) return '<div class="detail-regel">controle niet gelukt</div>';
+      /* Na een herijking wordt de fouthistorie gewist: die gold voor de oude
+         parameters. Zonder deze regel lijkt de controle gewoon te ontbreken. */
+      const h = actueleHerijk(s);
+      if (h && h.op === isoDag(new Date())) {
+        return '<div class="detail-regel">foutgeschiedenis opnieuw opgebouwd na de herijking van vandaag</div>';
+      }
       return "";
     }
-    const pr = paramsVan(s);
     const laatste = v2.rijen.length ? v2.rijen[0].datum : null;
     let r = '<div class="detail-regel" style="margin-top:5px">foutgeschiedenis ' + v2.rijen.length +
             " dagen \u00B7 echt " + MIN + " voorspeld \u00B7 " + v2.bron + "</div>";
     let iets = false;
     [0, 1, 2].forEach(function (h) {
-      const hp = pr && (pr[String(h)] || pr["1"]);
-      const maeBack = hp && hp.mae_nieuw ? hp.mae_nieuw : null;
+      const maeBack = v2.belofte(h);
       const svg = sparkSvg(v2.rijen, h, maeBack);
       if (!svg) return;
       iets = true;
-      const recent = v2.mae[h];
+      const recent = v2.mae(h);
       const slecht = (maeBack && recent && recent > maeBack * DRIFT.ratio);
       r += '<div class="spark-rij"><span class="spark-label">' +
            ["vd", "mo", "ov"][h] + "</span>" + svg +
@@ -2130,7 +2182,8 @@ const CONFIG = {"nws_gewicht": 0.25, "steden": [{"key": "NYC", "naam": "New York
            (recent !== undefined ? "\u00B1" + nl(recent) : "\u00B7") + "</span></div>";
     });
     if (!iets) return r + '<div class="detail-regel">nog te weinig gemeten dagen</div>';
-    r += '<div class="detail-regel" style="margin-top:3px">band = de misser die de backtest belooft' +
+    r += '<div class="detail-regel" style="margin-top:3px">band = de misser die ' +
+         (soort === "min" ? "de eigen ijking" : "de backtest") + " belooft" +
          (laatste ? " \u00B7 tot " + dagMaand(laatste) : "") + "</div>";
     return r;
   }
@@ -2148,7 +2201,7 @@ const CONFIG = {"nws_gewicht": 0.25, "steden": [{"key": "NYC", "naam": "New York
 
   function detailHtml(s) {
     const pr = paramsVan(s);
-    let det = "";
+    let det = '<div class="detail-kop">maximumtemperatuur</div>';
     if (pr && pr["1"]) {
       const h1 = pr["1"];
       if (h1.gewichten) {
@@ -2227,9 +2280,11 @@ const CONFIG = {"nws_gewicht": 0.25, "steden": [{"key": "NYC", "naam": "New York
       det += '<div class="detail-regel">de controle hieronder loopt op ERA5 en wijkt dus af van de ' +
              "afrekenbron; alleen indicatief, herijken gaat wekelijks via de kalibratie</div>";
     }
-    det += minHtml(s);
-    det += verifHtml(s);
+    det += verifHtml(s, "max");
     det += herijkHtml(s);
+    det += '<div class="detail-kop">minimumtemperatuur</div>';
+    det += minHtml(s);
+    det += verifHtml(s, "min");
     if (s.eigen) {
       det += '<div class="detail-regel" style="margin-top:5px"><span class="verwijder" data-verwijder="' +
              s.key + '">stad verwijderen</span></div>';
@@ -2366,12 +2421,20 @@ const CONFIG = {"nws_gewicht": 0.25, "steden": [{"key": "NYC", "naam": "New York
                           heel(mn.verwachting) + '<span class="eenh">' + s.eenheid + "</span>" +
                         "</div>" +
                         '<div class="dag-min-band">80%: ' + heel(mn.p10) + " tot " + heel(mn.p90) + "</div>" +
-                        (TOON === "min" ? (function () {
-                          /* zelfde maatstaf als bij het maximum, maar gemeten op de
-                             eigen band van het minimum, niet die van het maximum */
+                        (function () {
+                          /* Zelfde maatstaf als bij het maximum, maar gemeten op de
+                             eigen band van het minimum. Die band is vaak smaller of
+                             juist breder, dus de zekerheid verschilt per soort.
+
+                             Zolang de ijking ontbreekt is de band de kale
+                             ledenspreiding, en die onderschat de onzekerheid. Dan
+                             geen oordeel, anders zou er "hoog" naast "ongeijkt"
+                             staan en dat spreekt elkaar tegen. */
+                          if (!mn.gekalibreerd) return "";
                           const zm = zekerheid(mn.p90 - mn.p10, s.eenheid);
-                          return '<div><span class="zeker-chip ' + zm[1] + '">' + zm[0] + "</span></div>";
-                        })() : "") +
+                          return '<div><span class="zeker-chip ' + zm[1] +
+                                 (TOON === "min" ? "" : " klein") + '">' + zm[0] + "</span></div>";
+                        })() +
                         (mn.gekalibreerd
                           ? (TOON === "min" && mn.mae !== null
                               ? '<div class="dag-hist">misser \u00B1' + nl(mn.mae) + "\u00B0</div>" : "")
@@ -2770,6 +2833,10 @@ const CONFIG = {"nws_gewicht": 0.25, "steden": [{"key": "NYC", "naam": "New York
       const v = toonWaarde(dagen[SORT.horizon]);
       if (v !== null) return '<div class="rang-chip">' + heel(v) + "\u00B0</div>";
     }
+    if (SORT.modus === "zekerst" && dagen && dagen[SORT.horizon]) {
+      const b = toonBand(dagen[SORT.horizon], s.eenheid);
+      if (b !== null) return '<div class="rang-chip">band ' + nl(b) + "\u00B0</div>";
+    }
     return "";
   }
 
@@ -2779,6 +2846,22 @@ const CONFIG = {"nws_gewicht": 0.25, "steden": [{"key": "NYC", "naam": "New York
     if (!d) return null;
     if (TOON === "min") return d.mn ? d.mn.verwachting : null;
     return d.verwachting;
+  }
+
+  /* De breedte van de 80%-band van het getoonde cijfer: klein is zeker. Bij
+     "alles" telt de breedste van de twee, want dan is de kaart als geheel zo
+     zeker als zijn zwakste helft. */
+  function toonBand(d, eenheid) {
+    if (!d) return null;
+    const bMax = (d.p90 !== undefined && d.p10 !== undefined) ? d.p90 - d.p10 : null;
+    const bMin = d.mn ? d.mn.p90 - d.mn.p10 : null;
+    let b = null;
+    if (TOON === "min") b = bMin;
+    else if (TOON === "max") b = bMax;
+    else if (bMax === null) b = bMin;
+    else if (bMin === null) b = bMax;
+    else b = Math.max(bMax, bMin);
+    return b === null ? null : naarC(b, eenheid);
   }
 
   function sorteer(items) {
@@ -2801,6 +2884,18 @@ const CONFIG = {"nws_gewicht": 0.25, "steden": [{"key": "NYC", "naam": "New York
         if (x === null) return 1;
         if (y === null) return -1;
         return x - y || a.i - b.i;
+      });
+    } else if (m === "zekerst") {
+      const w = function (o) {
+        const d = o.u && o.u.status === "fulfilled" ? o.u.value.dagen : (o.cache && o.cache.dagen);
+        return (d && d[h]) ? toonBand(d[h], o.s.eenheid) : null;
+      };
+      kopie.sort(function (a, b) {
+        const x = w(a), y = w(b);
+        if (x === null && y === null) return a.i - b.i;
+        if (x === null) return 1;
+        if (y === null) return -1;
+        return x - y || a.i - b.i;      // smalste band eerst
       });
     } else if (m === "warmst" || m === "koudst") {
       const teken = m === "warmst" ? -1 : 1;
@@ -2847,7 +2942,8 @@ const CONFIG = {"nws_gewicht": 0.25, "steden": [{"key": "NYC", "naam": "New York
     verbK.textContent = "verborgen" + (VERBORGEN.size ? " (" + VERBORGEN.size + ")" : "");
     verbK.style.display = (VERBORGEN.size || TOON_VERBORGEN) ? "" : "none";
 
-    const temperatuurModus = (SORT.modus === "warmst" || SORT.modus === "koudst");
+    const temperatuurModus = (SORT.modus === "warmst" || SORT.modus === "koudst" ||
+                              SORT.modus === "zekerst");
     const horizonZichtbaar = (SORT.modus === "nauwkeurig" || temperatuurModus);
     balk.querySelectorAll("[data-horizon]").forEach(function (k) {
       k.style.display = horizonZichtbaar ? "" : "none";
@@ -2856,9 +2952,14 @@ const CONFIG = {"nws_gewicht": 0.25, "steden": [{"key": "NYC", "naam": "New York
     document.getElementById("balkScheiding").style.display = horizonZichtbaar ? "" : "none";
     const hint = document.getElementById("balkHint");
     hint.style.display = horizonZichtbaar ? "" : "none";
+    const watGetoond = TOON === "min" ? "minimum" : (TOON === "max" ? "maximum" : "maximum en minimum");
     hint.textContent = SORT.modus === "nauwkeurig"
       ? "gemiddelde misser op het dagmaximum, vergeleken in \u00B0C zodat Fahrenheit niet oneerlijk slecht lijkt"
-      : "verwachte " + (TOON === "min" ? "minimum" : "maximum") + "temperatuur, vergeleken in \u00B0C";
+      : SORT.modus === "zekerst"
+        ? "breedte van de 80%-band van " + watGetoond +
+          (TOON === "alles" ? ", de breedste van de twee telt" : "") +
+          " \u00B7 smal is zeker, vergeleken in \u00B0C"
+        : "verwachte " + watGetoond + "temperatuur, vergeleken in \u00B0C";
   }
 
   document.getElementById("sorteerBalk").addEventListener("click", function (e) {
