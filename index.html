@@ -1223,18 +1223,54 @@ const CONFIG = {"nws_gewicht": 0.25, "steden": [{"key": "NYC", "naam": "New York
      wat 51 losse verzoeken terugbrengt tot twee (een per eenheid). ── */
   const BUNDEL_MAX = 25;
 
+  /* ── Verkeersdrempel bij Open‑Meteo ──
+     De gratis API telt per aanroep het aantal locaties, velden en dagen mee, en
+     wijst boven een grens alles af met 429. Zonder rem gebeurde er dan dit: de
+     gebundelde aanroep faalt, waarna elk van de 49 steden het los gaat proberen,
+     vier keer, met oplopende wachttijd. Dat duurt minuten, maakt de limiet
+     alleen maar erger, en ondertussen staat er niets op het scherm.
+
+     Daarom onthoudt de app dat hij tegen de limiet aan zit. Zolang die geldt
+     falen nieuwe aanroepen meteen, en na afloop probeert de app het eenmaal
+     vanzelf opnieuw. De wachttijd loopt op bij herhaling. */
+  const LIMIET = { tot: 0, stap: 0, laatst: 0, trappen: [20, 60, 180, 600], vergeet: 900 };
+
+  function limietActief() { return Date.now() < LIMIET.tot; }
+  function limietSeconden() { return Math.max(1, Math.ceil((LIMIET.tot - Date.now()) / 1000)); }
+  function limietGeraakt() {
+    if (limietActief()) return;      // zelfde voorval: drie gebundelde aanroepen die
+    const nu = Date.now();           // tegelijk sneuvelen mogen niet drie trappen kosten
+    /* Een voorval van een kwartier geleden telt niet meer mee: dan begint de trap
+       opnieuw bij de korte wachttijd, zodat een losse piek de app niet tien
+       minuten stillegt. Blijft het misgaan, dan loopt de wachttijd op. */
+    if (nu - LIMIET.laatst > LIMIET.vergeet * 1000) LIMIET.stap = 0;
+    LIMIET.stap = Math.min(LIMIET.stap + 1, LIMIET.trappen.length);
+    LIMIET.laatst = nu;
+    LIMIET.tot = nu + LIMIET.trappen[LIMIET.stap - 1] * 1000;
+  }
+  /* Een gelukte aanroep heft de wachttijd op; de trap zelf vervalt op tijd, anders
+     zou een half werkende API de wachttijd blijven opjagen. */
+  function limietVrij() { LIMIET.tot = 0; }
+  function limietFout() {
+    const e = new Error("verkeerslimiet");
+    e.limiet = true;
+    return e;
+  }
+
   function haalMetHerkansing(url, pogingen) {
     pogingen = pogingen || 4;
+    if (limietActief()) return Promise.reject(limietFout());
     function poging(n) {
       return fetch(url).then(function (r) {
         if (r.status === 429 || r.status === 503) {
-          if (n >= pogingen) throw new Error("HTTP " + r.status);
+          if (n >= pogingen || limietActief()) { limietGeraakt(); throw limietFout(); }
           const wacht = 1500 * Math.pow(2, n) + Math.random() * 800;
           return new Promise(function (res) { setTimeout(res, wacht); }).then(function () {
             return poging(n + 1);
           });
         }
         if (!r.ok) throw new Error("HTTP " + r.status);
+        limietVrij();
         return r.json();
       });
     }
@@ -2971,13 +3007,14 @@ const CONFIG = {"nws_gewicht": 0.25, "steden": [{"key": "NYC", "naam": "New York
      de pagina geparseerd is, en worden een paar seconden later stilletjes door
      de verse cijfers vervangen. Alleen als de opgeslagen dag nog klopt, anders
      zou er een verouderde voorspelling blijven staan. */
-  function toonUitCache(steden) {
+  function toonUitCache(steden, ookOuder) {
     if (LAATSTE) return false;
     const cache = lees("weerbot-cache-v2");
     const per = (cache && cache.per) || {};
     const bruikbaar = steden.filter(function (s) {
       const d = per[s.key];
-      return d && d.dagen && d.dagen.length && d.dagen[0].datum >= isoInTz(s.tz, 0);
+      if (!d || !d.dagen || !d.dagen.length) return false;
+      return ookOuder || d.dagen[0].datum >= isoInTz(s.tz, 0);
     });
     if (bruikbaar.length < Math.max(3, steden.length / 2)) return false;
     LAATSTE = steden.map(function (s, i) {
@@ -2992,6 +3029,58 @@ const CONFIG = {"nws_gewicht": 0.25, "steden": [{"key": "NYC", "naam": "New York
     return true;
   }
 
+  const WACHT_MAX = 12000;      // zo lang mag het duren voor er iets in beeld staat
+  let herprobeerTimer = null;
+
+  /* Eén melding voor beide gevallen: de API wijst ons af (limiet) of hij is
+     onbereikbaar. Dat verschil is voor de lezer belangrijk, want het eerste
+     gaat vanzelf over. */
+  function meldStoring(cache, nogBezig) {
+    const limiet = limietActief();
+    const heeftCache = !!(cache && cache.t);
+    let tekst;
+    if (limiet) {
+      tekst = "Open‑Meteo laat even geen verzoeken meer toe (te veel opgevraagd). " +
+              "De app probeert het over " + limietSeconden() + " seconden vanzelf opnieuw";
+      tekst += heeftCache ? ". Je ziet zolang de laatst opgehaalde voorspellingen van " +
+        new Intl.DateTimeFormat("nl-BE", { day: "numeric", month: "short", hour: "2-digit", minute: "2-digit" })
+          .format(new Date(cache.t)) + "." : ".";
+    } else if (heeftCache) {
+      tekst = "Geen verbinding met Open‑Meteo" + (nogBezig ? ", het duurt ongewoon lang" : "") +
+        ". Je ziet de laatst opgehaalde voorspellingen van " +
+        new Intl.DateTimeFormat("nl-BE", { day: "numeric", month: "short", hour: "2-digit", minute: "2-digit" })
+          .format(new Date(cache.t)) + ".";
+    } else {
+      tekst = "Geen verbinding met Open‑Meteo en nog geen eerdere gegevens op dit toestel.";
+    }
+    if (nogBezig && !limiet) {
+      /* De waakhond weet nog niet waarom het traag is; de ophaalronde loopt nog.
+         Dus wel iets tonen, maar het niet als storing wegschrijven. */
+      tekst = heeftCache
+        ? "Het ophalen duurt langer dan normaal. Je ziet zolang de laatst opgehaalde voorspellingen."
+        : "Het ophalen bij Open\u2011Meteo duurt langer dan normaal\u2026";
+    }
+    banner.textContent = tekst;
+    banner.classList.add("zichtbaar");
+    if (!nogBezig || limiet) {
+      kopSub.innerHTML = alleSteden().length + " stations \u00B7 " +
+        (limiet ? "limiet" : "offline") + ' \u00B7 <span class="ververs">opnieuw proberen</span>';
+      log(limiet ? 2 : 3, "", limiet
+        ? "Open\u2011Meteo wees de verzoeken af, opnieuw over " + limietSeconden() + " s"
+        : "geen verbinding met Open\u2011Meteo");
+    }
+  }
+
+  /* Na afloop van de limiet eenmaal vanzelf opnieuw proberen. */
+  function planHerkansing() {
+    if (!limietActief() || herprobeerTimer) return;
+    const wacht = limietSeconden() * 1000 + 800;
+    herprobeerTimer = setTimeout(function () {
+      herprobeerTimer = null;
+      if (!bezig) ververs();
+    }, wacht);
+  }
+
   function ververs() {
     if (bezig) return;
     bezig = true;
@@ -3001,6 +3090,21 @@ const CONFIG = {"nws_gewicht": 0.25, "steden": [{"key": "NYC", "naam": "New York
     const cache = lees("weerbot-cache-v2");
     const cachePer = (cache && cache.per) || {};
     if (!toonUitCache(steden)) kopSub.innerHTML = "ophalen\u2026";
+
+    /* Waakhond: wat er ook misgaat, na WACHT_MAX staat er iets op het scherm.
+       Zonder dit bleef de pagina bij een afgewezen API eindeloos op "ophalen\u2026"
+       hangen, want de herkansingen van 49 steden duren minuten. */
+    const waakhond = setTimeout(function () {
+      if (LAATSTE) return;
+      if (!toonUitCache(steden, true)) {
+        laadTekst.style.display = "none";
+        LAATSTE = steden.map(function (s, i) {
+          return { s: s, i: i, data: null, fout: "duurt te lang" };
+        });
+        teken();
+      }
+      meldStoring(cache, true);
+    }, WACHT_MAX);
 
     /* De uurcurves leveren alleen het tijdstip van de dagpiek ("warmst 14u").
        Dat is te weinig om de kaarten voor op te houden, dus die aanroep loopt
@@ -3024,6 +3128,7 @@ const CONFIG = {"nws_gewicht": 0.25, "steden": [{"key": "NYC", "naam": "New York
         return function () { return haalStad(s); };
       }), 6);
     }).then(function (uitkomsten) {
+      clearTimeout(waakhond);
       laadTekst.style.display = "none";
       let gelukt = 0, uitCache = 0;
       const nieuwCache = { t: Date.now(), per: {} };
@@ -3093,37 +3198,36 @@ const CONFIG = {"nws_gewicht": 0.25, "steden": [{"key": "NYC", "naam": "New York
       }, 1200);
 
       netwerkOk = gelukt > 0;
-      if (!gelukt) {
-        log(3, "", "geen verbinding met Open\u2011Meteo, " +
-                   (oudGetoond.length ? "opgeslagen gegevens getoond" : "geen gegevens beschikbaar"));
-      } else {
+      if (gelukt) {
         oudGetoond.forEach(function (naam) {
           log(2, naam, "geen verse voorspelling opgehaald, vorige gegevens getoond");
         });
         zonderData.forEach(function (naam) {
           log(3, naam, "geen voorspelling beschikbaar");
         });
-      }
-      if (gelukt) { laatsteFetch = Date.now(); bewaar("weerbot-cache-v2", nieuwCache); }
-      const tijd = new Intl.DateTimeFormat("nl-BE", { hour: "2-digit", minute: "2-digit" })
-        .format(new Date(gelukt ? Date.now() : (cache && cache.t) || Date.now()));
-      kopSub.innerHTML = steden.length + " stations \u00B7 tot 194 leden \u00B7 " +
-        (gelukt ? "live " + tijd : "offline") + ' \u00B7 <span class="ververs">vernieuwen</span>';
-
-      if (!gelukt && uitCache) {
-        banner.textContent = "Geen verbinding. Je ziet de laatst opgehaalde voorspellingen van " +
-          new Intl.DateTimeFormat("nl-BE", { day: "numeric", month: "short", hour: "2-digit", minute: "2-digit" })
-            .format(new Date(cache.t)) + ".";
-        banner.classList.add("zichtbaar");
-      } else if (!gelukt) {
-        banner.textContent = "Geen verbinding met Open\u2011Meteo en nog geen eerdere gegevens op dit toestel.";
-        banner.classList.add("zichtbaar");
-      } else if (uitCache) {
-        banner.textContent = "Voor " + uitCache + " stad(en) lukte het ophalen niet, daar zie je de vorige gegevens.";
-        banner.classList.add("zichtbaar");
+        laatsteFetch = Date.now();
+        bewaar("weerbot-cache-v2", nieuwCache);
+        const tijd = new Intl.DateTimeFormat("nl-BE", { hour: "2-digit", minute: "2-digit" })
+          .format(new Date());
+        kopSub.innerHTML = steden.length + " stations \u00B7 tot 194 leden \u00B7 live " + tijd +
+          ' \u00B7 <span class="ververs">vernieuwen</span>';
+        if (uitCache) {
+          banner.textContent = "Voor " + uitCache + " stad(en) lukte het ophalen niet, daar zie je de vorige gegevens.";
+          banner.classList.add("zichtbaar");
+        }
+      } else {
+        meldStoring(cache, false);
+        planHerkansing();
       }
 
       tikKlokken();
+      bezig = false;
+    }).catch(function (e) {
+      /* Ook als er onderweg iets breekt blijft de app niet op "ophalen" staan. */
+      clearTimeout(waakhond);
+      if (!LAATSTE) toonUitCache(steden, true);
+      meldStoring(cache, false);
+      planHerkansing();
       bezig = false;
     });
   }
