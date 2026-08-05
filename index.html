@@ -12,8 +12,11 @@
 <link rel="apple-touch-icon" href="apple-touch-icon.png">
 <link rel="icon" type="image/png" href="icon-192.png">
 <title>Weerbot 2 · max- en mintemperatuur</title>
+<!-- app_params.js moet blokkeren: de rekenkern hieronder leest hem meteen uit.
+     De rest wordt pas vanuit asynchrone callbacks gebruikt en mag dus wachten
+     tot de pagina geparseerd is. -->
 <script src="app_params.js"></script>
-<script src="weerbot-modellen/polymarkt.js"></script>
+<script src="weerbot-modellen/polymarkt.js" defer></script>
 <style>
   :root {
     --bg:     #0B1118;
@@ -2962,19 +2965,63 @@ const CONFIG = {"nws_gewicht": 0.25, "steden": [{"key": "NYC", "naam": "New York
     return "Geen steden om te tonen.";
   }
 
+  /* \u2500\u2500 Meteen iets laten zien \u2500\u2500
+     De vorige ophaalronde staat in localStorage. Die eerst tekenen scheelt de
+     bezoeker het wachten op drie ensembleaanroepen: de kaarten staan er zodra
+     de pagina geparseerd is, en worden een paar seconden later stilletjes door
+     de verse cijfers vervangen. Alleen als de opgeslagen dag nog klopt, anders
+     zou er een verouderde voorspelling blijven staan. */
+  function toonUitCache(steden) {
+    if (LAATSTE) return false;
+    const cache = lees("weerbot-cache-v2");
+    const per = (cache && cache.per) || {};
+    const bruikbaar = steden.filter(function (s) {
+      const d = per[s.key];
+      return d && d.dagen && d.dagen.length && d.dagen[0].datum >= isoInTz(s.tz, 0);
+    });
+    if (bruikbaar.length < Math.max(3, steden.length / 2)) return false;
+    LAATSTE = steden.map(function (s, i) {
+      return { s: s, i: i, data: per[s.key] || null, fout: null, uitCache: true };
+    });
+    laadTekst.style.display = "none";
+    teken();
+    const tijd = new Intl.DateTimeFormat("nl-BE", { hour: "2-digit", minute: "2-digit" })
+      .format(new Date(cache.t));
+    kopSub.innerHTML = steden.length + " stations \u00b7 opgeslagen " + tijd +
+                       " \u00b7 <span class=\"ververs\">bijwerken\u2026</span>";
+    return true;
+  }
+
   function ververs() {
     if (bezig) return;
     bezig = true;
-    kopSub.innerHTML = "ophalen\u2026";
     banner.classList.remove("zichtbaar");
 
     const steden = alleSteden();
     const cache = lees("weerbot-cache-v2");
     const cachePer = (cache && cache.per) || {};
+    if (!toonUitCache(steden)) kopSub.innerHTML = "ophalen\u2026";
 
-    Promise.all([bundelVoorspellingen(steden), bundelUren(steden)]).then(function () {
+    /* De uurcurves leveren alleen het tijdstip van de dagpiek ("warmst 14u").
+       Dat is te weinig om de kaarten voor op te houden, dus die aanroep loopt
+       naast de rest en werkt de kaarten bij zodra hij binnen is. */
+    bundelUren(steden).then(function () {
+      if (!LAATSTE) return;
+      let iets = false;
+      LAATSTE.forEach(function (o) {
+        if (!o.data || !o.data.dagen) return;
+        const pieken = piekenUit(UUR_BAK[o.s.key]);
+        o.data.dagen.forEach(function (d) {
+          const p = pieken && pieken[d.datum];
+          if (p && !d.piek) { d.piek = p; iets = true; }
+        });
+      });
+      if (iets) teken();
+    }).catch(function () {});
+
+    bundelVoorspellingen(steden).then(function () {
       return beperkt(steden.map(function (s) {
-        return function () { return haalStad(s).then(function (u) { return haalNws(s, u); }); };
+        return function () { return haalStad(s); };
       }), 6);
     }).then(function (uitkomsten) {
       laadTekst.style.display = "none";
@@ -3014,8 +3061,36 @@ const CONFIG = {"nws_gewicht": 0.25, "steden": [{"key": "NYC", "naam": "New York
         if (u.status === "fulfilled" && !nieuwCache.per[s.key]) nieuwCache.per[s.key] = u.value;
         else if (!nieuwCache.per[s.key] && cachePer[s.key]) nieuwCache.per[s.key] = cachePer[s.key];
       });
-      startVerificaties(steden);
-      planHerijkingen(steden);
+      /* De NWS-bijmenging geldt alleen voor de Amerikaanse steden en verschuift
+         het cijfer met een fractie van een graad. Elf losse aanroepen naar
+         weather.gov daarop laten wachten kostte ruim een seconde voor iedereen,
+         dus die lopen nu na het tekenen en werken hun eigen kaart bij. */
+      const nwsSteden = steden.filter(function (s) { return s.nws_url; });
+      if (nwsSteden.length) {
+        beperkt(nwsSteden.map(function (s) {
+          return function () {
+            const rij = LAATSTE.filter(function (o) { return o.s.key === s.key; })[0];
+            if (!rij || !rij.data) return Promise.resolve(null);
+            return haalNws(s, rij.data).then(function (u) {
+              rij.data = u;
+              nieuwCache.per[s.key] = u;
+              return s.key;
+            }).catch(function () { return null; });
+          };
+        }), 6).then(function (uit) {
+          if (uit.some(function (r) { return r.status === "fulfilled" && r.value; })) {
+            teken();
+            if (gelukt) bewaar("weerbot-cache-v2", nieuwCache);
+          }
+        });
+      }
+
+      /* Controle en herijking zijn zwaar (megabytes aan modelhistorie en trage
+         METAR-reeksen). Ze wachten even, zodat de app eerst soepel reageert. */
+      setTimeout(function () {
+        startVerificaties(steden);
+        planHerijkingen(steden);
+      }, 1200);
 
       netwerkOk = gelukt > 0;
       if (!gelukt) {
@@ -3213,7 +3288,7 @@ const CONFIG = {"nws_gewicht": 0.25, "steden": [{"key": "NYC", "naam": "New York
   ververs();
 })();
 </script>
-<script src="weerbot-modellen/weerbot-ml.js"></script>
-<script src="weerbot-modellen/weerbot-ml-koppel.js"></script>
+<script src="weerbot-modellen/weerbot-ml.js" defer></script>
+<script src="weerbot-modellen/weerbot-ml-koppel.js" defer></script>
 </body>
 </html>
