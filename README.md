@@ -17,21 +17,33 @@ Naast het dagmaximum voorspelt de app nu ook het dagminimum per stad, voor
 vandaag, morgen en overmorgen, met een eigen 80%-band.
 
 Het minimum komt uit dezelfde ensembleaanroep (`temperature_2m_min` is een extra
-veld, geen extra verzoek). De weekkalibratie in `app_params.js` rekent alleen aan
-maxima, dus voor het minimum leert de app zelf:
+veld, geen extra verzoek). De correctie erop komt uit twee bronnen, in deze
+volgorde:
 
-* het gewogen modelgemiddelde gebruikt de skillgewichten per modelsysteem uit de
-  maximumkalibratie — die zeggen welk model het op dít station goed doet;
-* de dagelijkse controle rekent de restfout uit tegen het gemeten dagminimum en
-  levert per horizon een EWMA-gewogen bias (halfwaardetijd 10 dagen) en de
-  10/90 restfoutkwantielen als band;
-* onder de 8 geverifieerde dagen blijft de correctie uit en staat er `ongeijkt`
-  bij het cijfer, met de kale ledenspreiding als band.
+**De weekkalibratie.** `bot/kalibratie.py` rekent het minimum met exact dezelfde
+walk-forward door als het maximum: eigen modelgewichten op het dagminimum, de
+regressie, de ridge-kern en de restfoutkwantielen als band. Die parameters staan
+per stad in `app_params.js` onder `min`.
 
-Die controle kost geen extra netwerkverkeer: de metingen en de modelreeksen die
-ervoor nodig zijn werden al opgehaald voor de maximumcontrole. De bias is niet
-klein — op LaGuardia ligt het rastermodelminimum structureel zo'n 2,4 °F onder de
-stationsmeting, en juist die meting rekent de markt af.
+**De ijking die de app zelf leert**, als terugval zolang het weekbestand nog geen
+min-blok voor die stad heeft. Die gebruikt de skillgewichten uit de
+maximumkalibratie en zet er een EWMA-gewogen bias overheen (halfwaardetijd 10
+dagen), met de 10/90 restfoutkwantielen als band. Onder de 8 geverifieerde dagen
+blijft de correctie uit en staat er `ongeijkt` bij het cijfer.
+
+De eerste is duidelijk beter. Beide gemeten op dezelfde 181 evaluatiedagen over
+240 dagen geschiedenis, negen van de negen stad-horizonnen in het voordeel van de
+weekkalibratie:
+
+| stad | vandaag | morgen | overmorgen |
+| --- | --- | --- | --- |
+| New York | −22,0% | −20,5% | −25,8% |
+| Londen | −13,9% | −8,5% | −10,0% |
+| Tokio | −10,3% | −13,0% | −11,8% |
+
+De correctie zelf is niet klein — op LaGuardia ligt het rastermodelminimum
+structureel zo'n 2,4 °F onder de stationsmeting, en juist die meting rekent de
+markt af.
 
 ### 2. Filter op wat je wilt zien
 
@@ -70,6 +82,12 @@ Onze kans per vak volgt uit de verwachting en de gekalibreerde 80%-band: die
 band beslaat 2 × 1,2816 standaardafwijking, en daaruit volgt de kans dat de
 afrekening in een vak valt (de markt rekent op hele graden, dus vak `84-85°F`
 loopt van 83,5 tot 85,5). Scheve verdelingen vangt die vertaling niet.
+
+Die band krijgt per stad en horizon nog een eigen factor mee (`band_lokaal`). De
+globale band klopt gemiddeld maar is per stad te ruim of te krap; buiten de
+steekproef getoetst op 49 steden zakt de gemiddelde afwijking van 80% dekking
+daarmee van 5,8 naar 4,3 procentpunt, bij precies dezelfde bandbreedte. Dat komt
+rechtstreeks in de kansen per vak terecht.
 
 Er wordt niets verhandeld en er gaat niets naar buiten: het venster doet alleen
 leesverzoeken naar de publieke Gamma-API van Polymarket.
@@ -141,3 +159,4 @@ Deze draaien ook in `.github/workflows/zelftest.yml` bij elke push.
 | `weerbot-modellen/weerbot-ml*.js` | ML-modellen, nog in schaduwfase |
 | `bot/` | kalibratie en zelftests in Python |
 | `.github/workflows/` | dagelijkse en wekelijkse herberekeningen |
+| `REVIEW.md` | externe codereview en het narekenen van de aanbevelingen |
