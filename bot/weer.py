@@ -241,7 +241,7 @@ def fetch_station_maxen(station: str, tznaam: str, d1: date, d2: date) -> dict:
     """Werkelijk gemeten daghoogste per lokale kalenderdag, uit de uurlijkse
     METAR-waarnemingen van het station (report_type=3, dus geen 5-minuten
     metingen: precies de reeks die Wunderground registreert).
-    Geeft {datum: {"maxf": .., "n": .., "laatste_uur": ..}}."""
+    Geeft {datum: {"maxf": .., "minf": .., "n": .., "laatste_uur": ..}}."""
     tz = urllib.parse.quote(tznaam)
     d2p = d2 + timedelta(days=1)  # eindgrens ruim nemen
     url = (
@@ -280,11 +280,13 @@ def fetch_station_maxen(station: str, tznaam: str, d1: date, d2: date) -> dict:
             uur = int(stamp[11:13])
         except (ValueError, IndexError):
             uur = 0
-        e = per_dag.setdefault(dag, {"maxf": -999.0, "n": 0, "laatste_uur": 0})
+        e = per_dag.setdefault(dag, {"maxf": -999.0, "minf": 999.0, "n": 0, "laatste_uur": 0})
         e["n"] += 1
         e["laatste_uur"] = max(e["laatste_uur"], uur)
         if t > e["maxf"]:
             e["maxf"] = t
+        if t < e["minf"]:
+            e["minf"] = t
     return per_dag
 
 # ── CSV opslag ────────────────────────────────────────────────────────────────

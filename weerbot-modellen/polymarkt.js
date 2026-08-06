@@ -538,7 +538,13 @@
              '<span class="balk-scheiding"></span>' + dagKnoppen +
            "</div>" +
            '<div class="markt-sub">afrekenstation ' + veilig(stad.station) +
-             " · lokale datum " + veilig(datum) + "</div>";
+             " · lokale datum " + veilig(datum) + bronLabel(stad) + "</div>";
+  }
+
+  function bronLabel(stad) {
+    var bron = stad.bron || "iem";
+    if (bron === "iem") return " · bronconsistentie: station";
+    return " · let op: controle/kalibratiebron " + veilig(bron) + " kan afwijken van marktstation";
   }
 
   function geenHtml(t) {
