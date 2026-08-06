@@ -5,7 +5,7 @@
 const VOORVOEGSEL = "weerbot2-";
 /* Ophogen bij een wijziging in de schil: activate gooit de oude versie weg en
    install haalt alles vers op, zodat niemand op oude bestanden blijft hangen. */
-const VERSIE = VOORVOEGSEL + "v5";
+const VERSIE = VOORVOEGSEL + "v6";
 const SCHIL = ["./", "./index.html", "./manifest.webmanifest", "./app_params.js", "./weerbot-modellen/polymarkt.js", "./weerbot-modellen/weerbot-ml.js", "./weerbot-modellen/weerbot-ml-koppel.js", "./weerbot-modellen/modellen/modellen.json", "./icon-192.png", "./icon-512.png", "./apple-touch-icon.png"];
 
 self.addEventListener("install", function (e) {

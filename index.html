@@ -494,6 +494,38 @@
   .markt-balk i { position: absolute; left: 0; height: 4px; display: block; border-radius: 2px; }
   .markt-balk i.markt { top: 1.5px; background: rgba(111, 179, 255, 0.8); }
   .markt-balk i.ons { bottom: 1.5px; background: rgba(87, 196, 138, 0.75); }
+  /* ── Strategie A ── */
+  .no-merk {
+    display: inline-block; font-family: var(--mono); font-size: 8.5px; font-weight: 700;
+    letter-spacing: 0.08em; color: #0B1118; background: #57C48A;
+    border-radius: 3px; padding: 1px 4px; vertical-align: 1px;
+  }
+  .markt-tabel tr.koopno td { background: rgba(87, 196, 138, 0.07); }
+  .markt-tabel tr.koopno td:first-child { box-shadow: inset 2px 0 0 #57C48A; }
+  .strat-uit {
+    border: 1px solid var(--rand); border-radius: 9px; padding: 9px 10px;
+    background: var(--bg);
+  }
+  .strat-uit.aan { border-color: rgba(87, 196, 138, 0.45); }
+  .strat-rij {
+    font-family: var(--mono); font-size: 11px; line-height: 1.7;
+    display: flex; flex-wrap: wrap; align-items: baseline; gap: 6px;
+  }
+  .strat-vak { color: var(--inkt); font-weight: 600; }
+  .strat-cijfers { color: var(--dim); font-size: 10.5px; }
+  .strat-cijfers b { color: #57C48A; font-weight: 700; }
+  .strat-noot {
+    font-family: var(--mono); font-size: 9.5px; color: #5E6B82;
+    margin-top: 6px; padding-top: 6px; border-top: 1px solid var(--rand);
+  }
+  .strat-leeg { font-family: var(--mono); font-size: 10.5px; color: #5E6B82; line-height: 1.7; }
+  .kans-chip {
+    font-family: var(--mono); font-size: 10px; font-weight: 700; letter-spacing: 0.06em;
+    color: #0B1118; background: #57C48A; border-radius: 5px; padding: 2px 6px;
+    cursor: pointer; flex-shrink: 0; -webkit-tap-highlight-color: transparent;
+  }
+  .kans-chip.buiten { color: #7BD9A8; background: transparent; border: 1px solid rgba(87,196,138,0.45); }
+
   .markt-verborgen {
     font-family: var(--mono); font-size: 9.5px; color: #5E6B82; margin-top: 8px;
   }
@@ -2003,6 +2035,36 @@ const CONFIG = {"nws_gewicht": 0.25, "steden": [{"key": "NYC", "naam": "New York
     return { rijen: rijen, per: per };
   }
 
+  /* ── Marktscan voor de tegelmelding ──
+     Een verzoek per stad is niet gratis, dus de uitkomst blijft een kwartier
+     staan en de scan loopt pas nadat de kaarten er staan. */
+  const MARKTSCAN = (function () {
+    const c = lees("weerbot-marktscan-v1");
+    if (c && c.t && Date.now() - c.t < 15 * 60 * 1000) return { t: c.t, per: c.per || {} };
+    return { t: 0, per: {} };
+  })();
+  let scanBezig = false;
+
+  function startMarktScan(steden) {
+    if (scanBezig || !window.WeerbotMarkt || !LAATSTE) return;
+    if (Date.now() - MARKTSCAN.t < 15 * 60 * 1000) return;   // nog vers genoeg
+    scanBezig = true;
+    const lijst = LAATSTE.filter(function (o) { return o.data && o.data.dagen; })
+      .map(function (o) { return { stad: o.s, dagen: o.data.dagen }; });
+    WeerbotMarkt.scan(lijst).then(function (per) {
+      MARKTSCAN.t = Date.now();
+      MARKTSCAN.per = per;
+      bewaar("weerbot-marktscan-v1", { t: MARKTSCAN.t, per: per });
+      const raak = Object.keys(per).filter(function (k) { return per[k].aantal; });
+      const bijna = Object.keys(per).filter(function (k) { return !per[k].aantal && per[k].bijna; });
+      if (raak.length || bijna.length) {
+        log(1, "", "strategie A: " + raak.length + " stad(en) volledig geschikt" +
+                   (bijna.length ? ", " + bijna.length + " alleen op de poorten afgevallen" : ""));
+      }
+      teken();
+    }).catch(function () {}).then(function () { scanBezig = false; });
+  }
+
   /* Een verse minimumijking verandert de getallen op de kaart. De hertekening
      wordt gebundeld, anders zou hij bij 51 steden 51 keer achter elkaar lopen. */
   let minOpnieuwTekenen = false;
@@ -2534,8 +2596,32 @@ const CONFIG = {"nws_gewicht": 0.25, "steden": [{"key": "NYC", "naam": "New York
   }
   function marktKnopHtml(s) {
     if (!window.WeerbotMarkt || !WeerbotMarkt.heeftMarkt(s)) return "";
-    return '<button class="markt-knop" data-markt="' + s.key +
+    return kansKnopHtml(s) +
+           '<button class="markt-knop" data-markt="' + s.key +
            '" title="Polymarket-cijfers openen">markt</button>';
+  }
+
+  /* ── Melding op de tegel ──
+     Staat er een temperatuurvak dat aan strategie A voldoet, dan verschijnt er
+     een groen chip met het aantal. Tikken erop opent het marktpaneel eronder. */
+  function kansKnopHtml(s) {
+    const k = MARKTSCAN.per[s.key];
+    if (!k) return "";
+    /* Vol chip: alles klopt, inclusief de poorten over liquiditeit en spread.
+       Open chip: de regels van strategie A kloppen, maar een poort staat op
+       rood. Dat laatste wil je zien, niet stilletjes weggefilterd krijgen. */
+    const vol = k.aantal > 0;
+    const aantal = vol ? k.aantal : (k.bijna || 0);
+    if (!aantal) return "";
+    const b = vol ? k.beste : k.bijnaBeste;
+    let titel = aantal + " vak" + (aantal === 1 ? "" : "ken") +
+      " buiten de verboden zone waar NO ondergewaardeerd is" +
+      (b ? " \u00B7 beste: " + b.label + ", " + Math.round(b.voordeel * 100) + " punt" : "");
+    if (!vol && b && b.poorten) titel += " \u00B7 valt af op " + b.poorten.join(" en ");
+    titel += " \u00B7 nog " + k.uren + " u tot afloop" +
+             (k.venster ? ", binnen het koopvenster" : ", buiten het koopvenster");
+    return '<button class="kans-chip' + (vol && k.venster ? "" : " buiten") + '" data-markt="' + s.key +
+           '" title="' + titel.replace(/"/g, "&quot;") + '">NO ' + aantal + "</button>";
   }
 
   /* Het marktpaneel wordt pas gevuld als je het openklapt: dat scheelt bij 49
@@ -3332,6 +3418,7 @@ const CONFIG = {"nws_gewicht": 0.25, "steden": [{"key": "NYC", "naam": "New York
         startVerificaties(steden);
         planHerijkingen(steden);
       }, 1200);
+      setTimeout(function () { startMarktScan(steden); }, 2500);
 
       netwerkOk = gelukt > 0;
       if (gelukt) {
@@ -3343,6 +3430,9 @@ const CONFIG = {"nws_gewicht": 0.25, "steden": [{"key": "NYC", "naam": "New York
         });
         laatsteFetch = Date.now();
         bewaar("weerbot-cache-v2", nieuwCache);
+        /* De waakhond kan onderweg gemeld hebben dat het lang duurde; nu de
+           cijfers er zijn hoort die melding weg. */
+        banner.classList.remove("zichtbaar");
         const tijd = new Intl.DateTimeFormat("nl-BE", { hour: "2-digit", minute: "2-digit" })
           .format(new Date());
         kopSub.innerHTML = steden.length + " stations \u00B7 tot 194 leden \u00B7 live " + tijd +
@@ -3448,6 +3538,11 @@ const CONFIG = {"nws_gewicht": 0.25, "steden": [{"key": "NYC", "naam": "New York
     const mk2 = attr("data-markt");
     if (mk2) {
       /* de knop in de kop is een snelkoppeling naar het paneel eronder */
+      const k = MARKTSCAN.per[mk2];
+      if (k && (k.aantal || k.bijna) && window.WeerbotMarkt) {
+        /* het chip gaat over een bepaalde dag; open het paneel daarop */
+        WeerbotMarkt.richt(mk2, "max", k.dagIndex);
+      }
       const blok = marktBlokVan(mk2);
       const paneel = blok && blok.closest("details");
       if (paneel) {
