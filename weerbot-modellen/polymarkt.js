@@ -538,7 +538,19 @@
              '<span class="balk-scheiding"></span>' + dagKnoppen +
            "</div>" +
            '<div class="markt-sub">afrekenstation ' + veilig(stad.station) +
-             " · lokale datum " + veilig(datum) + "</div>";
+             " · lokale datum " + veilig(datum) + bronLabel(stad) + "</div>";
+  }
+
+  /* Alleen melden als het wél uitmaakt. 48 van de 49 steden controleren op de
+     METAR-reeks van precies het station waar de markt op afrekent; daar is een
+     regel "bronconsistentie: station" ruis onder elke tabel. Hongkong is de
+     uitzondering: de controle loopt via het observatorium (HKO), dus daar kan
+     onze gemeten waarde van de afrekening afwijken. */
+  function bronLabel(stad) {
+    var bron = stad.bron || "iem";
+    if (bron === "iem") return "";
+    return " · let op: onze meting komt van " + veilig(bron) +
+           ", niet van het afrekenstation";
   }
 
   function geenHtml(t) {

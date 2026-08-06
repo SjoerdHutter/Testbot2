@@ -141,8 +141,8 @@ def _haal_met_aifs(soort: str, bouw_url, heeft_aifs):
     return reserve
 
 
-def haal_previous_runs(stad: dict, d1: date, d2: date) -> dict:
-    """{(horizon, datum): {kort model: dagmax}} uit de previous runs API."""
+def haal_previous_runs(stad: dict, d1: date, d2: date, soort: str = "max") -> dict:
+    """{(horizon, datum): {kort model: dagmax/dagmin}} uit de previous runs API."""
     eenheid = "fahrenheit" if stad["eenheid"] == "F" else "celsius"
 
     def bouw(modellen):
@@ -176,12 +176,12 @@ def haal_previous_runs(stad: dict, d1: date, d2: date) -> dict:
                 per_dag.setdefault(t[:10], []).append(v)
             for dag, waarden in per_dag.items():
                 if len(waarden) >= 12:
-                    uit.setdefault((h, dag), {})[KORT_VAN[m]] = max(waarden)
+                    uit.setdefault((h, dag), {})[KORT_VAN[m]] = min(waarden) if soort == "min" else max(waarden)
     return uit
 
 
-def haal_hist_forecast(stad: dict, d1: date, d2: date) -> dict:
-    """{datum: {model: dagmax}} uit de historische forecast API: de voorspelling
+def haal_hist_forecast(stad: dict, d1: date, d2: date, soort: str = "max") -> dict:
+    """{datum: {model: dagmax/dagmin}} uit de historische forecast API: de voorspelling
     zoals die op de dag zelf gold (leadtime 0 tot 24 uur). Empirisch getoetst:
     de structurele modelafwijking blijft staan (Los Angeles dag 0 nog -3,6 van de
     -4,1 op dag 1), dus dit is een echte voorspelling en niet de analyse."""
@@ -191,7 +191,7 @@ def haal_hist_forecast(stad: dict, d1: date, d2: date) -> dict:
         return (
             "https://historical-forecast-api.open-meteo.com/v1/forecast"
             f"?latitude={stad['lat']}&longitude={stad['lon']}"
-            "&daily=temperature_2m_max"
+            "&daily=temperature_2m_max,temperature_2m_min"
             f"&models={','.join(modellen)}"
             f"&temperature_unit={eenheid}"
             f"&start_date={d1.isoformat()}&end_date={d2.isoformat()}"
@@ -199,7 +199,8 @@ def haal_hist_forecast(stad: dict, d1: date, d2: date) -> dict:
         )
 
     def heeft_aifs(data, naam):
-        reeks = (data.get("daily") or {}).get(f"temperature_2m_max_{naam}")
+        veld = "temperature_2m_min" if soort == "min" else "temperature_2m_max"
+        reeks = (data.get("daily") or {}).get(f"{veld}_{naam}")
         return bool(reeks) and any(v is not None for v in reeks)
 
     data, aifs = _haal_met_aifs("hist", bouw, heeft_aifs)
@@ -208,7 +209,8 @@ def haal_hist_forecast(stad: dict, d1: date, d2: date) -> dict:
     for i, dag in enumerate(daily.get("time", [])):
         per = {}
         for m in modelnamen(aifs):
-            reeks = daily.get(f"temperature_2m_max_{m}")
+            veld = "temperature_2m_min" if soort == "min" else "temperature_2m_max"
+            reeks = daily.get(f"{veld}_{m}")
             if reeks and i < len(reeks) and reeks[i] is not None:
                 per[KORT_VAN[m]] = reeks[i]
         if per:
@@ -216,14 +218,14 @@ def haal_hist_forecast(stad: dict, d1: date, d2: date) -> dict:
     return uit
 
 
-def haal_actuals_hko(stad: dict, d1: date, d2: date) -> dict:
-    """Dagmaxima van het hoofdstation van het Hong Kong Observatory, de bron
+def haal_actuals_hko(stad: dict, d1: date, d2: date, soort: str = "max") -> dict:
+    """Dagmaxima/dagminima van het hoofdstation van het Hong Kong Observatory, de bron
     waarop de markt afrekent. Let op: HKO publiceert per maand, dus de laatste
     weken ontbreken meestal."""
     uit = {}
     for jaar in range(d1.year, d2.year + 1):
         url = ("https://data.weather.gov.hk/weatherAPI/opendata/opendata.php"
-               f"?dataType=CLMMAXT&year={jaar}&rformat=csv&station=HKO")
+               f"?dataType={'CLMMINT' if soort == 'min' else 'CLMMAXT'}&year={jaar}&rformat=csv&station=HKO")
         try:
             tekst = weer._get(url, timeout=60)
         except Exception as ex:
@@ -246,19 +248,20 @@ def haal_actuals_hko(stad: dict, d1: date, d2: date) -> dict:
     return uit
 
 
-def haal_actuals_era5(stad: dict, d1: date, d2: date) -> dict:
+def haal_actuals_era5(stad: dict, d1: date, d2: date, soort: str = "max") -> dict:
     """Terugval voor plaatsen zonder METAR archief: het ERA5 raster."""
     eenheid = "fahrenheit" if stad["eenheid"] == "F" else "celsius"
     url = ("https://archive-api.open-meteo.com/v1/archive"
            f"?latitude={stad['lat']}&longitude={stad['lon']}"
-           "&daily=temperature_2m_max"
+           "&daily=temperature_2m_max,temperature_2m_min"
            f"&temperature_unit={eenheid}"
            f"&start_date={d1.isoformat()}&end_date={d2.isoformat()}"
            f"&timezone={urllib.parse.quote(stad['tz'])}")
     data = weer._get_json(url, timeout=60)
     daily = data.get("daily", {})
     uit = {}
-    for dag, waarde in zip(daily.get("time", []), daily.get("temperature_2m_max", [])):
+    veld = "temperature_2m_min" if soort == "min" else "temperature_2m_max"
+    for dag, waarde in zip(daily.get("time", []), daily.get(veld, [])):
         if waarde is not None:
             uit[dag] = waarde
     return uit
@@ -312,20 +315,21 @@ def verrijk_1min(stad: dict, uit_f: dict, d1: date, d2: date) -> int:
     return verrijkt
 
 
-def haal_actuals(stad: dict, d1: date, d2: date) -> dict:
-    """{datum: werkelijke dagmax in de stadseenheid}, volgens de resolutiebron
+def haal_actuals(stad: dict, d1: date, d2: date, soort: str = "max") -> dict:
+    """{datum: werkelijke dagmax/dagmin in de stadseenheid}, volgens de resolutiebron
     die bij deze stad hoort."""
     bron = stad.get("bron", "iem")
     if bron == "hko":
-        return haal_actuals_hko(stad, d1, d2)
+        return haal_actuals_hko(stad, d1, d2, soort)
     if bron == "era5":
-        return haal_actuals_era5(stad, d1, d2)
+        return haal_actuals_era5(stad, d1, d2, soort)
     ruw = weer.fetch_station_maxen(stad["station"], stad["tz"], d1, d2)
     uit = {}
     for dag, e in ruw.items():
         if e["n"] >= 8 and e["laatste_uur"] >= 18:
-            uit[dag] = e["maxf"] if stad["eenheid"] == "F" else weer.c_van_f(e["maxf"])
-    if stad["eenheid"] == "F":
+            waarde_f = e["minf"] if soort == "min" else e["maxf"]
+            uit[dag] = waarde_f if stad["eenheid"] == "F" else weer.c_van_f(waarde_f)
+    if stad["eenheid"] == "F" and soort == "max":
         stad["_1min"] = verrijk_1min(stad, uit, d1, d2)
     return uit
 
@@ -837,16 +841,19 @@ def run(dagen: int = 240):
         print(f"    {stad['naam']:<15}", end="", flush=True)
         try:
             fc = haal_previous_runs(stad, d1, d2)
+            fc_min = haal_previous_runs(stad, d1, d2, "min")
         except Exception as ex:
             print(f"previous runs mislukt: {ex}")
             continue
         try:
             hf = haal_hist_forecast(stad, d1, d2)
+            hf_min = haal_hist_forecast(stad, d1, d2, "min")
         except Exception as ex:
             print(f"hist-forecast mislukt: {ex}")
-            hf = {}
+            hf = {}; hf_min = {}
         try:
             act = haal_actuals(stad, d1, d2)
+            act_min = haal_actuals(stad, d1, d2, "min")
         except Exception as ex:
             print(f"METAR mislukt: {ex}")
             continue
@@ -875,6 +882,22 @@ def run(dagen: int = 240):
             # Op horizon h is de verste geverifieerde dag die van h+1 dagen terug:
             # bij de run van vandaag is gisteren de laatste afgeronde dag.
             stad_uit[str(h)] = walk_forward(records, lag_dagen=h + 1)
+
+        min_uit = {}
+        for h in (0, 1, 2):
+            records = []
+            if h == 0:
+                for dag, modellen in sorted(hf_min.items()):
+                    if dag in act_min:
+                        records.append((date.fromisoformat(dag).toordinal(), modellen, act_min[dag]))
+            else:
+                for (hh, dag), modellen in sorted(fc_min.items()):
+                    if hh == h and dag in act_min:
+                        records.append((date.fromisoformat(dag).toordinal(), modellen, act_min[dag]))
+            if len(records) >= BURN_EVALUATIE + 10:
+                min_uit[str(h)] = walk_forward(records, lag_dagen=h + 1)
+        if min_uit:
+            stad_uit["min"] = min_uit
 
         if stad_uit:
             stad_uit["bron"] = stad.get("bron", "iem")
@@ -924,28 +947,41 @@ def run(dagen: int = 240):
           f"(dekking tweede helft {weer.nl((oos_s or 0) * 100, 1)}%)")
 
     breedtes_o, breedtes_s = [], []
+    def rond_banden_blok(x, tel_breedte=True):
+        reeks_s = x.pop("dekkingsreeks_s")
+        reeks_o = x.pop("dekkingsreeks")
+        br_o = x.pop("breedte_o"); br_s = x.pop("breedte_s")
+        x.pop("yhat_per_dag", None)
+        m = len(reeks_s) // 2
+        tw = reeks_s[m:]
+        x["dekking"] = round(sum(1 for lo, hi, f in tw
+                                 if fac_s * lo <= f <= fac_s * hi) / len(tw), 3) if tw else None
+        # De gemiddelde bandbreedte in het logboek gaat over de maxima; tel de
+        # minimumbanden er niet bij op, anders vergelijk je hem niet meer met
+        # eerdere runs.
+        if br_o and br_s and tel_breedte:
+            breedtes_o.append(sum(br_o) / len(br_o) * fac_o)
+            breedtes_s.append(sum(br_s) / len(br_s) * fac_s)
+        if x["dekking"] is not None:
+            # Lokale shrinkage per stad/horizon: corrigeer onder-/overdekking
+            # voorzichtig naar 80%, met krimp naar de globale factor bij weinig n.
+            nloc = max(0, x.get("n_eval") or 0)
+            sterkte = nloc / (nloc + 120.0)
+            x["band_lokaal"] = round(max(0.85, min(1.25, 1.0 + (0.80 - x["dekking"]) * 0.9 * sterkte)), 3)
+        if x["res_q10"] is not None:
+            x["res_q10"] = round(x["res_q10"] * fac_o, 2)
+            x["res_q90"] = round(x["res_q90"] * fac_o, 2)
+        if "qz10" in x:
+            x["qz10"] = round(x["qz10"] * fac_s, 3)
+            x["qz90"] = round(x["qz90"] * fac_s, 3)
+
     for r in resultaat.values():
         for h in ("0", "1", "2"):
-            if h not in r:
-                continue
-            x = r[h]
-            reeks_s = x.pop("dekkingsreeks_s")
-            reeks_o = x.pop("dekkingsreeks")
-            br_o = x.pop("breedte_o"); br_s = x.pop("breedte_s")
-            x.pop("yhat_per_dag", None)
-            m = len(reeks_s) // 2
-            tw = reeks_s[m:]
-            x["dekking"] = round(sum(1 for lo, hi, f in tw
-                                     if fac_s * lo <= f <= fac_s * hi) / len(tw), 3) if tw else None
-            if br_o and br_s:
-                breedtes_o.append(sum(br_o) / len(br_o) * fac_o)
-                breedtes_s.append(sum(br_s) / len(br_s) * fac_s)
-            if x["res_q10"] is not None:
-                x["res_q10"] = round(x["res_q10"] * fac_o, 2)
-                x["res_q90"] = round(x["res_q90"] * fac_o, 2)
-            if "qz10" in x:
-                x["qz10"] = round(x["qz10"] * fac_s, 3)
-                x["qz90"] = round(x["qz90"] * fac_s, 3)
+            if h in r:
+                rond_banden_blok(r[h])
+        for h in ("0", "1", "2"):
+            if isinstance(r.get("min"), dict) and h in r["min"]:
+                rond_banden_blok(r["min"][h], tel_breedte=False)
     if breedtes_o:
         print(f"  Gemiddelde bandbreedte: vast {weer.nl(sum(breedtes_o) / len(breedtes_o), 2)}\u00b0 "
               f"\u2192 spreidingsband {weer.nl(sum(breedtes_s) / len(breedtes_s), 2)}\u00b0")

@@ -1524,6 +1524,11 @@ const CONFIG = {"nws_gewicht": 0.25, "steden": [{"key": "NYC", "naam": "New York
             const sig = Math.max(0.2, hp.sig_c + hp.sig_d * sp);
             bLo = hp.qz10 * sig; bHi = hp.qz90 * sig;
           }
+          /* Lokale bandfactor: de globale spreidingsband dekt gemiddeld goed af
+             maar per stad te ruim of te krap. Gemeten op de featurebundel, buiten
+             de steekproef: de afwijking van 80% per stad zakt van 5,8 naar 4,3
+             procentpunt bij gelijke gemiddelde breedte. */
+          if (hp.band_lokaal) { bLo *= hp.band_lokaal; bHi *= hp.band_lokaal; }
           lo = Math.min(bLo, A.d10); hi = Math.max(bHi, A.d90);
           gekalibreerd = true;
         }
@@ -1583,17 +1588,29 @@ const CONFIG = {"nws_gewicht": 0.25, "steden": [{"key": "NYC", "naam": "New York
   function minPas(basis, m) {
     let verw = basis.ruw, lo = basis.d10, hi = basis.d90;
     let gekalibreerd = false, verbreed = false;
-    if (m && m.n >= MINKAL.minN) {
-      verw = basis.ruw + m.bias;
-      lo = Math.min(m.q10, basis.d10); hi = Math.max(m.q90, basis.d90);
+    const n = m ? (m.n !== undefined ? m.n : m.n_eval) : 0;
+    if (m && n >= MINKAL.minN) {
+      /* Twee vormen: de browser-ijking levert een losse bias met 10/90-kwantielen,
+         de offline kalibratie levert restfoutkwantielen bij een al gecorrigeerde
+         verwachting. */
+      verw = basis.ruw + (m.bias || 0);
+      const q10 = m.q10 !== undefined && m.q10 !== null ? m.q10 : m.res_q10;
+      const q90 = m.q90 !== undefined && m.q90 !== null ? m.q90 : m.res_q90;
+      if (q10 !== undefined && q10 !== null) {
+        const f = m.band_lokaal || 1;
+        lo = Math.min(q10 * f, basis.d10); hi = Math.max(q90 * f, basis.d90);
+        /* Tegen de gekalibreerde band toetsen, niet tegen de uitkomst van die
+           min/max: die is per definitie nooit smaller, dus dan zou de vlag
+           altijd uit staan. */
+        verbreed = (basis.d10 < q10 * f || basis.d90 > q90 * f);
+      }
       gekalibreerd = true;
-      verbreed = (basis.d10 < m.q10 || basis.d90 > m.q90);
     }
     return { verwachting: verw, p10: verw + lo, p90: verw + hi,
              ruw: basis.ruw, d10: basis.d10, d90: basis.d90,
              n_leden: basis.n_leden, spreiding: basis.spreiding,
              gekalibreerd: gekalibreerd, verbreed: verbreed,
-             n: m ? m.n : 0, mae: m ? m.mae : null };
+             n: n, mae: m ? (m.mae !== undefined ? m.mae : m.mae_nieuw) : null };
   }
 
   /* Na een verse controle de minima van een stad opnieuw doorrekenen. */
@@ -1661,7 +1678,23 @@ const CONFIG = {"nws_gewicht": 0.25, "steden": [{"key": "NYC", "naam": "New York
   const MINKAL = { half: 10, minN: 8 };          // halfwaardetijd in dagen, drempel
   const MINKAL_STORE = lees("weerbot-minkal-v1") || {};
 
+  /* De min-parameters komen altijd uit het weekbestand zelf, niet uit
+     paramsVan: een herijking in de browser gaat alleen over het maximum en
+     vervangt het hele parameterblok, dus daar zit geen min in. Zou je die
+     toch volgen, dan raakte de app zijn minimumkalibratie kwijt zodra hij
+     zijn maximum bijstelde. */
+  function minWeekVan(s) {
+    const pr = PARAMS.steden[s.key] || s.params || null;
+    return pr && pr.min && Object.keys(pr.min).length ? pr.min : null;
+  }
+
   function minKalVan(s) {
+    /* Zijn er offline min-parameters uit de wekelijkse kalibratie, dan winnen
+       die van de ijking die de browser zelf leert: ze zijn walk-forward gemaakt
+       op een veel langere reeks. Gemeten over 181 evaluatiedagen in New York,
+       Londen en Tokio: 8 tot 26% minder misser op alledrie de horizonnen. */
+    const mn = minWeekVan(s);
+    if (mn) return mn;
     const m = MINKAL_STORE[s.key];
     return m && m.per ? m.per : null;
   }
@@ -2341,6 +2374,10 @@ const CONFIG = {"nws_gewicht": 0.25, "steden": [{"key": "NYC", "naam": "New York
         b10 = h1.qz10 * sigT; b90 = h1.qz90 * sigT;
         bandNoot = " \u00B7 beweegt mee met de modelspreiding";
       }
+      if (h1.band_lokaal) {
+        b10 *= h1.band_lokaal; b90 *= h1.band_lokaal;
+        bandNoot += " \u00B7 lokale factor " + nl(h1.band_lokaal, 2);
+      }
       det += '<div class="detail-regel">band morgen <span class="w">' + metTeken(b10) +
              " tot " + metTeken(b90) + "\u00B0</span>" + bandNoot + " \u00B7 dekking " +
              (h1.dekking !== null && h1.dekking !== undefined ? Math.round(h1.dekking * 100) + "%" : "?") +
@@ -2410,6 +2447,11 @@ const CONFIG = {"nws_gewicht": 0.25, "steden": [{"key": "NYC", "naam": "New York
      kwam. Zonder ijking staat er wat er wel gebeurt, zodat het cijfer op de
      kaart niet nauwkeuriger lijkt dan het is. */
   function minHtml(s) {
+    /* Rekent de weekkalibratie het minimum door, dan gaat dit blok daarover:
+       anders staat hier de bias van een ijking die het cijfer op de kaart
+       helemaal niet meer bepaalt. */
+    const mn = minWeekVan(s);
+    if (mn) return minWeekHtml(mn);
     const m = MINKAL_STORE[s.key];
     if (!m || !m.per || !Object.keys(m.per).length) {
       return '<div class="detail-regel">minimum <span class="w">kaal gewogen modelgemiddelde</span>' +
@@ -2432,6 +2474,36 @@ const CONFIG = {"nws_gewicht": 0.25, "steden": [{"key": "NYC", "naam": "New York
     }
     uit += '<div class="detail-regel">geijkt op ' + (m.bron || "?") +
            " · gewichten geleend van de maximumkalibratie</div>";
+    return uit;
+  }
+
+  /* Het minimum uit de wekelijkse kalibratie: dezelfde walk-forward als voor het
+     maximum, maar op temperature_2m_min en de gemeten dagminima. Gemeten over
+     181 evaluatiedagen scheelt dat 8 tot 26% misser ten opzichte van de ijking
+     die de browser zelf leert. */
+  function minWeekHtml(mn) {
+    const misser = [0, 1, 2].map(function (h) {
+      const p = mn[String(h)];
+      return p && p.mae_nieuw !== null && p.mae_nieuw !== undefined ? "±" + nl(p.mae_nieuw) : "?";
+    }).join(" · ");
+    const kaal = [0, 1, 2].map(function (h) {
+      const p = mn[String(h)];
+      return p && p.mae_basis !== null && p.mae_basis !== undefined ? nl(p.mae_basis) : "?";
+    }).join(" · ");
+    const h1 = mn["1"];
+    let uit = '<div class="detail-regel">minimum misser vd/mo/ov <span class="w">' + misser +
+              "°</span> · kaal " + kaal + "° · n=" +
+              (h1 && h1.n_eval !== undefined ? h1.n_eval : "?") + "</div>";
+    if (h1 && h1.res_q10 !== undefined && h1.res_q10 !== null) {
+      const f = h1.band_lokaal || 1;
+      uit += '<div class="detail-regel">minimum band morgen <span class="w">' +
+             metTeken(h1.res_q10 * f) + " tot " + metTeken(h1.res_q90 * f) +
+             "°</span>" + (h1.band_lokaal ? " · lokale factor " + nl(h1.band_lokaal, 2) : "") +
+             " · dekking " +
+             (h1.dekking !== null && h1.dekking !== undefined ? Math.round(h1.dekking * 100) + "%" : "?") +
+             "</div>";
+    }
+    uit += '<div class="detail-regel">uit de weekkalibratie · eigen modelgewichten op het dagminimum</div>';
     return uit;
   }
 
