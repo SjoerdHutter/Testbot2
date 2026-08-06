@@ -155,6 +155,12 @@
     color: var(--inkt); font-family: var(--mono); font-size: 11px; padding: 6px 10px;
   }
   .filter-invoer:focus { outline: none; border-color: var(--accent); }
+  .liq-invoer {
+    width: 84px; background: var(--paneel); border: 1px solid var(--rand); border-radius: 7px;
+    color: var(--inkt); font-family: var(--mono); font-size: 11px; padding: 6px 8px;
+  }
+  .liq-invoer:focus { outline: none; border-color: var(--accent); }
+  .liq-invoer.aan { border-color: rgba(111, 179, 255, 0.45); color: var(--accent); }
   /* ── Sleepgreep ── */
   .greep {
     font-size: 13px; line-height: 1; color: #3E4658; cursor: grab;
@@ -591,6 +597,17 @@
     <button class="chip-knop" data-toon="min">alleen min</button>
     <span class="balk-scheiding"></span>
     <button class="chip-knop" id="favKnop" title="alleen favorieten tonen">&#9733; favorieten</button>
+    <span class="balk-scheiding"></span>
+    <span class="balk-label" title="strategie A: de staart faden">strat. A</span>
+    <button class="chip-knop" data-strat-dag="auto" title="de dag die binnen het koopvenster van 36 tot 12 uur sluit">auto</button>
+    <button class="chip-knop" data-strat-dag="0">vandaag</button>
+    <button class="chip-knop" data-strat-dag="1">morgen</button>
+    <button class="chip-knop" data-strat-dag="2">overmorgen</button>
+    <span class="balk-label">liq.</span>
+    <button class="chip-knop" data-strat-liq="0" title="liquiditeitspoort uit">uit</button>
+    <button class="chip-knop" data-strat-liq="5000" title="grens uit de strategiekaart">$5k</button>
+    <input class="liq-invoer" id="liqInvoer" type="number" min="0" step="500"
+           placeholder="eigen $" title="eigen ondergrens in dollars" autocomplete="off">
     <button class="chip-knop" id="verborgKnop" title="verborgen steden tonen">verborgen</button>
     <input class="filter-invoer" id="filterInvoer" type="text" placeholder="filter op naam" autocomplete="off">
     <div class="balk-hint" id="balkHint"></div>
@@ -2038,6 +2055,31 @@ const CONFIG = {"nws_gewicht": 0.25, "steden": [{"key": "NYC", "naam": "New York
   /* ── Marktscan voor de tegelmelding ──
      Een verzoek per stad is niet gratis, dus de uitkomst blijft een kwartier
      staan en de scan loopt pas nadat de kaarten er staan. */
+  /* Instellingen van strategie A: welke dag de scan bekijkt en waar de
+     liquiditeitspoort ligt. Nul zet die poort uit. */
+  const STRAT = (function () {
+    const s = lees("weerbot-strategie") || {};
+    const dag = (s.dag === 0 || s.dag === 1 || s.dag === 2) ? s.dag : "auto";
+    const liq = typeof s.liq === "number" && s.liq >= 0 ? s.liq : 5000;
+    return { dag: dag, liq: liq };
+  })();
+
+  function pasStrategieToe() {
+    if (window.WeerbotMarkt) WeerbotMarkt.instellen({ dag: STRAT.dag, liquiditeit: STRAT.liq });
+  }
+
+  function wijzigStrategie(veld, waarde) {
+    STRAT[veld] = waarde;
+    bewaar("weerbot-strategie", STRAT);
+    pasStrategieToe();
+    MARKTSCAN.t = 0;                      // uitkomst geldt niet meer
+    MARKTSCAN.per = {};
+    bewaar("weerbot-marktscan-v1", { t: 0, per: {} });
+    tekenBalk();
+    teken();
+    startMarktScan(alleSteden());
+  }
+
   const MARKTSCAN = (function () {
     const c = lees("weerbot-marktscan-v1");
     if (c && c.t && Date.now() - c.t < 15 * 60 * 1000) return { t: c.t, per: c.per || {} };
@@ -2047,6 +2089,7 @@ const CONFIG = {"nws_gewicht": 0.25, "steden": [{"key": "NYC", "naam": "New York
 
   function startMarktScan(steden) {
     if (scanBezig || !window.WeerbotMarkt || !LAATSTE) return;
+    pasStrategieToe();          // polymarkt.js laadt met defer, dus hier pas zeker
     if (Date.now() - MARKTSCAN.t < 15 * 60 * 1000) return;   // nog vers genoeg
     scanBezig = true;
     const lijst = LAATSTE.filter(function (o) { return o.data && o.data.dagen; })
@@ -2639,6 +2682,7 @@ const CONFIG = {"nws_gewicht": 0.25, "steden": [{"key": "NYC", "naam": "New York
 
   function vulMarktPaneel(key) {
     if (!window.WeerbotMarkt) return;
+    pasStrategieToe();
     const blok = marktBlokVan(key);
     const s = alleSteden().filter(function (x) { return x.key === key; })[0];
     if (!blok || !s) return;
@@ -3029,6 +3073,17 @@ const CONFIG = {"nws_gewicht": 0.25, "steden": [{"key": "NYC", "naam": "New York
     balk.querySelectorAll("[data-toon]").forEach(function (k) {
       k.classList.toggle("aan", k.getAttribute("data-toon") === TOON);
     });
+    balk.querySelectorAll("[data-strat-dag]").forEach(function (k) {
+      const w = k.getAttribute("data-strat-dag");
+      k.classList.toggle("aan", w === "auto" ? STRAT.dag === "auto" : parseInt(w, 10) === STRAT.dag);
+    });
+    balk.querySelectorAll("[data-strat-liq]").forEach(function (k) {
+      k.classList.toggle("aan", parseInt(k.getAttribute("data-strat-liq"), 10) === STRAT.liq);
+    });
+    const liqIn = document.getElementById("liqInvoer");
+    const eigenBedrag = STRAT.liq !== 0 && STRAT.liq !== 5000;
+    liqIn.classList.toggle("aan", eigenBedrag);
+    if (document.activeElement !== liqIn) liqIn.value = eigenBedrag ? STRAT.liq : "";
     const favK = document.getElementById("favKnop");
     favK.classList.toggle("aan", ALLEEN_FAV);
     favK.innerHTML = "\u2605 favorieten" + (FAVORIET.size ? " (" + FAVORIET.size + ")" : "");
@@ -3071,6 +3126,15 @@ const CONFIG = {"nws_gewicht": 0.25, "steden": [{"key": "NYC", "naam": "New York
       tekenBalk(); teken();
       return;
     }
+    if (doel.hasAttribute("data-strat-dag")) {
+      const w = doel.getAttribute("data-strat-dag");
+      wijzigStrategie("dag", w === "auto" ? "auto" : parseInt(w, 10));
+      return;
+    }
+    if (doel.hasAttribute("data-strat-liq")) {
+      wijzigStrategie("liq", parseInt(doel.getAttribute("data-strat-liq"), 10));
+      return;
+    }
     const kn = doel.closest("[data-modus],[data-horizon],[data-weergave],[data-toon]");
     if (!kn) return;
     if (kn.hasAttribute("data-weergave")) {
@@ -3098,6 +3162,28 @@ const CONFIG = {"nws_gewicht": 0.25, "steden": [{"key": "NYC", "naam": "New York
     filterTekst = e.target.value.trim().toLowerCase();
     teken();
   });
+
+  /* Eigen ondergrens: pas doorvoeren als je klaar bent met typen, anders zou de
+     scan bij elke toetsaanslag opnieuw 49 verzoeken doen. */
+  (function eigenLiquiditeit() {
+    const in2 = document.getElementById("liqInvoer");
+    let wacht = null;
+    const pas = function () {
+      const v = parseFloat(in2.value);
+      if (in2.value === "") return;
+      if (isNaN(v) || v < 0) return;
+      if (Math.round(v) === STRAT.liq) return;
+      wijzigStrategie("liq", Math.round(v));
+    };
+    in2.addEventListener("input", function () {
+      clearTimeout(wacht);
+      wacht = setTimeout(pas, 900);
+    });
+    in2.addEventListener("change", function () { clearTimeout(wacht); pas(); });
+    in2.addEventListener("keydown", function (e) {
+      if (e.key === "Enter") { clearTimeout(wacht); pas(); in2.blur(); }
+    });
+  })();
 
   /* ── Compacte lijstrij ── */
   function bouwRij(s, uitkomst) {
@@ -3619,6 +3705,7 @@ const CONFIG = {"nws_gewicht": 0.25, "steden": [{"key": "NYC", "naam": "New York
   })();
 
   tekenLog();
+  pasStrategieToe();
   tekenBalk();
   ververs();
 })();

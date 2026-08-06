@@ -257,8 +257,20 @@
      Die twee vergelijken komt neer op onze kans minstens 5 punt onder de Ja-prijs. */
   var STRAT_A = { vakAfstand: 2, prijsMin: 0.12, prijsMax: 0.45, rand: 0.05,
                   uurVroeg: 36, uurLaat: 12,
-                  /* poorten uit strategie E: één rood licht en de stad valt af */
-                  liquiditeit: 5000, spreidingMax: 0.03 };
+                  /* Poorten uit strategie E. De spread is een absoluut bedrag:
+                     3 cent op de prijs van het vakje, niet 3 procent daarvan.
+                     Liquiditeit en dagkeuze zijn instelbaar vanuit de app. */
+                  liquiditeit: 5000, spreadMax: 0.03, dagKeuze: "auto" };
+
+  /* Instellingen vanuit de balk. liquiditeit in dollars, 0 zet de poort uit;
+     dag is "auto" (de dag die binnen het koopvenster sluit) of 0, 1, 2. */
+  function instellen(o) {
+    if (!o) return;
+    if (o.liquiditeit !== undefined && o.liquiditeit !== null) {
+      STRAT_A.liquiditeit = Math.max(0, o.liquiditeit);
+    }
+    if (o.dag !== undefined && o.dag !== null) STRAT_A.dagKeuze = o.dag;
+  }
 
   /* Index van het vakje waar het gecorrigeerde gemiddelde in valt. */
   function vakVanMu(vakken, mu) {
@@ -282,8 +294,9 @@
      zodat de tabel kan laten zien waaróm een vakje afvalt. */
   function beoordeelA(d, onze, eigen, marktEenheid, appEenheid) {
     var uit = { vakken: [], geschikt: [], gestrand: [], uren: urenTot(d.einde), venster: false,
-                liquiditeit: d.liquiditeit,
-                liquideGenoeg: d.liquiditeit === null || d.liquiditeit >= STRAT_A.liquiditeit };
+                liquiditeit: d.liquiditeit, grens: STRAT_A.liquiditeit,
+                liquideGenoeg: STRAT_A.liquiditeit <= 0 || d.liquiditeit === null ||
+                               d.liquiditeit >= STRAT_A.liquiditeit };
     uit.venster = uit.uren !== null && uit.uren <= STRAT_A.uurVroeg && uit.uren >= STRAT_A.uurLaat;
     if (!onze || !eigen) return uit;
     var mu = naarEenheid(eigen.verwachting, appEenheid, marktEenheid);
@@ -304,18 +317,19 @@
       o.aRegels = o.redenen.length === 0;
       o.poorten = [];
       if (!uit.liquideGenoeg) o.poorten.push("te weinig liquiditeit");
-      if (b.spread !== null && b.ja) {
-        o.spreiding = b.spread / b.ja;
-        if (o.spreiding > STRAT_A.spreidingMax) o.poorten.push("spread te breed");
+      if (b.spread !== null) {
+        o.spread = b.spread;
+        o.spreiding = b.ja ? b.spread / b.ja : null;
+        if (b.spread > STRAT_A.spreadMax + 1e-9) o.poorten.push("spread te breed");
       }
       o.geschikt = o.aRegels && o.poorten.length === 0;
       o.voordeel = (p !== null && b.ja !== null) ? b.ja - p : null;
       if (o.geschikt) {
         uit.geschikt.push({ i: i, label: b.label, ja: b.ja, kans: p, voordeel: o.voordeel,
-                            spreiding: o.spreiding });
+                            spread: o.spread, spreiding: o.spreiding });
       } else if (o.aRegels) {
         uit.gestrand.push({ i: i, label: b.label, ja: b.ja, voordeel: o.voordeel,
-                            poorten: o.poorten, spreiding: o.spreiding });
+                            poorten: o.poorten, spread: o.spread, spreiding: o.spreiding });
       }
       uit.vakken.push(o);
     });
@@ -337,8 +351,18 @@
      Markten sluiten om 12:00 UTC op hun eigen datum; daarmee is vooraf te
      bepalen welke dag in het venster valt. */
   function scanDag(dagen, stad) {
+    dagen = dagen || [];
+    /* Een vaste dag gekozen in de balk: die nemen, ook als hij buiten het
+       koopvenster valt. Het paneel zegt er dan bij dat je buiten het venster
+       zit, dus je ziet het verschil. */
+    if (STRAT_A.dagKeuze !== "auto") {
+      var i2 = STRAT_A.dagKeuze;
+      var d2 = dagen[i2] && dagen[i2].datum;
+      if (!d2) return null;
+      return { i: i2, datum: d2, uren: (Date.parse(d2 + "T12:00:00Z") - Date.now()) / 3600000 };
+    }
     var beste = null;
-    for (var i = 0; i < Math.min(3, (dagen || []).length); i++) {
+    for (var i = 0; i < Math.min(3, dagen.length); i++) {
       var datum = dagen[i] && dagen[i].datum;
       if (!datum) continue;
       var uren = (Date.parse(datum + "T12:00:00Z") - Date.now()) / 3600000;
@@ -664,12 +688,14 @@
       return kop + '<div class="markt-melding">geen voorspelling voor deze dag, dus geen oordeel</div>';
     }
     var poortNoot = "liquiditeit " + geld(A.liquiditeit) +
-      (A.liquideGenoeg ? "" : " \u00B7 onder de grens van " + geld(STRAT_A.liquiditeit));
+      (A.grens > 0 ? " (grens " + geld(A.grens) + ")" : " (poort uit)") +
+      (A.liquideGenoeg ? "" : " \u00B7 te dun") +
+      " \u00B7 spread max " + (STRAT_A.spreadMax * 100).toFixed(0) + "\u00A2";
     if (!A.geschikt.length) {
       var bijna = A.gestrand.map(function (g) {
         return "<br>" + veilig(g.label) + " haalt de regels van A maar valt af op " +
                veilig(g.poorten.join(" en ")) +
-               (g.spreiding ? " (" + Math.round(g.spreiding * 100) + "% spread)" : "");
+               (g.spread ? " (spread " + (g.spread * 100).toFixed(1).replace(".", ",") + "\u00A2)" : "");
       }).join("");
       return kop + '<div class="strat-leeg">geen vakje voldoet aan alle regels \u00B7 ' +
              veilig(venster) + " \u00B7 " + poortNoot + bijna + "</div>";
@@ -718,6 +744,7 @@
     beoordeelA: beoordeelA,
     strategie: STRAT_A,
     scan: scan,
+    instellen: instellen,
     richt: richt,
     vul: vul
   };
