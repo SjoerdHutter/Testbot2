@@ -139,10 +139,106 @@ servicewerkerversie uit, dan wist die eenmalig de offlineschil van Weerbot 2.
 Weerbot 2 vult die bij het eerstvolgende online bezoek vanzelf weer aan. Wie dat
 helemaal wil dichtzetten, past in TestBot `sw.js` dezelfde filter toe.
 
+## Logboeken
+
+In `logs/` staan drie bestanden. Ze worden vier keer per dag bijgewerkt door
+`.github/workflows/signalen-log.yml`, die `bot/logger.py` en `bot/signalen.py`
+draait en de map commit. Ze horen in de repo thuis: op deze reeksen wordt later
+gemeten of de gerealiseerde hitrate boven de betaalde prijs ligt.
+
+### `logs/ensemble_log.csv`
+
+Wat de app per stad en doeldag aan modelwaarden zag. Vanaf 75 gelogde dagen
+kalibreert `bot/kalibratie.py` hier rechtstreeks op, waarmee het verschil tussen
+trainen en tonen verdwijnt. Eén regel per stad, doeldag en ensemblesysteem.
+
+| kolom | wat |
+| --- | --- |
+| `gelogd_utc` | moment van loggen, UTC tot op de minuut |
+| `key` | stadssleutel, bijvoorbeeld `NYC` |
+| `doel_datum` | de dag waarover de voorspelling gaat, lokale datum van die stad |
+| `lead` | 0 vandaag, 1 morgen, 2 overmorgen |
+| `model` | naam van het ensemblesysteem bij de API, bijvoorbeeld `ecmwf_ifs025` |
+| `gemiddelde` | het ledengemiddelde van het dagmaximum |
+| `n_leden` | aantal leden waarop dat gemiddelde rust |
+| `sd` | steekproefstandaarddeviatie van de leden (deler n-1); leeg bij één lid |
+| `min`, `max` | laagste en hoogste lid |
+| `p10`, `p25`, `p50`, `p75`, `p90` | ledenkwantielen, lineair geïnterpoleerd tussen de ordestatistieken (dezelfde definitie als numpy) |
+
+Alle temperaturen staan in de eenheid van de stad zelf: °F voor de elf
+Amerikaanse steden, °C voor de rest. Het logboek gaat over het dagmaximum;
+`temperature_2m_min` wordt door `logger.py` niet opgevraagd en staat er dus ook
+niet in. Dat is bewust: de kop heeft geen kolom `soort` en `kalibratie.py` leest
+elke regel als een maximum. Het dagminimum staat wel in `signalen.csv`, dat
+`signalen.py` in dezelfde aanroep meevraagt.
+
+De regels van vóór de spreidingskolommen zijn met `bot/migratie_ensemble_log.py`
+aangevuld met lege velden, zodat het bestand rechthoekig is en `csv.DictReader`
+in `kalibratie.py` geen ontbrekende sleutels tegenkomt. Die migratie mag opnieuw
+gedraaid worden; staat de nieuwe kop er al, dan gebeurt er niets.
+
+### `logs/nws_log.csv`
+
+De dagverwachting van de National Weather Service voor de elf Amerikaanse
+steden, één regel per stad en doeldag. Kolommen: `gelogd_utc`, `key`,
+`doel_datum`, `lead`, `temp_f`. Vanaf 40 gematchte dagen leert `kalibratie.py`
+hier het bijmenggewicht per horizon uit; tot die tijd geldt 0,25.
+
+### `logs/signalen.csv`
+
+Eén regel per doeldag, stad, reeks en temperatuurvak van Polymarket, ongeacht of
+er gehandeld is. Juist de niet-genomen vakjes horen erbij: zonder die regels
+meet je alleen de eigen selectie en niets over het model.
+
+| kolom | wat |
+| --- | --- |
+| `gelogd_utc` | moment van loggen, UTC tot op de minuut |
+| `key` | stadssleutel |
+| `doel_datum` | de dag waarover de markt afrekent, lokale datum van die stad |
+| `lead` | 0 vandaag, 1 morgen, 2 overmorgen |
+| `soort` | `max` of `min`: de hoogste- of de laagstetemperatuurreeks |
+| `eenheid` | de eenheid van de markt, `°F` of `°C`; alle temperaturen in de regel staan daarin |
+| `bracket_label` | de vaknaam zoals Polymarket hem schrijft, bijvoorbeeld `74-75°F` |
+| `bracket_lo`, `bracket_hi` | de grenzen in hele graden; leeg aan de open kant van het onderste en bovenste vak |
+| `verwachting` | de verwachting van de app, twee decimalen |
+| `p10`, `p90` | de gekalibreerde 80%-band van de app |
+| `model_kans` | de kans van de app op dit vak, vier decimalen: normale verdeling met sigma = (p90 − p10) / (2 × 1,2815515655446004), ondergrens 0,05, en de halve-graad randcorrectie op `lo` en `hi` |
+| `leden_fractie` | de kale fractie ensembleleden die in het vak valt, vier decimalen |
+| `markt_prijs` | de Ja-prijs uit de Gamma-API; leeg als de markt geen prijs noteert |
+| `edge_pp` | (`model_kans` − `markt_prijs`) × 100, in procentpunten; leeg zonder prijs |
+| `volume_24u` | het 24-uursvolume van de hele reeks, voor het toetsen van de liquiditeitspoort |
+| `event_slug`, `markt_slug` | de slug van de reeks en van dit ene vak op Polymarket |
+| `strat_a_signaal` | 1 als strategie A dit vakje op het moment van loggen aanmerkt: alle regels van A gehaald, beide poorten open én binnen het koopvenster; anders 0 |
+
+`model_kans` en `leden_fractie` zijn twee onafhankelijke schattingen van
+dezelfde kans. Door ze allebei te loggen is achteraf te zien welke van de twee
+beter kalibreert.
+
+Twee dingen om bij het narekenen te weten:
+
+* `model_kans` wordt gerekend op de onafgeronde verwachting en band; de kolommen
+  `verwachting`, `p10` en `p90` zijn op twee decimalen afgerond. Naspelen vanuit
+  de regel geeft dus de kans op ongeveer een duizendste na.
+* De correctiekern draait buiten de browser zonder lagterm. De app vult die met
+  haar eigen verificatiereeks uit `localStorage`; die bestaat op een
+  actierunner niet. Alle andere stappen (modelgewichten, kern, band, de
+  NWS-bijmenging voor de Amerikaanse steden op dag 0 en 1) zijn gelijk aan de
+  app. De kansfunctie zelf ligt via `bot/test_kern.py` cijfer voor cijfer vast
+  op `onzeKansen` in `polymarkt.js`.
+
+`bot/signalen.py` leest de stadssleutels, de maandnamen en de drempels van
+strategie A rechtstreeks uit `weerbot-modellen/polymarkt.js`, zodat er maar één
+lijst bestaat. Losse aanroep, bijvoorbeeld voor één stad en alleen vandaag:
+
+```
+python3 bot/signalen.py --steden NYC,LON --dagen 1
+```
+
 ## Zelftests
 
 ```
 python3 bot/test_kern.py                        # rekenkern index.html == kalibratie.py
+                                                # en kansfunctie == polymarkt.js
 python3 weerbot-modellen/controleer_upload.py   # bestandshashes tegen MANIFEST.txt
 python3 weerbot-modellen/pak_features.py check  # featurebundel
 ```
@@ -157,6 +253,7 @@ Deze draaien ook in `.github/workflows/zelftest.yml` bij elke push.
 | `app_params.js` | wekelijks gekalibreerde parameters per stad en horizon |
 | `weerbot-modellen/polymarkt.js` | Polymarket-koppeling en het marktvenster |
 | `weerbot-modellen/weerbot-ml*.js` | ML-modellen, nog in schaduwfase |
-| `bot/` | kalibratie en zelftests in Python |
+| `bot/` | kalibratie, logboeken en zelftests in Python |
+| `logs/` | ensemblelog, NWS-log en signalenlog; zie hierboven |
 | `.github/workflows/` | dagelijkse en wekelijkse herberekeningen |
 | `REVIEW.md` | externe codereview en het narekenen van de aanbevelingen |

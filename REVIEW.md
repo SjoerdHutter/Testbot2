@@ -182,3 +182,47 @@ stad, binnen `haalStad`, waar het eerste beeld op wacht. Gemeten op 49 steden:
 Omdat de weertermen de toets hierboven niet halen, is de aanroep helemaal
 vervallen. Zou hij ooit nodig zijn, dan gebundeld zoals `bundelUren` en pas na
 het eerste beeld.
+
+---
+
+# Open vraag: staat het koopvenster van strategie A de verkeerde kant op?
+
+Toegevoegd op 2026-08-07, tegelijk met `logs/signalen.csv`. Niet beantwoord in
+deze wijziging en de waarden zijn niet aangepast.
+
+`STRAT_A` in `weerbot-modellen/polymarkt.js` koopt tussen `uurVroeg` 36 en
+`uurLaat` 12 uur voor sluiting. Uit 174 met de hand afgewikkelde weerposities
+onder @rainmoneymaker komt het omgekeerde beeld:
+
+| instapmoment | ROI |
+| --- | --- |
+| binnen 36 uur voor sluiting | −11,7% |
+| verder dan 36 uur voor sluiting | +9,7% |
+
+En het aandeel gefade brackets dat alsnog uitkomt loopt op naarmate je later
+instapt:
+
+| moment | gefade bracket komt alsnog uit |
+| --- | --- |
+| meer dan 36 uur vooraf | 17% |
+| minder dan 18 uur vooraf | 43% |
+
+Dat past bij elkaar: dichter bij sluiting weet de markt meer dan het model, dus
+juist daar is de staart minder goedkoop dan hij lijkt. Het huidige venster laat
+precies dat deel wel toe en sluit het deel uit dat het beter deed.
+
+Waarom de waarden nu toch blijven staan: die 174 posities zijn een eigen
+selectie. Ze zeggen wat er gebeurde met de vakjes waarop ik instapte, niet wat
+er gebeurde met de vakjes die de strategie aanwees en die ik liet lopen. Op zo'n
+selectie een drempel verschuiven is precies de fout die het signalenlog moet
+uitsluiten.
+
+Te beantwoorden zodra `logs/signalen.csv` genoeg regels heeft. Het logboek
+schrijft elk vakje weg met `model_kans`, `markt_prijs`, `edge_pp` en het
+tijdstip, ongeacht of er gehandeld is, dus de vraag is dan te stellen als: hoe
+verhoudt de gerealiseerde hitrate zich tot de betaalde prijs, uitgesplitst naar
+uren tot sluiting en naar edge-bucket? Bij vier metingen per dag over drie
+doeldagen staat elk vakje op meerdere afstanden tot sluiting in het logboek, dus
+het venster is uit dezelfde reeks te schatten in plaats van eruit te veronder-
+stellen. Richtlijn: pas beoordelen bij een paar honderd afgewikkelde doeldagen
+per bucket, anders vervangt de ene te kleine steekproef de andere.
