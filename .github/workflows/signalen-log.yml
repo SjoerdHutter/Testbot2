@@ -1,0 +1,62 @@
+name: Signalenlog
+
+# Draait bot/logger.py en bot/signalen.py en commit de logs. Zonder deze actie
+# bestaat de modelkans per temperatuurvak alleen vluchtig in de browser en valt
+# er achteraf niets te meten: de vier dagen in logs/ zijn met de hand ontstaan.
+#
+# Vier keer per dag op :41, want:
+#   - de bestaande acties pushen om 02:23 en 14:23 (klim), maandag 03:17
+#     (hertraining) en maandag 05:23 (kalibratie). Op :41 zit deze actie van
+#     geen van die starttijden binnen een kwartier, en de commitstap doet
+#     git pull --rebase, zodat een langlopende maandagactie die later pusht
+#     alsnog geen botsing geeft.
+#   - de markten sluiten om 12:00 UTC op hun eigen datum. 11:41 pakt de laatste
+#     prijzen voor sluiting mee, de andere drie liggen er ongeveer zes uur uit
+#     elkaar omheen, zodat elk vakje op meerdere momenten voor sluiting in het
+#     logboek staat en het koopvenster achteraf te toetsen is.
+#   - niet op het hele uur: daar staat de wachtrij van GitHub het langst en
+#     lopen geplande acties het meest uit.
+# Draait alleen op de default branch: GitHub plant schema's uitsluitend
+# daarvandaan, en een workflow verschijnt pas in het Actions-overzicht nadat
+# hij een keer op die branch is gedraaid of ernaartoe is gepusht.
+on:
+  schedule:
+    - cron: "41 0,6,11,18 * * *"
+  workflow_dispatch:
+permissions:
+  contents: write
+
+jobs:
+  signalen:
+    runs-on: ubuntu-latest
+    timeout-minutes: 60
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      # logger.py en signalen.py gebruiken alleen de standaardbibliotheek.
+
+      - name: Ensemblelog bijwerken
+        # logger.py geeft een foutcode zodra er minder dan 100 ensembleregels
+        # zijn weggeschreven; deze stap valt dan om, zoals de bedoeling is.
+        run: python bot/logger.py
+
+      - name: Signalen loggen
+        # Een stad zonder markt is geen fout: signalen.py slaat die over en
+        # meldt het onderaan. Falen doet hij alleen als er geen enkele regel is.
+        run: python bot/signalen.py
+
+      - name: Committen
+        run: |
+          git config user.name "weerbot-actie"
+          git config user.email "actions@users.noreply.github.com"
+          git add logs/
+          if git diff --cached --quiet; then
+            echo "  geen wijziging"
+            exit 0
+          fi
+          git commit -m "Signalen- en ensemblelog"
+          # een andere actie kan ondertussen gepusht hebben
+          git pull --rebase origin "${GITHUB_REF_NAME}"
+          git push origin "HEAD:${GITHUB_REF_NAME}"
