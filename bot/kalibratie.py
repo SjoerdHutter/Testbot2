@@ -576,6 +576,41 @@ def kern_vector(mu: float, lag: float, spreiding, fc: dict) -> list:
     return x
 
 
+def kern_mu(hp, fc: dict):
+    """Het gewogen modelgemiddelde over de gescoorde modellen, met terugval op
+    het ongewogen gemiddelde als de gewichten te weinig modellen dekken.
+    Spiegelbeeld van kernMu in index.html."""
+    if not fc:
+        return None
+    gewichten = (hp or {}).get("gewichten")
+    if gewichten:
+        S = W = 0.0
+        for naam, g in gewichten.items():
+            kort = KORT_VAN.get(naam, naam)
+            if kort in fc:
+                S += g * fc[kort]
+                W += g
+        if W > 0.3:
+            return S / W
+    return sum(fc.values()) / len(fc)
+
+
+def kern_voorspel(hp, fc: dict, lag: float = 0.0):
+    """De gekalibreerde verwachting uit een setje modelwaarden (korte namen),
+    precies zoals de app hem live uitrekent (kernVoorspel in index.html): met een
+    kern-blok mu plus de ridge over [mu, lagfout, spreiding, modelafwijkingen],
+    en zonder dat blok de oude a + b*mu (+ g maal de lagfout)."""
+    mu = kern_mu(hp, fc)
+    if mu is None:
+        return None
+    if hp and hp.get("kern") and hp["kern"].get("coef"):
+        x = kern_vector(mu, lag or 0.0, pstdev_van(fc), fc)
+        return mu + hp["kern"]["intercept"] + sum(c * v for c, v in zip(hp["kern"]["coef"], x))
+    if hp and hp.get("b") is not None:
+        return hp["a"] + hp["b"] * mu + (hp.get("g") or 0.0) * (lag or 0.0)
+    return mu
+
+
 # ── Walk forward per stad en horizon ──────────────────────────────────────────
 
 def _banden(records: list, rez: list, spreid: list) -> dict:

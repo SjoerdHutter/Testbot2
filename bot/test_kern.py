@@ -3,13 +3,17 @@
 
   python3 bot/test_kern.py
 
-Controleert vijf dingen:
+Controleert zes dingen:
 
   ridge     De online ridge met vergeten reproduceert de gewone kleinste
             kwadraten, en de strafterm krimpt de coefficienten richting nul.
   pariteit  De rekenkern in index.html (tussen de bakens kern:start en
             kern:einde) geeft op dezelfde invoer exact dezelfde getallen als
             kalibratie.py. Vereist node; zonder node wordt dit overgeslagen.
+  kansen    De vakken en de kans per vak in bot/signalen.py komen cijfer voor
+            cijfer overeen met vakUit en onzeKansen in polymarkt.js. Zonder die
+            toets loopt het signalenlog een andere kans te loggen dan de app
+            toont, en meet je achteraf de verkeerde train-serve combinatie.
   backtest  walkForwardJS, de backtest die de app zelf in de browser draait,
             levert dezelfde parameters op als kalibratie.py.
   contract  De geexporteerde parameters, toegepast zoals de app dat live doet,
@@ -34,9 +38,11 @@ from pathlib import Path
 sys.path.insert(0, str(Path(__file__).resolve().parent))
 
 import kalibratie as K   # noqa: E402
+import signalen as S     # noqa: E402
 
 WORTEL = Path(__file__).resolve().parent.parent
 BUNDEL = WORTEL / "weerbot-modellen" / "features_alle.csv"
+POLY_JS = WORTEL / "weerbot-modellen" / "polymarkt.js"
 LANG_VAN_KORT = {"ifs": "p1_ifs", "aifs": "p1_aifs", "gfs": "p1_gfs",
                  "icon": "p1_icon", "gem": "p1_gem"}
 
@@ -248,12 +254,10 @@ def test_toepassing() -> bool:
 
     o, fc, _ = records[-1]
     lag = -0.7
-    # python: pas de geexporteerde coefficienten toe
-    gew = hp["gewichten"]
-    W = sum(gew[m] for m in fc if m in gew)
-    mu = sum(gew[m] * fc[m] for m in fc if m in gew) / W
-    x = K.kern_vector(mu, lag, K.pstdev_van(fc), fc)
-    py = mu + hp["kern"]["intercept"] + sum(c * v for c, v in zip(hp["kern"]["coef"], x))
+    # python: pas de geexporteerde coefficienten toe. Dat gaat via dezelfde
+    # functie die bot/signalen.py gebruikt om de verwachting van de app na te
+    # rekenen, zodat die functie hier meteen tegen de app aan ligt.
+    py = K.kern_voorspel(hp, fc, lag)
 
     script = "\n".join([
         'const KORT_VAN = { ifs: "ifs", aifs: "aifs", gfs: "gfs", icon: "icon", gem: "gem",'
@@ -274,6 +278,94 @@ def test_toepassing() -> bool:
     ok = abs(py - js) < 1e-9
     print(f"  contract  {'ok' if ok else 'MISLUKT'}: app_params toegepast in de app "
           f"geeft {js:.6f}, in de backtest {py:.6f}")
+    return ok
+
+
+# ── 1d. dezelfde kans per temperatuurvak ──────────────────────────────────────
+
+def verzin_vakken(rnd) -> dict:
+    """Een reeks van elf vaknamen zoals Polymarket ze schrijft, plus een
+    verwachting met een 80%-band. In Fahrenheit lopen de vakken per twee graden
+    ("74-75°F"), in Celsius per graad ("22°C"); de randen zijn open."""
+    fahrenheit = rnd.random() < 0.5
+    eenheid = "°F" if fahrenheit else "°C"
+    stap = 2 if fahrenheit else 1
+    onder = rnd.randint(-6, 30) if not fahrenheit else rnd.randint(20, 95)
+    labels = [f"{onder}{eenheid} or below"]
+    grens = onder
+    for _ in range(9):
+        lo = grens + 1
+        hi = lo + stap - 1
+        labels.append(f"{lo}-{hi}{eenheid}" if stap > 1 else f"{lo}{eenheid}")
+        grens = hi
+    labels.append(f"{grens + 1}{eenheid} or higher")
+    midden = onder + (grens - onder) * rnd.random()
+    breedte = rnd.choice([0.05, 0.4, 1.6, 3.0, 7.5])      # ook de sigma-ondergrens raken
+    return {"labels": labels,
+            "dag": {"verwachting": round(midden + rnd.uniform(-3, 3), 3),
+                    "p10": None, "p90": None},
+            "marktEenheid": eenheid,
+            "appEenheid": eenheid if rnd.random() < 0.7 else ("°C" if fahrenheit else "°F"),
+            "breedte": breedte}
+
+
+def test_kans_pariteit() -> bool:
+    """De kans per temperatuurvak die bot/signalen.py wegschrijft moet exact de
+    kans zijn die de app naast de marktprijs toont. Dat is dezelfde eis als bij
+    de correctiekern: rekent het logboek anders dan de app, dan meet je achteraf
+    een model dat nooit gehandeld heeft."""
+    if not heeft_node():
+        print("  kansen    overgeslagen (node ontbreekt)")
+        return True
+
+    rnd = random.Random(29)
+    gevallen = []
+    for _ in range(40):
+        g = verzin_vakken(rnd)
+        half = g.pop("breedte") / 2
+        # de band staat in de eenheid van de app, de vakken in die van de markt
+        mu_app = g["dag"]["verwachting"]
+        if g["appEenheid"] != g["marktEenheid"]:
+            mu_app = (mu_app - 32) * 5 / 9 if g["appEenheid"] == "°C" else mu_app * 9 / 5 + 32
+        g["dag"] = {"verwachting": mu_app, "p10": mu_app - half, "p90": mu_app + half}
+        gevallen.append(g)
+
+    script = "\n".join([
+        'global.window = {};',
+        'const fs = require("fs");',
+        f'eval(fs.readFileSync({json.dumps(str(POLY_JS))}, "utf8"));',
+        'const M = window.WeerbotMarkt;',
+        'const gevallen = JSON.parse(fs.readFileSync(process.argv[2], "utf8"));',
+        'console.log(JSON.stringify(gevallen.map(function (g) {',
+        '  const vakken = g.labels.map(function (l) { return M.vakUit(l); });',
+        '  return { vakken: vakken,',
+        '           kansen: M.onzeKansen(vakken, g.dag, g.marktEenheid, g.appEenheid) };',
+        '})));',
+    ])
+    try:
+        js = draai_node(script, gevallen)
+    except RuntimeError as ex:
+        print("  kansen    MISLUKT: node gaf een fout\n" + str(ex))
+        return False
+
+    grootste, vakfouten, n = 0.0, 0, 0
+    for g, uit in zip(gevallen, js):
+        vakken = [S.vak_uit(l) for l in g["labels"]]
+        for a, b in zip(vakken, uit["vakken"]):
+            if (a["lo"], a["hi"], a["eenheid"]) != (b["lo"], b["hi"], b["eenheid"]):
+                vakfouten += 1
+        py = S.onze_kansen(vakken, g["dag"], g["marktEenheid"], g["appEenheid"])
+        if (py is None) != (uit["kansen"] is None):
+            vakfouten += 1
+            continue
+        for a, b in zip(py or [], uit["kansen"] or []):
+            grootste = max(grootste, abs(a - b))
+            n += 1
+
+    ok = vakfouten == 0 and grootste < 1e-12
+    print(f"  kansen    {'ok' if ok else 'MISLUKT'}: grootste verschil "
+          f"python/javascript over {n} vakken is {grootste:.2e}"
+          + (f", {vakfouten} vakken anders gelezen" if vakfouten else ""))
     return ok
 
 
@@ -355,7 +447,7 @@ def test_data(max_steden: int = 6) -> bool:
 def main() -> int:
     print("\n  Zelftest correctiekern\n")
     goed = all([test_ridge(), test_pariteit(), test_kalibratie_pariteit(),
-                test_toepassing(), test_data()])
+                test_toepassing(), test_kans_pariteit(), test_data()])
     print("\n  " + ("Alles in orde.\n" if goed else "ER GING IETS MIS.\n"))
     return 0 if goed else 1
 
