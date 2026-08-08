@@ -156,6 +156,14 @@ python3 bot/portfolio.py --dump-raw    de ruwe respons van de data-API
 python3 bot/test_portfolio.py          de zelftest, offline
 ```
 
+Het adres staat als `WALLET` bovenaan `bot/portfolio.py` en is per run te
+overschrijven met `--wallet`. Let op dat dat het adres moet zijn dat de posities
+*aanhoudt*: op Polymarket is dat vaak een apart proxy-adres en niet het adres
+waarmee je tekent. Vraag je het verkeerde op, dan geeft het eindpunt een lege
+lijst terug en meldt de module nul open posities — wat leest als "alles gedekt".
+Zowel de CLI als het tabblad zeggen er daarom bij dat nul ook het verkeerde
+adres kan betekenen.
+
 **Let op bij de eerste echte run.** De veldnamen van
 `https://data-api.polymarket.com/positions` staan in `portfolio.py` als een
 tabel met kandidaatnamen per logisch veld en zijn nog niet tegen een echte

@@ -327,7 +327,13 @@
     el("tellers").innerHTML = tellersHtml(data.summary || {}, data.generated_at);
 
     if (!rijen.length) {
-      el("melding").textContent = "geen open posities in portfolio.json";
+      /* Nul posities leest als "alles gedekt". Dat hoeft het niet te zijn: het
+         kan ook het verkeerde adres zijn. Dat verschil hoort hier te staan. */
+      el("melding").innerHTML = "geen open posities in portfolio.json" +
+        "<br><br>Dat kan kloppen, maar ook betekenen dat de bewaking op het " +
+        "verkeerde adres kijkt: op Polymarket houdt vaak een apart proxy-adres " +
+        "de posities aan, en niet het adres waarmee je tekent. " +
+        "Toets met <b>python3 bot/portfolio.py --dump-raw</b>.";
     } else {
       el("lijf").innerHTML = rijen.map(rijHtml).join("");
       el("melding").hidden = true;

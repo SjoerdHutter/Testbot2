@@ -73,7 +73,12 @@ import weer
 import logger
 import signalen as S
 
-WALLET = "0xD13CC6b93B79555B5eEe81A5B932aFA0Bf675992"
+# Het adres dat de posities aanhoudt, niet per se het adres waarmee je tekent:
+# op Polymarket is dat vaak een apart proxy-adres, en het positie-eindpunt keert
+# op de houder. Vraag je het verkeerde op, dan komt er een lege lijst terug en
+# meldt deze module doodleuk nul open posities. Met --wallet is hij per run te
+# overschrijven, en met --dump-raw is in een commando te zien of er wat staat.
+WALLET = "0x470b23A4b98C191e50b90AcD62D2cc18670A52AB"
 DATA_API = "https://data-api.polymarket.com/positions"
 WORTEL = Path(__file__).resolve().parent.parent
 UIT_JSON = WORTEL / "portfolio.json"
@@ -661,6 +666,14 @@ def run(wallet: str = WALLET, posities_bestand: str = None) -> int:
             print(f"Posities ophalen mislukt: {ex}")
             return 1
         print(f"{len(ruw)} posities van de data-API")
+        if not ruw:
+            # Nul posities leest als "alles gedekt", terwijl het net zo goed het
+            # verkeerde adres kan zijn. Dat verschil hoort hardop te staan.
+            print(f"  let op: het eindpunt geeft niets terug voor {wallet}.")
+            print("  Dat kan kloppen, maar ook betekenen dat dit het adres is "
+                  "waarmee je tekent")
+            print("  en niet het proxy-adres dat de posities aanhoudt. "
+                  "Toets met --dump-raw.")
 
     payload = bouw(ruw, S.laad_params(), instap_index(), wallet)
     schrijf_uit(payload)
