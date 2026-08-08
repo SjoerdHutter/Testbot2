@@ -154,9 +154,19 @@
   .um-rij { padding: 10px 14px; border-bottom: 1px solid rgba(31,42,56,0.55); }
   .um-rij:last-child { border-bottom: none; }
   .um-reden { font-family: var(--mono); font-size: 12px; color: var(--verlies); }
+  .um-kern { font-family: var(--mono); font-size: 12px; color: var(--inkt); margin-top: 5px; }
+  .um-details { margin-top: 6px; }
+  .um-details > summary {
+    font-family: var(--mono); font-size: 10px; color: var(--dim);
+    cursor: pointer; list-style: none; letter-spacing: 0.08em; text-transform: uppercase;
+  }
+  .um-details > summary::-webkit-details-marker { display: none; }
+  .um-details > summary::before { content: "\25B8 "; color: var(--accent); }
+  .um-details[open] > summary::before { content: "\25BE "; }
   .um-ruw {
     font-family: var(--mono); font-size: 10.5px; color: var(--dim);
     margin-top: 5px; white-space: pre-wrap; word-break: break-word; line-height: 1.6;
+    max-height: 260px; overflow-y: auto;
   }
   .melding { font-family: var(--mono); font-size: 12px; color: var(--dim); padding: 22px 14px; line-height: 1.8; }
   .voet { font-family: var(--mono); font-size: 9.5px; color: #4A5468; line-height: 1.8; padding: 0 4px; }
@@ -356,9 +366,24 @@
 
     var um = data.unmapped || [];
     if (um.length) {
+      /* De ruwe regel telt zesentwintig velden, waarvan de helft sleutels en
+         plaatjes-URL's. Alles uitschrijven maakt dit blok onleesbaar, en juist
+         hier moet in één oogopslag te zien zijn wát er buiten de bewaking valt.
+         De kern staat dus vooraan; de rest zit achter "ruwe regel". */
       el("unmappedLijst").innerHTML = um.map(function (u) {
+        var r = u.raw || {};
+        var kern = [];
+        if (r.title) kern.push(ontsnap(r.title));
+        if (r.outcome) kern.push('<span class="' + (r.outcome === "Yes" ? "ja" : "nee") +
+                                 '">' + ontsnap(r.outcome) + "</span>");
+        if (r.size !== undefined) kern.push(nl(r.size, 1) + " aandelen");
+        if (r.avgPrice !== undefined) kern.push("instap " + nl(r.avgPrice, 2));
+        if (r.curPrice !== undefined) kern.push("nu " + nl(r.curPrice, 2));
         return '<div class="um-rij"><div class="um-reden">' + ontsnap(u.reason) + "</div>" +
-               '<div class="um-ruw">' + ontsnap(JSON.stringify(u.raw)) + "</div></div>";
+               '<div class="um-kern">' + kern.join(" · ") + "</div>" +
+               '<details class="um-details"><summary>ruwe regel</summary>' +
+               '<div class="um-ruw">' + ontsnap(JSON.stringify(u.raw, null, 1)) +
+               "</div></details></div>";
       }).join("");
       el("unmappedBlok").hidden = false;
     }

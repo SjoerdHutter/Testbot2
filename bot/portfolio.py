@@ -23,35 +23,42 @@ Polymarket voor de posities en naar de ensemble-API van Open-Meteo voor het
 modelbeeld van nu.
 
 
-VELDNAMEN VAN https://data-api.polymarket.com/positions  ─ NIET GEVERIFIEERD ─
-─────────────────────────────────────────────────────────────────────────────
-De opdracht vraagt de responsvorm eerst met een live aanroep vast te stellen en
-geen veldnamen te raden. Dat is in de omgeving waarin deze module geschreven is
-niet gelukt: het uitgaand verkeer daar staat `data-api.polymarket.com` niet toe
-(de proxy antwoordt 403 op CONNECT), net zomin als gamma-api.polymarket.com of
-open-meteo. De mapping hieronder is dus opgeschreven als een lijst van
-kandidaatnamen per logisch veld en is NOG NIET tegen een echte respons gelegd.
+VELDNAMEN VAN https://data-api.polymarket.com/positions
+──────────────────────────────────────────────────────────────────────────────
+Vastgesteld op een echte respons van 8 augustus 2026. De volle sleutellijst per
+positieregel:
 
-Verifieren kost een commando op een machine met netwerk:
+    asset  avgPrice  cashPnl  conditionId  curPrice  currentValue  endDate
+    eventId  eventSlug  icon  initialValue  mergeable  negativeRisk
+    oppositeAsset  oppositeOutcome  outcome  outcomeIndex  percentPnl
+    percentRealizedPnl  proxyWallet  realizedPnl  redeemable  size  slug
+    title  totalBought
+
+Wat deze module ervan gebruikt, en waarom:
+
+    size            aantal aandelen, bijkopen en deelverkopen al verrekend
+    avgPrice        gemiddelde instapprijs
+    curPrice        prijs van dit token nu, dus van de kant die je aanhoudt
+    outcome         "Yes" of "No"; outcomeIndex is de terugval
+    slug            de slug van de losse markt, met het vak als staart. Let op:
+                    eventSlug is de reeks zonder vak en mag hier niet voor door
+    conditionId     alleen om de regel terug te vinden
+    title           de HELE vraag ("Will the highest temperature in London be
+                    30°C on August 9?"), niet de vaknaam. Het vak komt daarom
+                    uit de staart van slug en niet hieruit; zie vak_uit_suffix
+    redeemable      staat op waar zodra de markt heeft afgerekend
+    endDate         niet gebruikt: de sluiting wordt gerekend als middernacht
+                    in de tijdzone van de stad, zie uren_tot_sluiting
+
+De tabel VELD_ALIAS hieronder houdt per logisch veld een lijst kandidaatnamen
+aan. De eerste van elke lijst is de naam die de API nu geeft; de rest staat er
+als vangnet voor als Polymarket iets hernoemt.
 
     python3 bot/portfolio.py --dump-raw
 
-Die drukt de eerste regel ruw af plus, per logisch veld, welke kandidaatnaam
-raak was en welke sleutels in de respons nergens op aansluiten. Klopt er iets
-niet, pas dan alleen de tabel VELD_ALIAS hieronder aan; de rest van de module
-raakt de ruwe namen niet aan.
-
-Kandidaatnamen per logisch veld, meest waarschijnlijke eerst:
-
-    size            size, quantity, shares, amount
-    avg_price       avgPrice, averagePrice, avg_price, entryPrice
-    current_bid     curPrice, currentPrice, price, bid, lastPrice
-    outcome         outcome, outcomeName          ("Yes" / "No")
-    outcome_index   outcomeIndex, outcome_index   (0 = Yes, 1 = No)
-    market_slug     slug, marketSlug, market_slug, eventSlug
-    condition_id    conditionId, condition_id
-    title           title, question, marketQuestion, groupItemTitle
-    end_date        endDate, end_date, endDateIso
+drukt de eerste regel ruw af plus, per logisch veld, welke kandidaat raak was
+en welke sleutels nergens op aansluiten. Wijkt er iets af, dan is alleen deze
+tabel het aanpassen waard; de rest van de module raakt de ruwe namen niet aan.
 
 Een positie die op geen van die namen aansluit gaat NIET verloren: hij belandt
 met zijn ruwe velden in de lijst `unmapped` in portfolio.json. Stil laten
@@ -114,6 +121,7 @@ VELD_ALIAS = {
     "condition_id":  ["conditionId", "condition_id"],
     "title":         ["title", "question", "marketQuestion", "groupItemTitle"],
     "end_date":      ["endDate", "end_date", "endDateIso"],
+    "redeemable":    ["redeemable"],
 }
 
 HIST_KOP = ["gelogd_utc", "key", "doel_datum", "bracket_label", "adj_mean_now",
@@ -325,6 +333,7 @@ def koppel(rij: dict):
         "avg_price": _getal(_pak(rij, "avg_price")[0]),
         "current_bid": _getal(_pak(rij, "current_bid")[0]),
         "condition_id": _pak(rij, "condition_id")[0],
+        "redeemable": bool(_pak(rij, "redeemable")[0]),
         "slug": slug,
     }, None
 
@@ -656,16 +665,20 @@ def beoordeel(pos: dict, cache: ModelCache, instap: dict) -> dict:
     # uiterste, dan heeft de markt al afgerekend en gaat het stoplicht uit: het
     # zou anders een verloren positie groen meegeven, want het model rekent op
     # de verwachting van de dag en niet op de uitslag die er al ligt.
+    # redeemable is het antwoord van Polymarket zelf en gaat voor; de prijs is
+    # de terugval, want tussen afrekenen en redeemable zit soms tijd.
     bied = pos["current_bid"]
-    if bied is not None and (bied <= BESLIST_LAAG or bied >= BESLIST_HOOG):
+    op_uiterste = bied is not None and (bied <= BESLIST_LAAG or bied >= BESLIST_HOOG)
+    if pos.get("redeemable") or op_uiterste:
         rij["market_decided"] = True
-        gewonnen = bied >= BESLIST_HOOG
         rij["light"] = "settled"
+        gewonnen = bied is not None and bied >= BESLIST_HOOG
+        bron = "redeemable staat aan" if pos.get("redeemable") else \
+               f"de markt noteert dit vak op {bied:.4f}"
         rij["reason"] = (
-            f"de markt noteert dit vak op {bied:.4f}: afgerekend, "
-            f"{'gewonnen' if gewonnen else 'verloren'}. Het stoplicht zegt hier "
-            f"niets meer, en edge_now is geen kans maar het verschil tussen de "
-            f"uitslag en wat het model dacht")
+            f"{bron}: afgerekend, {'gewonnen' if gewonnen else 'verloren'}. Het "
+            f"stoplicht zegt hier niets meer, en edge_now is geen kans maar het "
+            f"verschil tussen de uitslag en wat het model dacht")
         return rij
 
     if mu is None or kans is None:
