@@ -88,6 +88,15 @@ STAND_BREEDTE = {"°F": 2.0, "°C": 1.0}   # vakbreedte bij een open einde
 WIN_DREMPEL = 0.55       # onder deze modelwinkans staat het licht op rood
 DELTA_PROB_ORANJE = 15.0 # procentpunten kansstijging die oranje rechtvaardigt
 
+# Prijzen waarbij de markt geen mening meer heeft maar een uitslag. Polymarket
+# rekent af op het dagmaximum zodra dat binnen is, en de prijs schiet dan naar
+# 0,0005 of 0,9995 terwijl de dag lokaal nog niet voorbij is. Een stoplicht over
+# "schuift de verwachting nog op" zegt daar niets meer: er valt niets meer op te
+# schuiven. Zonder deze grens kreeg een verloren positie groen mee plus een edge
+# van tientallen procentpunten, omdat het model de afrekening niet kent.
+BESLIST_LAAG = 0.02
+BESLIST_HOOG = 0.98
+
 # Steden zonder betrouwbare biaskalibratie: het Open-Meteo raster zit er op de
 # post waarop Polymarket afwikkelt ongeveer 2 °C naast. Het stoplicht kan daar
 # een zekerheid suggereren die het niet waarmaakt, dus zetten we het erbij.
@@ -591,6 +600,7 @@ def beoordeel(pos: dict, cache: ModelCache, instap: dict) -> dict:
         "fair_value": None, "edge_now": None,
         "hours_to_close": None, "light": "unknown", "reason": "",
         "entry_known": False,
+        "market_decided": False,
         "high_uncertainty": key in HOGE_ONZEKERHEID,
         "unit": eenheid,
         "bracket_lo": lo, "bracket_hi": hi,
@@ -641,6 +651,23 @@ def beoordeel(pos: dict, cache: ModelCache, instap: dict) -> dict:
             rij["delta_mean"] = verschuiving(was["adj_mean"], mu, lo, hi)
 
     # 1f: het stoplicht.
+    #
+    # Eerst de vraag of er nog iets te signaleren valt. Staat de prijs op een
+    # uiterste, dan heeft de markt al afgerekend en gaat het stoplicht uit: het
+    # zou anders een verloren positie groen meegeven, want het model rekent op
+    # de verwachting van de dag en niet op de uitslag die er al ligt.
+    bied = pos["current_bid"]
+    if bied is not None and (bied <= BESLIST_LAAG or bied >= BESLIST_HOOG):
+        rij["market_decided"] = True
+        gewonnen = bied >= BESLIST_HOOG
+        rij["light"] = "settled"
+        rij["reason"] = (
+            f"de markt noteert dit vak op {bied:.4f}: afgerekend, "
+            f"{'gewonnen' if gewonnen else 'verloren'}. Het stoplicht zegt hier "
+            f"niets meer, en edge_now is geen kans maar het verschil tussen de "
+            f"uitslag en wat het model dacht")
+        return rij
+
     if mu is None or kans is None:
         rij["reason"] = "modelbeeld onvolledig"
         return rij
@@ -653,7 +680,8 @@ def beoordeel(pos: dict, cache: ModelCache, instap: dict) -> dict:
 
 # ── Stap 1i: de uitvoer ───────────────────────────────────────────────────────
 
-VOLGORDE = {"red": 0, "amber": 1, "unknown": 2, "green": 3}
+# Afgerekende posities onderaan: daar valt niets meer te beslissen.
+VOLGORDE = {"red": 0, "amber": 1, "unknown": 2, "green": 3, "settled": 4}
 
 
 def bouw(posities_ruw: list, params: dict, instap: dict, wallet: str,
@@ -702,6 +730,7 @@ def bouw(posities_ruw: list, params: dict, instap: dict, wallet: str,
             "n_amber": sum(1 for r in rijen if r["light"] == "amber"),
             "n_green": sum(1 for r in rijen if r["light"] == "green"),
             "n_unknown": sum(1 for r in rijen if r["light"] == "unknown"),
+            "n_settled": sum(1 for r in rijen if r["light"] == "settled"),
             "n_unmapped": len(unmapped),
             "total_exposure": round(blootstelling, 2),
         },
@@ -747,11 +776,12 @@ def run(wallet: str = WALLET, posities_bestand: str = None) -> int:
     schrijf_uit(payload)
 
     s = payload["summary"]
-    print(f"portfolio.json: {s['n_positions']} open posities · "
+    print(f"portfolio.json: {s['n_positions']} posities · "
           f"{s['n_red']} rood, {s['n_amber']} oranje, {s['n_green']} groen, "
-          f"{s['n_unknown']} onbekend · {s['n_unmapped']} niet gekoppeld")
+          f"{s['n_unknown']} onbekend, {s['n_settled']} afgerekend · "
+          f"{s['n_unmapped']} niet gekoppeld")
     for r in payload["positions"]:
-        if r["light"] in ("red", "amber", "unknown"):
+        if r["light"] in ("red", "amber", "unknown", "settled"):
             print(f"  {r['light']:<7} {r['city']} {r['date']} {r['bracket']} "
                   f"{r['direction']}: {r['reason']}")
     for u in payload["unmapped"]:

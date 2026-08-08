@@ -3,10 +3,10 @@
 
   python3 bot/test_portfolio.py
 
-Controleert vijf dingen:
+Controleert zeven dingen:
 
-  slug      De slug van een markt valt terug uiteen in stad, doeldag en reeks,
-            precies andersom dan slug_van in signalen.py hem opbouwt.
+  slug      De slug van een markt valt terug uiteen in stad, doeldag, reeks en
+            vak, precies andersom dan slug_van in signalen.py hem opbouwt.
   afstand   De afstand tot de vakrand en de vakbreedte, ook bij een open einde
             en op een °C markt waar een vak een hele graad breed is.
   netto     YES en NO op hetzelfde vak vallen tegen elkaar weg, restjes onder
@@ -14,7 +14,16 @@ Controleert vijf dingen:
             koppelen is verdwijnt niet maar belandt in unmapped.
   stoplicht Elke tak van de kleurregels, met een verzonnen setje posities:
             in het vak, binnen een half vak, lage winkans, tussen een half en
-            een heel vak, kansstijging boven 15pp, en de rest groen.
+            een heel vak, kansstijging boven 15pp, en de rest groen. Plus de
+            uitzondering voor een YES waarvan de verwachting in het vak ligt.
+  vak       De zes vormen van het vaksuffix, dat het suffix wint van de
+            vraagtekst van de markt, en dat een positie met een instapregel
+            ook echt gevulde deltavelden krijgt. Die laatste zou de fout
+            gevangen hebben waarbij de koppeling over het etiket liep en
+            daardoor nooit iets vond.
+  beslist   Een markt die al afgerekend heeft valt buiten het stoplicht. Zonder
+            die tak kreeg een verloren positie groen mee plus een edge van
+            tientallen procentpunten, omdat het model de uitslag niet kent.
   uitvoer   De hele keten op datzelfde setje: de JSON heeft de afgesproken
             velden, is op kleur en uren tot sluiting gesorteerd, en een positie
             zonder instapregel houdt lege deltavelden met entry_known false.
@@ -500,10 +509,79 @@ def test_vak() -> bool:
     return goed
 
 
+# ── 7. afgerekende markten ───────────────────────────────────────────────────
+
+def test_beslist() -> bool:
+    """Polymarket rekent af zodra het dagmaximum binnen is, en de prijs schiet
+    dan naar 0,0005 of 0,9995 terwijl de dag lokaal nog loopt. Het model kent
+    die uitslag niet en blijft op de verwachting rekenen.
+
+    Dit is de stand die op 8 augustus echt langskwam: NO op 36 °C in Busan, de
+    markt had al op 36 afgerekend, en het model gaf de positie 98% winkans mee.
+    Zonder deze tak stond een verloren positie groen in de tabel, met een edge
+    van +98pp erbij."""
+    goed = True
+    dag = _dag("PUS", 0)
+    ruw = [
+        # verloren: de markt noteert het vak dat wij NO hadden op bijna 1,
+        # dus onze NO is bijna niets meer waard
+        {"size": 12.27, "avgPrice": 0.8146, "curPrice": 0.0005, "outcome": "No",
+         "slug": _slug("PUS", dag, "36c"), "title": "36°C"},
+        # gewonnen: hetzelfde, andere kant op
+        {"size": 10, "avgPrice": 0.60, "curPrice": 0.9995, "outcome": "No",
+         "slug": _slug("PUS", dag, "31c"), "title": "31°C"},
+        # nog niet afgerekend, gewoon een prijs
+        {"size": 10, "avgPrice": 0.60, "curPrice": 0.72, "outcome": "No",
+         "slug": _slug("PUS", dag, "35c"), "title": "35°C"},
+    ]
+    cache = NepCache({("PUS", dag): 32.56})
+    uit = P.bouw(ruw, {}, {}, "0xtest", cache)
+    op_vak = {r["bracket"]: r for r in uit["positions"]}
+
+    verwacht = {"36°C": "settled", "31°C": "settled", "35°C": "green"}
+    for vak, kleur in verwacht.items():
+        r = op_vak.get(vak)
+        if not r:
+            print(f"  beslist   MISLUKT: {vak} ontbreekt")
+            goed = False
+        elif r["light"] != kleur:
+            print(f"  beslist   MISLUKT: {vak} -> {r['light']} ({r['reason']}), "
+                  f"verwacht {kleur}")
+            goed = False
+
+    verloren = op_vak.get("36°C") or {}
+    if not verloren.get("market_decided"):
+        print("  beslist   MISLUKT: market_decided staat niet aan")
+        goed = False
+    if "verloren" not in verloren.get("reason", ""):
+        print(f"  beslist   MISLUKT: reden zegt niet dat het verloren is: "
+              f"{verloren.get('reason')}")
+        goed = False
+    if "gewonnen" not in (op_vak.get("31°C") or {}).get("reason", ""):
+        print("  beslist   MISLUKT: de gewonnen kant wordt niet als gewonnen gemeld")
+        goed = False
+    if (op_vak.get("35°C") or {}).get("market_decided") is not False:
+        print("  beslist   MISLUKT: een gewone prijs geldt als afgerekend")
+        goed = False
+
+    # afgerekende posities horen onderaan, niet tussen de levende in
+    lichten = [r["light"] for r in uit["positions"]]
+    if lichten[-2:] != ["settled", "settled"]:
+        print(f"  beslist   MISLUKT: sortering {lichten}")
+        goed = False
+    if uit["summary"].get("n_settled") != 2:
+        print(f"  beslist   MISLUKT: n_settled is {uit['summary'].get('n_settled')}")
+        goed = False
+
+    if goed:
+        print("  beslist   ok: verloren en gewonnen apart van groen, onderaan, geteld")
+    return goed
+
+
 def main() -> int:
     print("\n  Zelftest portefeuille\n")
-    goed = all([test_slug(), test_afstand(), test_netto(),
-                test_stoplicht(), test_vak(), test_uitvoer()])
+    goed = all([test_slug(), test_afstand(), test_netto(), test_stoplicht(),
+                test_vak(), test_beslist(), test_uitvoer()])
     print("\n  " + ("Alles in orde.\n" if goed else "ER GING IETS MIS.\n"))
     return 0 if goed else 1
 

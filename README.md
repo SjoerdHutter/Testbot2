@@ -109,6 +109,7 @@ naast:
 | getal | wat |
 | --- | --- |
 | `d` | afstand in graden van de verwachting nu tot de dichtstbijzijnde vakrand, 0 als de verwachting in het vak ligt. Bij een open einde telt alleen de rand die er is. |
+| `b` | de vakbreedte: `hi − lo + 1`, of de standaardbreedte van de markt bij een open einde |
 | `model_win_prob` | de kans dat de positie wint: bij NO 1 min de vakkans, bij YES de vakkans zelf |
 | `delta_prob` | de vakkans nu min de vakkans bij instap, in procentpunten |
 | `delta_mean` | hoeveel de verwachting sinds de instap is opgeschoven; positief is naar het vak toe |
@@ -123,6 +124,16 @@ daar is een vak een hele graad breed en in New York twee.
 | rood | de verwachting ligt in het vak, of `d` < 0,5 · `b`, of `model_win_prob` < 55% |
 | oranje | `d` tussen 0,5 · `b` en 1,0 · `b`, of `delta_prob` boven +15pp |
 | groen | de rest |
+| afgerekend | de markt noteert het vak onder 0,02 of boven 0,98: de uitslag ligt er al |
+
+Die laatste staat niet in de oorspronkelijke opzet en is er na de eerste echte
+run bij gekomen. Polymarket rekent af zodra het dagmaximum binnen is, en de
+prijs schiet dan naar 0,0005 of 0,9995 terwijl de dag lokaal nog loopt. Het
+model kent die uitslag niet en blijft op de verwachting rekenen: een verloren
+NO op Busan kreeg zo groen mee, met een `edge_now` van +98pp erbij. Een
+stoplicht over "schuift de verwachting nog op" zegt daar niets meer — er valt
+niets meer op te schuiven. Zulke posities staan onderaan, gedempt, met in de
+reden of ze gewonnen of verloren zijn.
 
 Elke positie draagt de regel die zijn kleur zette mee als `reason`; die staat in
 het tabblad onder het stoplicht als tooltip. Zonder die reden is een kleur niet

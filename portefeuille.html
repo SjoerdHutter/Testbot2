@@ -97,6 +97,7 @@
   tr.amber   td.l:first-child { border-left-color: var(--oranje); }
   tr.green   td.l:first-child { border-left-color: var(--winst); }
   tr.unknown td.l:first-child { border-left-color: #4A5468; }
+  tr.settled td.l:first-child { border-left-color: #2B3A4E; }
   th.vast, td.vast {
     position: sticky; right: 0; background: var(--paneel);
     border-left: 1px solid var(--rand); text-align: left;
@@ -132,6 +133,12 @@
   .licht.amber   .bol { background: var(--oranje);  box-shadow: 0 0 8px rgba(201,138,43,0.45); }
   .licht.green   .bol { background: var(--winst); }
   .licht.unknown .bol { background: #4A5468; }
+  .licht.settled .bol { background: transparent; border: 2px solid #4A5468; width: 9px; height: 9px; }
+  .licht.settled { color: var(--dim); }
+  /* Afgerekend: de uitslag ligt er al, dus de rij hoort niet mee te schreeuwen
+     met de rest. Wel leesbaar blijven, want dit is waar geld verdampt is. */
+  tr.settled td { opacity: 0.5; }
+  tr.settled td.vast { opacity: 1; }
   .licht.red     { color: var(--verlies); }
   .licht.amber   { color: var(--oranje); }
   .licht.green   { color: var(--winst); }
@@ -208,8 +215,9 @@
 (function () {
   "use strict";
 
-  var LICHT_NAAM = { red: "rood", amber: "oranje", green: "groen", unknown: "onbekend" };
-  var VOLGORDE   = { red: 0, amber: 1, unknown: 2, green: 3 };
+  var LICHT_NAAM = { red: "rood", amber: "oranje", green: "groen",
+                     unknown: "onbekend", settled: "afgerekend" };
+  var VOLGORDE   = { red: 0, amber: 1, unknown: 2, green: 3, settled: 4 };
 
   function el(id) { return document.getElementById(id); }
 
@@ -287,7 +295,12 @@
       "<td>" + nl(r.size, 1) + "</td>" +
       "<td>" + prijs(r.avg_price) + "</td>" +
       "<td>" + prijs(r.current_bid) + "</td>" +
-      "<td>" + pp(r.edge_now) + "</td>" +
+      /* Bij een afgerekende positie is edge geen kans maar het verschil tussen
+         de uitslag en wat het model dacht; die mag hier niet als winst lezen. */
+      "<td>" + (licht === "settled"
+                 ? '<span class="dim" title="afgerekend: dit is geen te pakken edge">'
+                   + nl(r.edge_now, 1) + "pp</span>"
+                 : pp(r.edge_now)) + "</td>" +
       "<td>" + procent(r.model_win_prob) + "</td>" +
       "<td>" + (r.d === null || r.d === undefined
                  ? '<span class="dim">·</span>'
@@ -306,6 +319,7 @@
     t.push('<span class="teller oranje">oranje <b>' + (s.n_amber || 0) + "</b></span>");
     t.push('<span class="teller groen">groen <b>' + (s.n_green || 0) + "</b></span>");
     if (s.n_unknown) t.push('<span class="teller">onbekend <b>' + s.n_unknown + "</b></span>");
+    if (s.n_settled) t.push('<span class="teller">afgerekend <b>' + s.n_settled + "</b></span>");
     t.push('<span class="teller">blootstelling <b>$' + nl(s.total_exposure, 2) + "</b></span>");
     return t.join("");
   }
