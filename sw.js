@@ -5,8 +5,13 @@
 const VOORVOEGSEL = "weerbot2-";
 /* Ophogen bij een wijziging in de schil: activate gooit de oude versie weg en
    install haalt alles vers op, zodat niemand op oude bestanden blijft hangen. */
-const VERSIE = VOORVOEGSEL + "v8";
-const SCHIL = ["./", "./index.html", "./manifest.webmanifest", "./app_params.js", "./weerbot-modellen/polymarkt.js", "./weerbot-modellen/weerbot-ml.js", "./weerbot-modellen/weerbot-ml-koppel.js", "./weerbot-modellen/modellen/modellen.json", "./icon-192.png", "./icon-512.png", "./apple-touch-icon.png"];
+const VERSIE = VOORVOEGSEL + "v9";
+const SCHIL = ["./", "./index.html", "./portefeuille.html", "./manifest.webmanifest", "./app_params.js", "./weerbot-modellen/polymarkt.js", "./weerbot-modellen/weerbot-ml.js", "./weerbot-modellen/weerbot-ml-koppel.js", "./weerbot-modellen/modellen/modellen.json", "./icon-192.png", "./icon-512.png", "./apple-touch-icon.png"];
+/* Gegevens, geen schil: hier hoort de verse versie te komen, niet de bewaarde.
+   portfolio.json wordt vier keer per dag herschreven en is het enige dat het
+   tabblad portefeuille leest; cache-first zou daar de stand van gisteren tonen
+   terwijl het stoplicht juist over vandaag gaat. */
+const ALTIJD_VERS = ["portfolio.json"];
 
 self.addEventListener("install", function (e) {
   e.waitUntil(
@@ -44,6 +49,7 @@ self.addEventListener("fetch", function (e) {
   if (e.request.method !== "GET") return;
   const url = new URL(e.request.url);
   if (url.origin !== location.origin) return;
+  if (ALTIJD_VERS.some(function (n) { return url.pathname.endsWith("/" + n); })) return;
   e.respondWith(
     caches.open(VERSIE).then(function (c) {
       return c.match(e.request).then(function (bewaard) {

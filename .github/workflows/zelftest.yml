@@ -28,3 +28,8 @@ jobs:
 
       - name: Correctiekern testen (python en javascript)
         run: python bot/test_kern.py
+
+      - name: Portefeuillebewaking testen
+        # Draait offline: het modelbeeld is in de test verzonnen, zodat de
+        # kleurregels los van Open-Meteo en Polymarket toetsbaar blijven.
+        run: python bot/test_portfolio.py

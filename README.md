@@ -92,6 +92,81 @@ rechtstreeks in de kansen per vak terecht.
 Er wordt niets verhandeld en er gaat niets naar buiten: het venster doet alleen
 leesverzoeken naar de publieke Gamma-API van Polymarket.
 
+### 6. Portefeuille
+
+Het tabblad **portefeuille** (`portefeuille.html`, bereikbaar via de knop rechts
+boven in de app) laat zien welke open posities gevaar lopen doordat de
+verwachting sinds de instap is verschoven. Het klassieke faalgeval: NO op het
+vak 20 °C, de verwachting kruipt richting 20 °C, en de marktprijs reageert pas
+de ochtend zelf. Het alarm staat daarom in graden, niet in prijs.
+
+Er wordt niets geplaatst en niets verkocht. Dit is signalering.
+
+`bot/portfolio.py` haalt de open posities bij de data-API van Polymarket, draait
+de slug terug naar stad, doeldag en vak, en zet daar per positie vier getallen
+naast:
+
+| getal | wat |
+| --- | --- |
+| `d` | afstand in graden van de verwachting nu tot de dichtstbijzijnde vakrand, 0 als de verwachting in het vak ligt. Bij een open einde telt alleen de rand die er is. |
+| `model_win_prob` | de kans dat de positie wint: bij NO 1 min de vakkans, bij YES de vakkans zelf |
+| `delta_prob` | de vakkans nu min de vakkans bij instap, in procentpunten |
+| `delta_mean` | hoeveel de verwachting sinds de instap is opgeschoven; positief is naar het vak toe |
+
+Het stoplicht schaalt mee met de vakbreedte `b` — `hi − lo + 1`, en bij een open
+einde de standaardbreedte van de markt: 2,0 op een °F markt en 1,0 op een °C
+markt. Zonder die schaal staat elke Aziatische markt permanent op rood, want
+daar is een vak een hele graad breed en in New York twee.
+
+| kleur | voorwaarde, de eerste die klopt wint |
+| --- | --- |
+| rood | de verwachting ligt in het vak, of `d` < 0,5 · `b`, of `model_win_prob` < 55% |
+| oranje | `d` tussen 0,5 · `b` en 1,0 · `b`, of `delta_prob` boven +15pp |
+| groen | de rest |
+
+Elke positie draagt de regel die zijn kleur zette mee als `reason`; die staat in
+het tabblad onder het stoplicht als tooltip. Zonder die reden is een kleur niet
+na te rekenen.
+
+Eén afwijking van die tabel, met opzet: de twee afstandsregels zijn geschreven
+vanuit het faalgeval van een NO. Voor een YES is de verwachting in het vak juist
+de winnende stand, en zou de tabel letterlijk toegepast een winnende positie
+rood kleuren. Die twee regels slaan daarom over voor een YES waarvan de
+verwachting in het vak ligt; de modelwinkans doet daar het werk.
+
+TYO en SIN krijgen `high_uncertainty`, en het tabblad zet er `±2°` bij. Die
+steden hebben geen betrouwbare biaskalibratie en het Open-Meteo raster zit er op
+de post waarop Polymarket afwikkelt ongeveer 2 °C naast; zonder die vlag geeft
+het stoplicht daar een zekerheid die het niet waarmaakt.
+
+Naast het stoplicht staat `edge_now`: de eerlijke waarde min de huidige bied, in
+procentpunten. Dat is bewust een aparte kolom. Rood betekent "mijn aanname
+wankelt", de verkoopbeslissing is een andere som.
+
+Uren tot sluiting worden gerekend als middernacht aan het einde van de doeldag
+in de lokale tijdzone van de stad, met `zoneinfo` — niet met een vaste
+UTC-offset, want die klopt maar in een deel van het jaar.
+
+Draaien, en de bestanden die eruit komen:
+
+```
+python3 bot/signalen.py --portfolio    de vlag op de bestaande bot
+python3 bot/portfolio.py               los, hetzelfde resultaat
+python3 bot/portfolio.py --dump-raw    de ruwe respons van de data-API
+python3 bot/test_portfolio.py          de zelftest, offline
+```
+
+**Let op bij de eerste echte run.** De veldnamen van
+`https://data-api.polymarket.com/positions` staan in `portfolio.py` als een
+tabel met kandidaatnamen per logisch veld en zijn nog niet tegen een echte
+respons gelegd; de omgeving waarin de module geschreven is kon dat eindpunt niet
+bereiken. `--dump-raw` drukt de eerste regel ruw af plus welke kandidaat per
+veld raak was, zodat de tabel `VELD_ALIAS` in één commando te controleren is.
+Een positie die op geen enkele naam aansluit verdwijnt niet: hij belandt met
+zijn ruwe velden in `unmapped`, en het tabblad toont dat blok uitgeklapt onder
+de tabel. Stil laten vallen zou hier de ergste fout zijn, want dan lijkt een gat
+gedekt.
+
 ## Opstarten
 
 De app toont eerst wat hij al heeft en haalt daarna pas op:
@@ -141,9 +216,9 @@ helemaal wil dichtzetten, past in TestBot `sw.js` dezelfde filter toe.
 
 ## Logboeken
 
-In `logs/` staan drie bestanden. Ze worden vier keer per dag bijgewerkt door
-`.github/workflows/signalen-log.yml`, die `bot/logger.py` en `bot/signalen.py`
-draait en de map commit. Ze horen in de repo thuis: op deze reeksen wordt later
+In `logs/` staan vier bestanden. Ze worden vier keer per dag bijgewerkt door
+`.github/workflows/signalen-log.yml`, die `bot/logger.py`, `bot/signalen.py` en
+`bot/signalen.py --portfolio` draait en de map commit. Ze horen in de repo thuis: op deze reeksen wordt later
 gemeten of de gerealiseerde hitrate boven de betaalde prijs ligt.
 
 ### `logs/ensemble_log.csv`
@@ -234,11 +309,39 @@ lijst bestaat. Losse aanroep, bijvoorbeeld voor één stad en alleen vandaag:
 python3 bot/signalen.py --steden NYC,LON --dagen 1
 ```
 
+### `logs/portfolio_history.csv`
+
+Eén regel per open positie per portefeuillerun. Dat is het hele punt van de
+reeks: daarmee is later te zien of een verwachting geleidelijk kantelde, en of
+rood daadwerkelijk verlies voorspelde.
+
+| kolom | wat |
+| --- | --- |
+| `gelogd_utc` | moment van loggen, UTC |
+| `key` | stadssleutel |
+| `doel_datum` | de dag waarover de markt afrekent |
+| `bracket_label` | het vak zoals Polymarket het schrijft |
+| `adj_mean_now` | de gecorrigeerde verwachting op dat moment, in de eenheid van de markt |
+| `model_prob_now` | de modelkans op dat vak |
+| `current_bid` | de bied uit de data-API |
+| `city_bias_used` | de correctie die de kalibratie op het kale ledengemiddelde legde |
+| `light` | `red`, `amber`, `green` of `unknown` |
+
+`city_bias_used` staat er expliciet in omdat `app_params.js` periodiek opnieuw
+gekalibreerd wordt. Zonder die kolom lijkt zo'n bijstelling later in de grafiek
+op een weersverandering.
+
+De stand van nu staat in `portfolio.json` in de hoofdmap; dat bestand leest het
+tabblad. Alleen open posities: een positie waarvan de doeldag voorbij is valt
+eruit, en restjes onder een half aandeel tellen niet mee.
+
 ## Zelftests
 
 ```
 python3 bot/test_kern.py                        # rekenkern index.html == kalibratie.py
                                                 # en kansfunctie == polymarkt.js
+python3 bot/test_portfolio.py                   # slug terug, afstanden, netteren
+                                                # en elke tak van het stoplicht
 python3 weerbot-modellen/controleer_upload.py   # bestandshashes tegen MANIFEST.txt
 python3 weerbot-modellen/pak_features.py check  # featurebundel
 ```
@@ -250,10 +353,12 @@ Deze draaien ook in `.github/workflows/zelftest.yml` bij elke push.
 | pad | wat |
 | --- | --- |
 | `index.html` | de hele app: opmaak, rekenkern, controle, kalibratie, weergave |
+| `portefeuille.html` | het tabblad portefeuille; leest alleen `portfolio.json`, doet zelf geen API-verzoek |
+| `portfolio.json` | de stand van de open posities, geschreven door `bot/portfolio.py` |
 | `app_params.js` | wekelijks gekalibreerde parameters per stad en horizon |
 | `weerbot-modellen/polymarkt.js` | Polymarket-koppeling en het marktvenster |
 | `weerbot-modellen/weerbot-ml*.js` | ML-modellen, nog in schaduwfase |
-| `bot/` | kalibratie, logboeken en zelftests in Python |
-| `logs/` | ensemblelog, NWS-log en signalenlog; zie hierboven |
+| `bot/` | kalibratie, logboeken, portefeuillebewaking en zelftests in Python |
+| `logs/` | ensemblelog, NWS-log, signalenlog en portefeuillereeks; zie hierboven |
 | `.github/workflows/` | dagelijkse en wekelijkse herberekeningen |
 | `REVIEW.md` | externe codereview en het narekenen van de aanbevelingen |

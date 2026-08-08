@@ -25,6 +25,10 @@ Gebruik (vanuit de hoofdmap van de repo):
     python3 bot/signalen.py              alle steden, drie doeldagen
     python3 bot/signalen.py --steden NYC,LON
     python3 bot/signalen.py --dagen 1    alleen vandaag
+    python3 bot/signalen.py --portfolio  de portefeuillebewaking uit
+                                         portfolio.py; schrijft portfolio.json
+                                         en logs/portfolio_history.csv, en logt
+                                         zelf geen signalen
 
 Alleen de standaardbibliotheek, en alleen leesverzoeken: naar de ensemble-API
 van Open-Meteo, naar api.weather.gov voor de Amerikaanse bijmenging en naar de
@@ -577,6 +581,13 @@ def main(argv: list) -> int:
     steden = None
     dagen = 3
     for i, a in enumerate(argv):
+        if a == "--portfolio":
+            # De portefeuillebewaking staat los van het loggen: hij leest het
+            # signalenlog dat hierboven ontstaat en schrijft portfolio.json.
+            # Pas hier importeren, zodat een losse --steden-run niet over de
+            # data-API van Polymarket struikelt.
+            import portfolio
+            return portfolio.main([a for a in argv if a != "--portfolio"])
         if a == "--steden" and i + 1 < len(argv):
             steden = {s.strip().upper() for s in argv[i + 1].split(",") if s.strip()}
         elif a == "--dagen" and i + 1 < len(argv):
