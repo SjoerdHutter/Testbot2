@@ -151,9 +151,17 @@ def haal_posities(wallet: str = WALLET, timeout: int = 60) -> list:
 def dump_raw(wallet: str = WALLET) -> int:
     """De eerste ruwe regel, plus welke kandidaatnaam per logisch veld raak was.
     Hiermee is de tabel VELD_ALIAS in een keer te controleren."""
-    rijen = haal_posities(wallet)
-    print(f"{len(rijen)} regels van {DATA_API}")
+    try:
+        rijen = haal_posities(wallet)
+    except Exception as ex:                        # noqa: BLE001
+        print(f"Ophalen mislukt voor {wallet}: {ex}")
+        return 1
+    # Het adres in de uitvoer, zodat twee runs naast elkaar te leggen zijn.
+    print(f"{len(rijen)} regels van {DATA_API} voor {wallet}")
     if not rijen:
+        print("  Leeg. Dat kan kloppen, maar ook betekenen dat dit het adres is "
+              "waarmee je tekent")
+        print("  en niet het proxy-adres dat de posities aanhoudt.")
         return 1
     eerste = rijen[0]
     print("\n── eerste regel ruw ──")
@@ -692,14 +700,19 @@ def run(wallet: str = WALLET, posities_bestand: str = None) -> int:
 
 
 def main(argv: list) -> int:
-    wallet, bestand = WALLET, None
+    # Eerst alle vlaggen lezen en pas daarna handelen. Anders hangt --dump-raw
+    # af van de volgorde: staat hij voor --wallet, dan draait hij op het
+    # standaardadres en meldt hij netjes nul posities voor het verkeerde adres.
+    wallet, bestand, ruw = WALLET, None, False
     for i, a in enumerate(argv):
         if a == "--dump-raw":
-            return dump_raw(wallet)
-        if a == "--wallet" and i + 1 < len(argv):
+            ruw = True
+        elif a == "--wallet" and i + 1 < len(argv):
             wallet = argv[i + 1]
         elif a == "--positions-file" and i + 1 < len(argv):
             bestand = argv[i + 1]
+    if ruw:
+        return dump_raw(wallet)
     return run(wallet, bestand)
 
 
