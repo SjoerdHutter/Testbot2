@@ -182,8 +182,10 @@ respons gelegd; de omgeving waarin de module geschreven is kon dat eindpunt niet
 bereiken. `--dump-raw` drukt de eerste regel ruw af plus welke kandidaat per
 veld raak was, zodat de tabel `VELD_ALIAS` in één commando te controleren is.
 Een positie die op geen enkele naam aansluit verdwijnt niet: hij belandt met
-zijn ruwe velden in `unmapped`, en het tabblad toont dat blok uitgeklapt onder
-de tabel. Stil laten vallen zou hier de ergste fout zijn, want dan lijkt een gat
+zijn ruwe velden in `unmapped`, en het tabblad zet die onder de tabel in een
+uitklapper met per regel de titel en de waarden. Het aantal staat in de kop, ook
+als het blok dicht staat: een ingeklapte uitklapper moet te onderscheiden zijn
+van geen gaten. De ruwe velden blijven in `portfolio.json` staan. Stil laten vallen zou hier de ergste fout zijn, want dan lijkt een gat
 gedekt.
 
 ## Opstarten

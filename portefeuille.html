@@ -149,25 +149,19 @@
   }
 
   /* ── Niet gekoppeld ── */
-  .unmapped { border-color: rgba(192, 57, 43, 0.5); }
-  .unmapped .blok-kop { color: var(--verlies); }
+  .unmapped { border-color: rgba(192, 57, 43, 0.5); padding: 0 2px 4px; }
+  .unmapped > summary {
+    color: var(--verlies); cursor: pointer; list-style: none;
+    -webkit-tap-highlight-color: transparent;
+  }
+  .unmapped > summary::-webkit-details-marker { display: none; }
+  .unmapped > summary::before { content: "\25B8  "; }
+  .unmapped[open] > summary::before { content: "\25BE  "; }
+  .unmapped[open] > summary { border-bottom: 1px solid rgba(192, 57, 43, 0.25); }
   .um-rij { padding: 10px 14px; border-bottom: 1px solid rgba(31,42,56,0.55); }
   .um-rij:last-child { border-bottom: none; }
-  .um-reden { font-family: var(--mono); font-size: 12px; color: var(--verlies); }
-  .um-kern { font-family: var(--mono); font-size: 12px; color: var(--inkt); margin-top: 5px; }
-  .um-details { margin-top: 6px; }
-  .um-details > summary {
-    font-family: var(--mono); font-size: 10px; color: var(--dim);
-    cursor: pointer; list-style: none; letter-spacing: 0.08em; text-transform: uppercase;
-  }
-  .um-details > summary::-webkit-details-marker { display: none; }
-  .um-details > summary::before { content: "\25B8 "; color: var(--accent); }
-  .um-details[open] > summary::before { content: "\25BE "; }
-  .um-ruw {
-    font-family: var(--mono); font-size: 10.5px; color: var(--dim);
-    margin-top: 5px; white-space: pre-wrap; word-break: break-word; line-height: 1.6;
-    max-height: 260px; overflow-y: auto;
-  }
+  .um-titel { font-family: var(--mono); font-size: 12.5px; color: var(--inkt); cursor: help; }
+  .um-waarden { font-family: var(--mono); font-size: 11.5px; color: var(--dim); margin-top: 4px; }
   .melding { font-family: var(--mono); font-size: 12px; color: var(--dim); padding: 22px 14px; line-height: 1.8; }
   .voet { font-family: var(--mono); font-size: 9.5px; color: #4A5468; line-height: 1.8; padding: 0 4px; }
 </style>
@@ -209,10 +203,12 @@
     </table>
   </div>
 
-  <div class="blok unmapped" id="unmappedBlok" hidden>
-    <div class="blok-kop">niet gekoppeld · deze posities zitten niet in het stoplicht</div>
+  <!-- Ingeklapt mag, maar het aantal staat in de kop: een dichte uitklapper
+       moet te onderscheiden zijn van "geen gaten". -->
+  <details class="blok unmapped" id="unmappedBlok" hidden>
+    <summary class="blok-kop" id="unmappedKop">niet gekoppeld</summary>
     <div id="unmappedLijst"></div>
-  </div>
+  </details>
 
   <div class="voet">
     Dit blad leest alleen portfolio.json en doet zelf geen enkel API-verzoek. Het
@@ -366,24 +362,23 @@
 
     var um = data.unmapped || [];
     if (um.length) {
-      /* De ruwe regel telt zesentwintig velden, waarvan de helft sleutels en
-         plaatjes-URL's. Alles uitschrijven maakt dit blok onleesbaar, en juist
-         hier moet in één oogopslag te zien zijn wát er buiten de bewaking valt.
-         De kern staat dus vooraan; de rest zit achter "ruwe regel". */
+      /* Per regel de titel en de waarden, verder niets. De ruwe velden blijven
+         in portfolio.json staan voor als er iets uitgezocht moet worden; de
+         reden waarom hij niet koppelt hangt aan de regel als tooltip. */
+      el("unmappedKop").textContent = "niet gekoppeld · " + um.length +
+        (um.length === 1 ? " positie zit" : " posities zitten") + " niet in het stoplicht";
       el("unmappedLijst").innerHTML = um.map(function (u) {
         var r = u.raw || {};
-        var kern = [];
-        if (r.title) kern.push(ontsnap(r.title));
-        if (r.outcome) kern.push('<span class="' + (r.outcome === "Yes" ? "ja" : "nee") +
-                                 '">' + ontsnap(r.outcome) + "</span>");
-        if (r.size !== undefined) kern.push(nl(r.size, 1) + " aandelen");
-        if (r.avgPrice !== undefined) kern.push("instap " + nl(r.avgPrice, 2));
-        if (r.curPrice !== undefined) kern.push("nu " + nl(r.curPrice, 2));
-        return '<div class="um-rij"><div class="um-reden">' + ontsnap(u.reason) + "</div>" +
-               '<div class="um-kern">' + kern.join(" · ") + "</div>" +
-               '<details class="um-details"><summary>ruwe regel</summary>' +
-               '<div class="um-ruw">' + ontsnap(JSON.stringify(u.raw, null, 1)) +
-               "</div></details></div>";
+        var waarden = [];
+        if (r.outcome) waarden.push('<span class="' + (r.outcome === "Yes" ? "ja" : "nee") +
+                                    '">' + ontsnap(r.outcome) + "</span>");
+        if (r.size !== undefined) waarden.push(nl(r.size, 1) + " aandelen");
+        if (r.avgPrice !== undefined) waarden.push("instap " + nl(r.avgPrice, 2));
+        if (r.curPrice !== undefined) waarden.push("nu " + nl(r.curPrice, 2));
+        if (r.currentValue !== undefined) waarden.push("waarde $" + nl(r.currentValue, 2));
+        return '<div class="um-rij" title="' + ontsnap(u.reason) + '">' +
+               '<div class="um-titel">' + ontsnap(r.title || u.reason) + "</div>" +
+               '<div class="um-waarden">' + waarden.join(" · ") + "</div></div>";
       }).join("");
       el("unmappedBlok").hidden = false;
     }
