@@ -189,9 +189,10 @@ _SLUG_RE = re.compile(
 
 
 def uit_slug(slug: str):
-    """Stad, doeldatum en reeks uit een markt- of eventslug. Dit is slug_van uit
-    signalen.py achterstevoren; die bouwt hem op als
-    highest-temperature-in-{stad}-on-{maand}-{dag}-{jaar}."""
+    """Stad, doeldatum, reeks en het vaksuffix uit een markt- of eventslug. Dit
+    is slug_van uit signalen.py achterstevoren; die bouwt hem op als
+    highest-temperature-in-{stad}-on-{maand}-{dag}-{jaar}, met bij een losse
+    markt het vak erachter."""
     if not slug:
         return None
     m = _SLUG_RE.match(str(slug).strip().lower())
@@ -206,7 +207,51 @@ def uit_slug(slug: str):
         dag = date(int(m.group(5)), maand, int(m.group(4)))
     except ValueError:
         return None
-    return {"key": key, "datum": dag.isoformat(), "soort": soort}
+    return {"key": key, "datum": dag.isoformat(), "soort": soort,
+            "suffix": m.group(6) or ""}
+
+
+# De zes vormen die het vaksuffix aanneemt, alle zes machinaal opgebouwd:
+# 23c · 82-83f · 22corbelow · 32corhigher · 81forbelow · 100forhigher
+_VAK_RE = re.compile(r"^(\d+)(?:-(\d+))?([cf])(orbelow|orlower|orless|orhigher|orabove|ormore)?$")
+
+
+def vak_uit_suffix(suffix: str):
+    """De vakgrenzen uit het suffix van een marktslug.
+
+    Dit is de betrouwbare route, en niet de titel van de markt. De data-API
+    geeft als titel de hele vraag ("Will the highest temperature in London be
+    30°C on August 9?"), en daar staan twee getallen in: de temperatuur en de
+    dag. Welke van de twee vooraan staat hangt af van hoe Polymarket de vraag
+    formuleert, en die formulering is van hen. Het suffix bevat alleen het vak."""
+    if not suffix:
+        return None
+    m = _VAK_RE.match(suffix.strip().lower())
+    if not m:
+        return None
+    eerste, tweede, eenheid, open_kant = m.groups()
+    eenheid = "°C" if eenheid == "c" else "°F"
+    if open_kant in ("orbelow", "orlower", "orless"):
+        return {"lo": None, "hi": int(eerste), "eenheid": eenheid}
+    if open_kant:
+        return {"lo": int(eerste), "hi": None, "eenheid": eenheid}
+    return {"lo": int(eerste), "hi": int(tweede) if tweede else int(eerste),
+            "eenheid": eenheid}
+
+
+def vaklabel(lo, hi, eenheid: str) -> str:
+    """Het vak zoals Polymarket het schrijft, uit de grenzen opgebouwd. Zo staat
+    er in de tabel en in de reeks hetzelfde etiket als in signalen.csv, ook als
+    de vraagtekst van de markt ooit anders geformuleerd wordt."""
+    if lo is None and hi is None:
+        return "?"
+    if lo is None:
+        return f"{hi}{eenheid} or below"
+    if hi is None:
+        return f"{lo}{eenheid} or higher"
+    if lo == hi:
+        return f"{lo}{eenheid}"
+    return f"{lo}-{hi}{eenheid}"
 
 
 def richting_van(rij: dict):
@@ -250,18 +295,22 @@ def koppel(rij: dict):
     if not plek:
         return None, f"slug niet te ontleden: {slug!r}"
 
-    # Het vak staat in de titel van de losse markt; de slug van het vak is het
-    # eventdeel plus een samengeperst suffix waar de graden niet los uit te
-    # lezen zijn ("82-83f", "81forbelow"), dus die gebruiken we er niet voor.
-    vak = S.vak_uit(titel) if titel else None
+    # Het vak komt uit het suffix van de slug, niet uit de titel: de titel is
+    # de hele vraag en bevat naast de temperatuur ook de dag.
+    vak = vak_uit_suffix(plek["suffix"])
+    if not vak:
+        vak = S.vak_uit(titel) if titel else None      # terugval
     if not vak or (vak["lo"] is None and vak["hi"] is None):
-        return None, f"vak niet te lezen uit de titel: {titel!r}"
+        return None, (f"vak niet te lezen uit slug {plek['suffix']!r} "
+                      f"en ook niet uit de titel {titel!r}")
 
+    eenheid = vak["eenheid"] or eenheid_van(plek["key"])
     return {
         "key": plek["key"], "datum": plek["datum"], "soort": plek["soort"],
-        "label": str(titel).strip(),
+        "label": vaklabel(vak["lo"], vak["hi"], eenheid),
+        "titel_ruw": str(titel).strip() if titel else "",
         "lo": vak["lo"], "hi": vak["hi"],
-        "eenheid": vak["eenheid"] or eenheid_van(plek["key"]),
+        "eenheid": eenheid,
         "direction": richting,
         "size": size,
         "avg_price": _getal(_pak(rij, "avg_price")[0]),
@@ -383,8 +432,14 @@ class ModelCache:
 # ── Stap 1d: het modelbeeld bij instap, uit logs/signalen.csv ─────────────────
 
 def instap_index(pad: Path = None) -> dict:
-    """De vroegst gelogde regel per (datum, stad, reeks, vak) uit het
-    signalenlog: het modelbeeld zoals het er bij de instap bij stond.
+    """De vroegst gelogde regel per (datum, stad, reeks, ondergrens, bovengrens)
+    uit het signalenlog: het modelbeeld zoals het er bij de instap bij stond.
+
+    De sleutel loopt over de grenzen en niet over het etiket. Het etiket is
+    tekst die Polymarket schrijft en aan twee kanten anders kan luiden — de
+    data-API geeft de hele vraag, het signalenlog de vaknaam — en dan vindt een
+    koppeling op tekst nooit iets, zonder dat er ergens een fout valt. De
+    grenzen zijn getallen en aan beide kanten hetzelfde.
 
     Er wordt op len(cells) gesplitst en niet met DictReader gelezen. Het bestand
     is in de loop van de tijd gegroeid, en een DictReader plakt de kop van nu op
@@ -404,13 +459,15 @@ def instap_index(pad: Path = None) -> dict:
             # plek; alles wat deze index nodig heeft zit daarbinnen.
             (gelogd, key, datum, _lead, soort, eenheid,
              label, lo, hi, verwachting, _p10, _p90, kans) = cellen[:13]
-            sleutel = (datum, key, soort, label)
+            g_lo, g_hi = _getal(lo), _getal(hi)
+            sleutel = (datum, key, soort,
+                       None if g_lo is None else int(g_lo),
+                       None if g_hi is None else int(g_hi))
             vorig = uit.get(sleutel)
             if vorig and vorig["gelogd"] <= gelogd:
                 continue
             uit[sleutel] = {
-                "gelogd": gelogd, "eenheid": eenheid,
-                "lo": _getal(lo), "hi": _getal(hi),
+                "gelogd": gelogd, "eenheid": eenheid, "label": label,
                 "adj_mean": _getal(verwachting), "model_prob": _getal(kans),
                 "kolommen": n,
             }
@@ -537,6 +594,7 @@ def beoordeel(pos: dict, cache: ModelCache, instap: dict) -> dict:
         "high_uncertainty": key in HOGE_ONZEKERHEID,
         "unit": eenheid,
         "bracket_lo": lo, "bracket_hi": hi,
+        "title_raw": pos.get("titel_ruw", ""),
         "slug": pos.get("slug"), "condition_id": pos.get("condition_id"),
     }
 
@@ -569,8 +627,10 @@ def beoordeel(pos: dict, cache: ModelCache, instap: dict) -> dict:
         if pos["current_bid"] is not None:
             rij["edge_now"] = round((win - pos["current_bid"]) * 100, 2)
 
-    # 1d: het modelbeeld bij instap.
-    was = instap.get((datum, key, soort, pos["label"]))
+    # 1d: het modelbeeld bij instap, gezocht op de vakgrenzen.
+    was = instap.get((datum, key, soort, lo, hi))
+    if was and was.get("label"):
+        rij["bracket"] = was["label"]     # het etiket zoals de markt het schrijft
     if was and was["model_prob"] is not None:
         rij["entry_known"] = True
         rij["adj_mean_entry"] = None if was["adj_mean"] is None else round(was["adj_mean"], 2)

@@ -73,13 +73,13 @@ def test_slug() -> bool:
     goed = True
     proeven = [
         ("highest-temperature-in-amsterdam-on-august-9-2026",
-         {"key": "AMS", "datum": "2026-08-09", "soort": "max"}),
+         {"key": "AMS", "datum": "2026-08-09", "soort": "max", "suffix": ""}),
         ("highest-temperature-in-nyc-on-august-9-2026-84-85f",
-         {"key": "NYC", "datum": "2026-08-09", "soort": "max"}),
+         {"key": "NYC", "datum": "2026-08-09", "soort": "max", "suffix": "84-85f"}),
         ("lowest-temperature-in-los-angeles-on-december-31-2026",
-         {"key": "LAX", "datum": "2026-12-31", "soort": "min"}),
+         {"key": "LAX", "datum": "2026-12-31", "soort": "min", "suffix": ""}),
         ("highest-temperature-in-kuala-lumpur-on-march-1-2027-33corhigher",
-         {"key": "KUL", "datum": "2027-03-01", "soort": "max"}),
+         {"key": "KUL", "datum": "2027-03-01", "soort": "max", "suffix": "33corhigher"}),
         ("will-it-rain-in-amsterdam-tomorrow", None),
         ("highest-temperature-in-atlantis-on-august-9-2026", None),
     ]
@@ -299,13 +299,15 @@ def test_uitvoer() -> bool:
         ("TYO", d_tyo): 33.0,     # in het vak, YES -> rood, met de vlag erbij
         ("SIN", d_sin): None,     # fetch mislukt -> unknown
     })
+    # De sleutel loopt over de vakgrenzen, niet over het etiket: het etiket
+    # luidt aan de kant van de data-API anders dan in het signalenlog.
     instap = {
-        (d_ams, "AMS", "max", "20°C"):
-            {"gelogd": "x", "adj_mean": 18.1, "model_prob": 0.11},
-        (d_nyc, "NYC", "max", "84-85°F"):
-            {"gelogd": "x", "adj_mean": 84.5, "model_prob": 0.28},
-        (d_tyo, "TYO", "max", "33°C"):
-            {"gelogd": "x", "adj_mean": 32.6, "model_prob": 0.24},
+        (d_ams, "AMS", "max", 20, 20):
+            {"gelogd": "x", "adj_mean": 18.1, "model_prob": 0.11, "label": "20°C"},
+        (d_nyc, "NYC", "max", 84, 85):
+            {"gelogd": "x", "adj_mean": 84.5, "model_prob": 0.28, "label": "84-85°F"},
+        (d_tyo, "TYO", "max", 33, 33):
+            {"gelogd": "x", "adj_mean": 32.6, "model_prob": 0.24, "label": "33°C"},
         # LON en SIN staan er bewust niet in
     }
     uit = P.bouw(ruw, {}, instap, "0xtest", cache)
@@ -427,10 +429,81 @@ def test_uitvoer() -> bool:
     return goed
 
 
+# ── 6. het vak uit het slugsuffix, en de koppeling met het signalenlog ────────
+
+def test_vak() -> bool:
+    """De zes vormen die het vaksuffix aanneemt, en de koppeling aan een
+    instapregel. Die koppeling liep eerder over het etiket; de data-API geeft
+    als titel de hele vraag ("… be 30°C on August 9?") en het signalenlog de
+    vaknaam ("30°C"), dus vond hij nooit iets — zonder dat er een fout viel.
+    Sinds die koppeling over de vakgrenzen loopt, vangt deze test hem."""
+    goed = True
+    suffixen = [
+        ("23c",          {"lo": 23,   "hi": 23,   "eenheid": "°C"}, "23°C"),
+        ("82-83f",       {"lo": 82,   "hi": 83,   "eenheid": "°F"}, "82-83°F"),
+        ("22corbelow",   {"lo": None, "hi": 22,   "eenheid": "°C"}, "22°C or below"),
+        ("32corhigher",  {"lo": 32,   "hi": None, "eenheid": "°C"}, "32°C or higher"),
+        ("81forbelow",   {"lo": None, "hi": 81,   "eenheid": "°F"}, "81°F or below"),
+        ("100forhigher", {"lo": 100,  "hi": None, "eenheid": "°F"}, "100°F or higher"),
+        ("onzin",        None, None),
+        ("",             None, None),
+    ]
+    for suf, verwacht, label in suffixen:
+        uit = P.vak_uit_suffix(suf)
+        if uit != verwacht:
+            print(f"  vak       MISLUKT: {suf!r} -> {uit}, verwacht {verwacht}")
+            goed = False
+        elif verwacht and P.vaklabel(uit["lo"], uit["hi"], uit["eenheid"]) != label:
+            print(f"  vak       MISLUKT: etiket van {suf!r} -> "
+                  f"{P.vaklabel(uit['lo'], uit['hi'], uit['eenheid'])!r}, verwacht {label!r}")
+            goed = False
+
+    # De titel van de data-API is de hele vraag, met de dag erin. Het vak mag
+    # daar niet uit gelezen worden; het suffix moet winnen.
+    dag = _dag("LON")
+    ruw = [{"size": 10, "avgPrice": 0.6, "curPrice": 0.58, "outcome": "No",
+            "slug": _slug("LON", dag, "30c"),
+            "title": "Will the highest temperature in London be 30°C on August 9?"}]
+    instap = {(dag, "LON", "max", 30, 30):
+              {"gelogd": "x", "adj_mean": 27.4, "model_prob": 0.12, "label": "30°C"}}
+    uit = P.bouw(ruw, {}, instap, "0xtest", NepCache({("LON", dag): 29.0}))
+    r = (uit["positions"] or [{}])[0]
+    if r.get("bracket_lo") != 30 or r.get("bracket_hi") != 30:
+        print(f"  vak       MISLUKT: grenzen uit de vraagtekst gelezen: "
+              f"{r.get('bracket_lo')}-{r.get('bracket_hi')}, verwacht 30-30")
+        goed = False
+    if r.get("bracket") != "30°C":
+        print(f"  vak       MISLUKT: etiket {r.get('bracket')!r}, verwacht '30°C'")
+        goed = False
+    if not r.get("entry_known"):
+        print("  vak       MISLUKT: instapregel niet gevonden, entry_known is false")
+        goed = False
+    if r.get("delta_mean") is None or r.get("delta_prob") is None:
+        print(f"  vak       MISLUKT: deltavelden leeg terwijl er een instapregel is: "
+              f"delta_mean={r.get('delta_mean')} delta_prob={r.get('delta_prob')}")
+        goed = False
+    if r.get("title_raw") != ruw[0]["title"]:
+        print("  vak       MISLUKT: de ruwe vraagtekst is niet bewaard")
+        goed = False
+
+    # en de index uit het echte signalenlog gebruikt dezelfde sleutelvorm
+    echt = P.instap_index()
+    if echt:
+        sleutel = next(iter(echt))
+        if len(sleutel) != 5 or not isinstance(sleutel[0], str):
+            print(f"  vak       MISLUKT: sleutelvorm van de index is {sleutel}")
+            goed = False
+
+    if goed:
+        print(f"  vak       ok: {len(suffixen)} suffixen, suffix wint van de vraagtekst, "
+              f"instap gekoppeld op de grenzen")
+    return goed
+
+
 def main() -> int:
     print("\n  Zelftest portefeuille\n")
     goed = all([test_slug(), test_afstand(), test_netto(),
-                test_stoplicht(), test_uitvoer()])
+                test_stoplicht(), test_vak(), test_uitvoer()])
     print("\n  " + ("Alles in orde.\n" if goed else "ER GING IETS MIS.\n"))
     return 0 if goed else 1
 
