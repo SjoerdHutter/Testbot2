@@ -154,6 +154,15 @@ Naast het stoplicht staat `edge_now`: de eerlijke waarde min de huidige bied, in
 procentpunten. Dat is bewust een aparte kolom. Rood betekent "mijn aanname
 wankelt", de verkoopbeslissing is een andere som.
 
+Valt de ensemblefetch van een stad om, dan volgen er twee herkansingen met tien
+en twintig seconden pauze. Zonder die herkansingen kost één hapering in de
+verbinding het hele modelbeeld van een stad, en staat elke positie daar die run
+zonder licht; in de eerste vijf runs gebeurde dat twee keer, op twee
+verschillende steden, allebei met een TLS-handshake die niet rond kwam. Blijft
+het misgaan, dan blijft de positie staan met `light: "unknown"` en de reden
+erbij — een stad stilletjes laten verdwijnen is erger dan een gat dat zichzelf
+meldt.
+
 Uren tot sluiting worden gerekend als middernacht aan het einde van de doeldag
 in de lokale tijdzone van de stad, met `zoneinfo` — niet met een vaste
 UTC-offset, want die klopt maar in een deel van het jaar.

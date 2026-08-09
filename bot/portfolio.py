@@ -69,8 +69,10 @@ import json
 import math
 import re
 import sys
+import time
 import urllib.parse
 import urllib.request
+# datetime.time heet hier dtime, zodat de module time hierboven bereikbaar blijft
 from datetime import datetime, date, time as dtime, timedelta, timezone
 from pathlib import Path
 from zoneinfo import ZoneInfo
@@ -103,6 +105,11 @@ DELTA_PROB_ORANJE = 15.0 # procentpunten kansstijging die oranje rechtvaardigt
 # van tientallen procentpunten, omdat het model de afrekening niet kent.
 BESLIST_LAAG = 0.02
 BESLIST_HOOG = 0.98
+
+# Herkansingen op de ensemblefetch. Eén hapering kost anders het hele
+# modelbeeld van een stad en daarmee het licht van elke positie daar.
+FETCH_POGINGEN = 3
+FETCH_PAUZE = 10.0       # seconden, oplopend per poging
 
 # Steden zonder betrouwbare biaskalibratie: het Open-Meteo raster zit er op de
 # post waarop Polymarket afwikkelt ongeveer 2 °C naast. Het stoplicht kan daar
@@ -386,15 +393,34 @@ class ModelCache:
         self._per_dag: dict = {}      # (key, datum, soort) -> beeld of None
 
     def _leden(self, key: str):
-        if key not in self._per_stad:
-            stad = weer.STAD_OP_KEY.get(key)
-            if not stad:
-                self._per_stad[key] = ValueError(f"{key} staat niet in weer.STEDEN")
-            else:
-                try:
-                    self._per_stad[key] = logger.haal_leden(stad, S.ENS_VELDEN)
-                except Exception as ex:            # noqa: BLE001 - reden gaat mee
-                    self._per_stad[key] = ex
+        """De ensembleleden van een stad, met herkansingen.
+
+        Zonder die herkansingen kost één hapering in de verbinding het hele
+        modelbeeld van een stad, en staat elke positie daar die run zonder
+        licht. Dat is in de eerste vijf runs twee keer gebeurd, op twee
+        verschillende steden, allebei met een TLS-handshake die niet rond kwam:
+        een kwaal van het moment, niet van de stad. Een tweede poging tien
+        seconden later haalt het dan gewoon."""
+        if key in self._per_stad:
+            return self._per_stad[key]
+
+        stad = weer.STAD_OP_KEY.get(key)
+        if not stad:
+            self._per_stad[key] = ValueError(f"{key} staat niet in weer.STEDEN")
+            return self._per_stad[key]
+
+        laatste = None
+        for poging in range(FETCH_POGINGEN):
+            try:
+                self._per_stad[key] = logger.haal_leden(stad, S.ENS_VELDEN)
+                return self._per_stad[key]
+            except Exception as ex:                # noqa: BLE001 - reden gaat mee
+                laatste = ex
+                if poging + 1 < FETCH_POGINGEN:
+                    time.sleep(FETCH_PAUZE * (poging + 1))
+        # Op is op: de reden gaat mee de JSON in, zodat in het tabblad staat
+        # waarom er geen licht is in plaats van dat de positie eruit valt.
+        self._per_stad[key] = RuntimeError(f"{laatste} (na {FETCH_POGINGEN} pogingen)")
         return self._per_stad[key]
 
     def beeld(self, key: str, datum: str, soort: str):

@@ -3,7 +3,7 @@
 
   python3 bot/test_portfolio.py
 
-Controleert zeven dingen:
+Controleert acht dingen:
 
   slug      De slug van een markt valt terug uiteen in stad, doeldag, reeks en
             vak, precies andersom dan slug_van in signalen.py hem opbouwt.
@@ -24,6 +24,9 @@ Controleert zeven dingen:
   beslist   Een markt die al afgerekend heeft valt buiten het stoplicht. Zonder
             die tak kreeg een verloren positie groen mee plus een edge van
             tientallen procentpunten, omdat het model de uitslag niet kent.
+  herkans   De ensemblefetch krijgt herkansingen, want één hapering kostte
+            anders het hele modelbeeld van een stad. Blijft het misgaan, dan
+            blijft de positie staan met unknown en de reden erbij.
   uitvoer   De hele keten op datzelfde setje: de JSON heeft de afgesproken
             velden, is op kleur en uren tot sluiting gesorteerd, en een positie
             zonder instapregel houdt lege deltavelden met entry_known false.
@@ -578,10 +581,74 @@ def test_beslist() -> bool:
     return goed
 
 
+# ── 8. herkansingen op de ensemblefetch ──────────────────────────────────────
+
+def test_herkansing() -> bool:
+    """Eén hapering in de verbinding mag niet het hele modelbeeld van een stad
+    kosten. Dat gebeurde in de eerste vijf runs twee keer, op twee verschillende
+    steden, allebei met een TLS-handshake die niet rond kwam; elke positie daar
+    stond die run zonder licht.
+
+    Blijft het misgaan, dan blijft het unknown mét reden: een stad stilletjes
+    laten verdwijnen is erger dan een gat dat zichzelf meldt."""
+    goed = True
+    echte_pauze, P.FETCH_PAUZE = P.FETCH_PAUZE, 0.0     # niet echt wachten
+    echte_haal = P.logger.haal_leden
+    try:
+        # eerst twee keer stuk, dan goed: de derde poging moet tellen
+        pogingen = {"n": 0}
+
+        def hapert(stad, velden, timeout=60):
+            pogingen["n"] += 1
+            if pogingen["n"] < 3:
+                raise OSError("_ssl.c:993: The handshake operation timed out")
+            return echte_haal_nep(stad, velden)
+
+        def echte_haal_nep(stad, velden):
+            dag = _dag(stad["key"], 1)
+            return {("max", dag, "ecmwf_ifs025"): [30.0, 30.4, 29.6]}
+
+        P.logger.haal_leden = hapert
+        cache = P.ModelCache({})
+        beeld, fout = cache.beeld("AMS", _dag("AMS", 1), "max")
+        if beeld is None:
+            print(f"  herkans   MISLUKT: na twee haperingen nog geen beeld ({fout})")
+            goed = False
+        elif pogingen["n"] != 3:
+            print(f"  herkans   MISLUKT: {pogingen['n']} pogingen, verwacht 3")
+            goed = False
+
+        # en blijft het stuk, dan unknown met de reden erbij
+        P.logger.haal_leden = lambda *a, **k: (_ for _ in ()).throw(
+            OSError("_ssl.c:993: The handshake operation timed out"))
+        dag = _dag("SHA", 1)
+        ruw = [{"size": 19.4, "avgPrice": 0.84, "curPrice": 0.81, "outcome": "No",
+                "slug": _slug("SHA", dag, "28c"), "title": "28°C"}]
+        uit = P.bouw(ruw, {}, {}, "0xtest")
+        r = (uit["positions"] or [{}])[0]
+        if r.get("light") != "unknown":
+            print(f"  herkans   MISLUKT: blijvende storing geeft {r.get('light')}")
+            goed = False
+        if "handshake" not in r.get("reason", "") or "pogingen" not in r.get("reason", ""):
+            print(f"  herkans   MISLUKT: reden zegt niet wat er misging: {r.get('reason')}")
+            goed = False
+        if r.get("city") != "SHA" or r.get("size") != 19.4:
+            print("  herkans   MISLUKT: de positie zelf is niet blijven staan")
+            goed = False
+    finally:
+        P.logger.haal_leden = echte_haal
+        P.FETCH_PAUZE = echte_pauze
+
+    if goed:
+        print(f"  herkans   ok: herstelt na twee haperingen, blijft anders unknown "
+              f"met reden ({P.FETCH_POGINGEN} pogingen)")
+    return goed
+
+
 def main() -> int:
     print("\n  Zelftest portefeuille\n")
     goed = all([test_slug(), test_afstand(), test_netto(), test_stoplicht(),
-                test_vak(), test_beslist(), test_uitvoer()])
+                test_vak(), test_beslist(), test_herkansing(), test_uitvoer()])
     print("\n  " + ("Alles in orde.\n" if goed else "ER GING IETS MIS.\n"))
     return 0 if goed else 1
 
