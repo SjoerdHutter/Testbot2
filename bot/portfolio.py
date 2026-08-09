@@ -301,6 +301,14 @@ def eenheid_van(key: str) -> str:
     return "°F" if stad and stad["eenheid"] == "F" else "°C"
 
 
+def naam_van(key: str) -> str:
+    """De stadsnaam bij een sleutel, voor in het tabblad. De sleutel zelf blijft
+    overal het koppelveld: daarop sluiten signalen.csv, ensemble_log.csv en
+    portfolio_history.csv op elkaar aan. Een naam is om te lezen, geen sleutel."""
+    stad = weer.STAD_OP_KEY.get(key)
+    return stad["naam"] if stad else key
+
+
 def koppel(rij: dict):
     """Een ruwe positieregel naar (stad, datum, vak, richting), of een reden
     waarom dat niet lukt. De reden gaat mee de JSON in, zodat zichtbaar is wat
@@ -625,7 +633,7 @@ def beoordeel(pos: dict, cache: ModelCache, instap: dict) -> dict:
     b = vakbreedte(lo, hi, eenheid)
 
     rij = {
-        "city": key, "date": datum, "soort": soort,
+        "city": key, "city_name": naam_van(key), "date": datum, "soort": soort,
         "bracket": pos["label"], "direction": pos["direction"],
         "size": round(pos["size"], 4),
         "avg_price": pos["avg_price"], "current_bid": pos["current_bid"],

@@ -176,6 +176,12 @@ python3 bot/portfolio.py --dump-raw    de ruwe respons van de data-API
 python3 bot/test_portfolio.py          de zelftest, offline
 ```
 
+In het tabblad staat de stadsnaam; de stadssleutel hangt eronder als tooltip.
+Die sleutel blijft in `portfolio.json` (`city`) en in `portfolio_history.csv`
+(`key`) het koppelveld, want daarop sluiten de logboeken op elkaar aan. De naam
+komt uit `weer.STEDEN` en staat er als `city_name` naast: om te lezen, niet om
+op te koppelen.
+
 Het adres staat als `WALLET` bovenaan `bot/portfolio.py` en is per run te
 overschrijven met `--wallet`. Let op dat dat het adres moet zijn dat de posities
 *aanhoudt*: op Polymarket is dat vaak een apart proxy-adres en niet het adres

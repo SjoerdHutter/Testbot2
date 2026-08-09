@@ -103,7 +103,7 @@
     border-left: 1px solid var(--rand); text-align: left;
   }
   tbody tr:hover td.vast { background: #16202C; }
-  .stad { font-weight: 700; letter-spacing: 0.06em; }
+  .stad { font-weight: 700; letter-spacing: 0.02em; cursor: help; }
   .datum { color: var(--dim); font-size: 11px; }
   .vak { color: var(--inkt); }
   .ja  { color: var(--winst); font-weight: 700; }
@@ -294,7 +294,10 @@
       ? '<span class="vlag" title="Geen betrouwbare biaskalibratie voor deze stad: het Open-Meteo raster zit er op de post waarop Polymarket afwikkelt ongeveer 2 °C naast. Lees dit stoplicht met die marge erbij.">±2°</span>'
       : "";
     return '<tr class="' + licht + '">' +
-      '<td class="l"><span class="stad">' + ontsnap(r.city) + "</span>" +
+      /* De naam leest, de sleutel koppelt: die staat in de tooltip, want daarop
+         zoek je de regel terug in signalen.csv en portfolio_history.csv. */
+      '<td class="l"><span class="stad" title="' + ontsnap(r.city) + '">' +
+        ontsnap(r.city_name || r.city) + "</span>" +
         '<br><span class="datum">' + ontsnap(r.date) + "</span></td>" +
       '<td class="l vak">' + ontsnap(r.bracket) + "</td>" +
       '<td class="l ' + (r.direction === "YES" ? "ja" : "nee") + '">' + ontsnap(r.direction) + "</td>" +
