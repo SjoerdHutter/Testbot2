@@ -23,6 +23,12 @@ jobs:
       - name: Bestanden controleren
         run: python weerbot-modellen/controleer_upload.py
 
+      - name: Schilversie controleren
+        # Valt om zodra een schilbestand wijzigt zonder dat de servicewerker een
+        # nieuwe versie kreeg. Zonder deze stap houden bezoekers de oude pagina,
+        # en dat is op het scherm niet te zien: hij laadt, hij is alleen oud.
+        run: python weerbot-modellen/controleer_schil.py
+
       - name: Bundelbestand controleren
         run: python weerbot-modellen/pak_features.py check
 

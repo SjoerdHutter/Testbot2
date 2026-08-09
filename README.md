@@ -379,6 +379,8 @@ python3 bot/test_kern.py                        # rekenkern index.html == kalibr
 python3 bot/test_portfolio.py                   # slug terug, afstanden, netteren
                                                 # en elke tak van het stoplicht
 python3 weerbot-modellen/controleer_upload.py   # bestandshashes tegen MANIFEST.txt
+python3 weerbot-modellen/controleer_schil.py    # servicewerkerversie dekt de schil
+                                                # (--zet werkt hem bij)
 python3 weerbot-modellen/pak_features.py check  # featurebundel
 ```
 
