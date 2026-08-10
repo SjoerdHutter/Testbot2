@@ -47,6 +47,14 @@ jobs:
         # meldt het onderaan. Falen doet hij alleen als er geen enkele regel is.
         run: python bot/signalen.py
 
+      - name: TAF loggen
+        # Levert nog geen cijfer aan: TAF_GEWICHT staat op nul tot
+        # kalibratie.leer_taf veertig gematchte dagen heeft. Loggen begint wel
+        # meteen, want zonder reeks valt er later niets te leren. Een station
+        # zonder TAF is geen fout.
+        continue-on-error: true
+        run: python bot/taf.py
+
       - name: Portefeuille bijwerken
         # Vier keer per dag is genoeg: ECMWF en GFS draaien zelf elke zes uur,
         # dus vaker kijken levert dezelfde ensembleronde nog eens op.

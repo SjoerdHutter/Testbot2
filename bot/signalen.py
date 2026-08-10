@@ -49,6 +49,7 @@ import weer
 import logger
 import kalibratie as K
 import waarneming as W
+import taf as TAF
 import jslezer
 
 WORTEL = Path(__file__).resolve().parent.parent
@@ -444,7 +445,8 @@ def _tekst(x, dec=None):
 
 
 def rijen_voor_stad(nu: str, stad: dict, leden: dict, markten: dict,
-                    params: dict, nws: dict, waarnemingen: dict = None) -> list:
+                    params: dict, nws: dict, waarnemingen: dict = None,
+                    tafs: dict = None) -> list:
     """Alle regels van één stad: per reeks, per doeldag en per vak één."""
     key = stad["key"]
     app_eenheid = "°F" if stad["eenheid"] == "F" else "°C"
@@ -474,6 +476,16 @@ def rijen_voor_stad(nu: str, stad: dict, leden: dict, markten: dict,
                 if soort == "max":
                     eigen = dag_max(kort, stat, hp)
                     meng_nws(eigen, (nws or {}).get(dag), lead)
+                    # De TAF-laag komt hier binnen zodra kalibratie.leer_taf een
+                    # gewicht heeft opgeleverd; zonder `taf` in app_params.js
+                    # gebeurt er niets. Zie bot/taf.py voor waarom hij op nul
+                    # begint in plaats van op een aanname.
+                    tg = (pr.get("taf") or {}).get(str(lead))
+                    if tg:
+                        tx = (tafs or {}).get(dag)
+                        if tx is not None and app_eenheid == "°F":
+                            tx = weer.f_van_c(tx)
+                        TAF.meng_taf(eigen, tx, lead, gewicht=tg)
                 else:
                     mk = (pr.get("min") or {}).get(str(lead))
                     eigen = dag_min(kort, stat, hp, mk)
@@ -569,6 +581,26 @@ def run(steden=None, dagen: int = 3, pauze: float = 0.6) -> int:
     except Exception as ex:
         print(f"  waarnemingen mislukt ({ex}); kansen blijven onvoorwaardelijk")
 
+    # 1c. de TAF-laag. Alleen nodig voor steden die er in app_params.js een
+    #     gewicht voor hebben; zonder gewicht verandert hij niets en is het
+    #     verzoek zonde. bot/taf.py logt hem los, elke ronde.
+    tafs = {}
+    met_gewicht = [s for s in lijst if s["key"] in leden_per_stad
+                   and ((params.get("steden") or {}).get(s["key"]) or {}).get("taf")]
+    if met_gewicht:
+        try:
+            ruwe = TAF.haal([s["station"] for s in met_gewicht])
+            for s in met_gewicht:
+                ont = TAF.ontleed(ruwe.get(s["station"], ""))
+                if not ont:
+                    continue
+                tafs[s["key"]] = {d: e.get("tx")
+                                  for d, e in TAF.per_doeldag(ont, s["tz"]).items()}
+            print(f"  TAF-bijmenging: {len(tafs)} van de {len(met_gewicht)} steden "
+                  "met een geleerd gewicht")
+        except Exception as ex:                    # noqa: BLE001
+            print(f"  TAF mislukt ({ex}); de bijmenging blijft uit")
+
     # 2. de marktkant: alle slugs in bundels ophalen.
     slugs = []
     for stad in lijst:
@@ -588,7 +620,8 @@ def run(steden=None, dagen: int = 3, pauze: float = 0.6) -> int:
         if leden is None:
             continue
         deel = rijen_voor_stad(nu, stad, leden, markten, params,
-                               nws_per_stad.get(stad["key"]), waarnemingen)
+                               nws_per_stad.get(stad["key"]), waarnemingen,
+                               tafs.get(stad["key"]))
         if not deel:
             zonder_markt.append(stad["key"])
         rijen.extend(deel)
