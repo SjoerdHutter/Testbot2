@@ -343,6 +343,15 @@ meet je alleen de eigen selectie en niets over het model.
 | `event_slug`, `markt_slug` | de slug van de reeks en van dit ene vak op Polymarket |
 | `strat_a_signaal` | 1 als strategie A dit vakje op het moment van loggen aanmerkt: alle regels van A gehaald, beide poorten open én binnen het koopvenster; anders 0 |
 
+Het koopvenster liep van 36 tot 12 uur voor sluiting en loopt sinds 10 augustus
+tot 24 uur. De strategie leunt erop dat het model de markt verslaat, en de
+Brier-cijfers hierboven laten zien dat dat binnen een etmaal ophoudt: op meer
+dan 24 uur zit het model er 7% naast, tussen 12 en 24 uur al 22%. De gemarkeerde
+signalen wijzen dezelfde kant op — 87 signalen boven de 24 uur gaven +3,2%
+rendement, de 28 daaronder −6,0% — maar op 28 waarnemingen is dat binnen de
+ruis. De keuze rust op de Brier-cijfers, niet op die 28 trades. Regels van vóór
+10 augustus in dit logboek zijn dus met het oude venster gemarkeerd.
+
 `model_kans` en `leden_fractie` zijn twee onafhankelijke schattingen van
 dezelfde kans. Door ze allebei te loggen is achteraf te zien welke van de twee
 beter kalibreert.
