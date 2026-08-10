@@ -1,0 +1,66 @@
+name: Portefeuille
+
+# Draait bot/signalen.py --portfolio en commit portfolio.json plus de
+# portefeuillereeks. Elk uur, en dat is met opzet vaker dan het ensemble- en
+# signalenlog hiernaast.
+#
+# Die twee draaien vier keer per dag omdat ECMWF en GFS zelf elke zes uur
+# draaien: vaker ophalen levert dezelfde modelronde nog eens op. Voor de
+# portefeuille geldt die redenering niet. Open posities veranderen wanneer er
+# gehandeld wordt en de biedprijzen bewegen de hele dag, en geen van beide
+# hangt aan de modelcyclus. Op vier keer per dag bleef een verse transactie tot
+# bijna acht uur onzichtbaar; gemeten over de eerste dagen zat er gemiddeld zes
+# uur tussen twee runs.
+#
+# Het kan ook goedkoop: de portefeuillestap kostte 70 seconden, tegenover zeven
+# minuten voor het ensemblelog en negen voor het signalenlog. Daarom staat hij
+# hier los in plaats van mee te liften.
+#
+# Op :12, ver van de :41 waarop de zware actie is gepland en van het uur zelf,
+# waar de wachtrij van GitHub het langst staat.
+on:
+  schedule:
+    - cron: "12 * * * *"
+  workflow_dispatch:
+permissions:
+  contents: write
+
+# Loopt een run uit, dan wacht de volgende in plaats van er dwars doorheen te
+# fietsen. Annuleren zou een half weggeschreven portfolio.json achterlaten.
+concurrency:
+  group: portefeuille
+  cancel-in-progress: false
+
+jobs:
+  portefeuille:
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      # portfolio.py gebruikt alleen de standaardbibliotheek.
+
+      - name: Portefeuille bijwerken
+        # Faalt de data-API van Polymarket, dan valt deze stap om en wordt er
+        # niets gecommit. Dat is hier de juiste uitkomst: portfolio.json laten
+        # staan is beter dan hem legen, want een lege lijst leest als "geen
+        # open posities" en dus als "niets aan de hand".
+        run: python bot/signalen.py --portfolio
+
+      - name: Committen
+        run: |
+          git config user.name "weerbot-actie"
+          git config user.email "actions@users.noreply.github.com"
+          # Alleen de twee bestanden die deze actie schrijft. De logboeken zijn
+          # van de actie Signalenlog; door die verzamelingen gescheiden te
+          # houden kan een rebase tussen de twee nooit botsen.
+          git add portfolio.json logs/portfolio_history.csv
+          if git diff --cached --quiet; then
+            echo "  geen wijziging"
+            exit 0
+          fi
+          git commit -m "Portefeuillestand"
+          git pull --rebase origin "${GITHUB_REF_NAME}"
+          git push origin "HEAD:${GITHUB_REF_NAME}"

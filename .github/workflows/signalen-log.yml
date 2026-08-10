@@ -47,25 +47,20 @@ jobs:
         # meldt het onderaan. Falen doet hij alleen als er geen enkele regel is.
         run: python bot/signalen.py
 
-      - name: Portefeuille bijwerken
-        # Vier keer per dag is genoeg: ECMWF en GFS draaien zelf elke zes uur,
-        # dus vaker kijken levert dezelfde ensembleronde nog eens op.
-        #
-        # Draait na de signalenstap, want portfolio.py leest het modelbeeld bij
-        # instap uit logs/signalen.csv. Valt de data-API van Polymarket om, dan
-        # mag dat de logs hierboven niet tegenhouden: die zijn de reeks waarop
-        # later gemeten wordt en die is per gemiste ronde onherstelbaar.
-        continue-on-error: true
-        run: python bot/signalen.py --portfolio
+      # De portefeuille stond hier tussen en draait nu elk uur in een eigen
+      # actie (.github/workflows/portefeuille.yml). Vier keer per dag klopt voor
+      # het weerbeeld, want ECMWF en GFS draaien zelf elke zes uur, maar niet
+      # voor open posities: die veranderen wanneer er gehandeld wordt. Door de
+      # twee te scheiden schrijft elke actie ook zijn eigen bestanden, en kan
+      # een rebase tussen de twee nooit botsen.
 
       - name: Committen
         run: |
           git config user.name "weerbot-actie"
           git config user.email "actions@users.noreply.github.com"
-          git add logs/
-          # portfolio.json ontbreekt als de stap hierboven is omgevallen; dat
-          # mag het committen van de logs niet tegenhouden.
-          if [ -f portfolio.json ]; then git add portfolio.json; fi
+          # Alleen de drie logboeken van deze actie. portfolio.json en
+          # logs/portfolio_history.csv zijn van de actie Portefeuille.
+          git add logs/ensemble_log.csv logs/nws_log.csv logs/signalen.csv
           if git diff --cached --quiet; then
             echo "  geen wijziging"
             exit 0

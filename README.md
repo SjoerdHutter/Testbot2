@@ -274,9 +274,24 @@ helemaal wil dichtzetten, past in TestBot `sw.js` dezelfde filter toe.
 
 ## Logboeken
 
-In `logs/` staan vier bestanden. Ze worden vier keer per dag bijgewerkt door
-`.github/workflows/signalen-log.yml`, die `bot/logger.py`, `bot/signalen.py` en
-`bot/signalen.py --portfolio` draait en de map commit. Ze horen in de repo thuis: op deze reeksen wordt later
+In `logs/` staan vier bestanden, bijgewerkt door twee acties met elk hun eigen
+bestanden:
+
+* `.github/workflows/signalen-log.yml` draait `bot/logger.py` en
+  `bot/signalen.py` **vier keer per dag** en commit `ensemble_log.csv`,
+  `nws_log.csv` en `signalen.csv`. Vier keer is genoeg omdat ECMWF en GFS zelf
+  elke zes uur draaien.
+* `.github/workflows/portefeuille.yml` draait `bot/signalen.py --portfolio`
+  **elk uur** en commit `portfolio.json` en `logs/portfolio_history.csv`. Die
+  redenering over modelrondes geldt daar niet: open posities veranderen wanneer
+  er gehandeld wordt en de biedprijzen bewegen de hele dag. Op vier keer per dag
+  bleef een verse transactie tot bijna acht uur onzichtbaar. Het kan ook
+  goedkoop — die stap kost 70 seconden tegenover zeven en negen minuten voor de
+  twee logboeken hierboven.
+
+De twee bestandsverzamelingen overlappen niet. Dat is geen toeval maar de reden
+dat ze los staan: zo kan een `git pull --rebase` tussen de twee acties nooit op
+hetzelfde bestand botsen. Ze horen in de repo thuis: op deze reeksen wordt later
 gemeten of de gerealiseerde hitrate boven de betaalde prijs ligt.
 
 ### `logs/ensemble_log.csv`
@@ -378,9 +393,10 @@ python3 bot/signalen.py --steden NYC,LON --dagen 1
 
 ### `logs/portfolio_history.csv`
 
-Eén regel per open positie per portefeuillerun. Dat is het hele punt van de
-reeks: daarmee is later te zien of een verwachting geleidelijk kantelde, en of
-rood daadwerkelijk verlies voorspelde.
+Eén regel per open positie per portefeuillerun, sinds 10 augustus elk uur. Dat
+is het hele punt van de reeks: daarmee is later te zien of een verwachting
+geleidelijk kantelde, en of rood daadwerkelijk verlies voorspelde. De eerste
+dagen staan er met tussenpozen van zes uur in, daarna uurlijks.
 
 | kolom | wat |
 | --- | --- |
@@ -429,5 +445,5 @@ Deze draaien ook in `.github/workflows/zelftest.yml` bij elke push.
 | `weerbot-modellen/weerbot-ml*.js` | ML-modellen, nog in schaduwfase |
 | `bot/` | kalibratie, logboeken, portefeuillebewaking en zelftests in Python |
 | `logs/` | ensemblelog, NWS-log, signalenlog en portefeuillereeks; zie hierboven |
-| `.github/workflows/` | dagelijkse en wekelijkse herberekeningen |
+| `.github/workflows/` | dagelijkse en wekelijkse herberekeningen, plus de uurlijkse portefeuille |
 | `REVIEW.md` | externe codereview en het narekenen van de aanbevelingen |
