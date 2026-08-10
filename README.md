@@ -7,7 +7,9 @@ gekalibreerde parameters, en controleert zichzelf elke dag tegen de
 stationsmeting waar ook de weddenschappen op afrekenen.
 
 Alles draait in de browser; er is geen server en er gaat niets naar buiten
-behalve leesverzoeken naar Open‑Meteo, IEM (METAR), de NWS en Polymarket.
+behalve leesverzoeken naar Open‑Meteo, IEM (METAR), de NWS en Polymarket. De
+python-kant leest daarnaast de luchthavenverwachting (TAF) en, voor Tokio en
+Singapore, een fijnmaziger stationsreeks bij het JMA en NEA.
 
 ## Wat er nieuw is ten opzichte van TestBot
 
@@ -176,6 +178,13 @@ ernaast zit dan een edge die te pakken valt: bij Shanghai op 9 augustus stond er
 
 De vlag raakt het stoplicht niet aan. Dat blijft in graden staan, zoals bedoeld.
 
+Kijk vooral naar die modelkolom, want die is inmiddels aangepakt: punt 7 hieronder
+conditioneert de kansen op de temperatuur die vandaag al gemeten is, en dat is
+precies wat de markt in dat venster wél had en het model niet. De tabel hierboven
+is dus van vóór die wijziging. De vlag blijft voorlopig staan zoals hij is —
+of het gat werkelijk kleiner is geworden hoort uit de reeks te blijken en niet
+uit de verwachting dat het zou moeten.
+
 Valt de ensemblefetch van een stad om, dan volgen er twee herkansingen met tien
 en twintig seconden pauze. Zonder die herkansingen kost één hapering in de
 verbinding het hele modelbeeld van een stad, en staat elke positie daar die run
@@ -224,6 +233,190 @@ uitklapper met per regel de titel en de waarden. Het aantal staat in de kop, ook
 als het blok dicht staat: een ingeklapte uitklapper moet te onderscheiden zijn
 van geen gaten. De ruwe velden blijven in `portfolio.json` staan. Stil laten vallen zou hier de ergste fout zijn, want dan lijkt een gat
 gedekt.
+
+### 7. Conditioneren op wat er vandaag al gemeten is
+
+De Brier-tabel hierboven zegt het onomwonden: naarmate de dag vordert verbetert
+het model nauwelijks terwijl de markt zijn fout meer dan halveert. De reden staat
+er ook bij — binnen twaalf uur ziet de markt de al gemeten temperatuur van die
+dag, en voorspelde het model nog steeds alsof de dag moest beginnen.
+
+Dat is geen modelfout maar een ontbrekende voorwaarde. Noem `m` de hoogste meting
+van vandaag tot nu toe op het station waarop de markt afrekent, en `R` het
+maximum over de uren die nog komen. Het dagmaximum is dan `T = max(m, R)`, en
+daaruit volgt de verdelingsfunctie meteen:
+
+```
+F(t) = 0                        voor t < m
+F(t) = Phi((t − mu_R) / sig_R)  daarboven
+```
+
+Die ene knik doet al het werk. Een vak dat helemaal onder `m` ligt krijgt kans
+nul — het is niet onwaarschijnlijk meer, het is onmogelijk. En het vak waar `m`
+in valt krijgt er vanzelf de puntmassa `Phi((m − mu_R)/sig_R)` bij: precies de
+kans dat de piek al geweest is. Er is geen aparte tak voor nodig. Bij de
+laagstereeks staat alles op zijn kop: `T = min(m, R)`.
+
+Twee getallen beschrijven `R`, allebei uit dezelfde restfactor `w`:
+
+```
+mu_R = mu · w + m · (1 − w)      sig_R = max(sig · w, 0,05)
+```
+
+Bij `w` = 1 is er nog een hele dag te gaan en doet `m` alleen dienst als
+ondergrens; bij `w` → 0 is de dag gelopen en komt alle massa op het vak van `m`.
+
+**Waar die restfactor vandaan komt.** Niet uit een aanname over het warmste uur,
+maar uit `logs/signalen.csv`. Voor elke lead-0 reeks is per logmoment de
+marktverdeling over de vakken bekend, en de entropie daarvan is terug te rekenen
+naar een sigma in vakbreedtes. Uitgezet tegen het lokale uur:
+
+| lokaal uur | 0–10 | 11 | 12 | 13 | 14 | 15 | 16 | 17+ |
+| --- | --- | --- | --- | --- | --- | --- | --- | --- |
+| sigma markt | 0,774 | 0,625 | 0,561 | 0,528 | 0,454 | 0,291 | 0,201 | 0,18 |
+| verhouding | 1,00 | 0,81 | 0,72 | 0,68 | 0,59 | 0,38 | 0,26 | 0,24 |
+
+`bot/kalibreer_restfactor.py` rekent die tabel opnieuw uit en markeert zelf welke
+uren onbruikbaar zijn: een Polymarket-prijs loopt niet verder dan 0,9995, dus de
+entropie van een afgerekende reeks komt niet onder een bodem die niets met het
+weer te maken heeft. Die uren zijn gecensureerd, niet gemeten, en in
+`polymarkt.js` ingevuld door de daling ervoor door te trekken.
+
+Er gaat een demping overheen, `w = ruw · (1 + 0,7 · (1 − ruw))`. De curve is
+namelijk de onzekerheid van de *markt*, en die is scherper dan de onze om meer
+redenen dan de meting alleen; bovendien zit de ondergrens `m` al in de
+marktprijzen, dus de volle curve op sigma leggen én daarna ook afkappen telt
+dubbel. De demping is het grootst in de overgangsuren, waar de afkapping het
+meeste doet, en valt 's avonds weg — dan is de restfactor geen gecensureerde
+marktmeting meer maar natuurkunde. Omdat `ruw` tussen 0 en 1 ligt geldt
+`w ≥ ruw` altijd: onze spreiding is per constructie nooit krapper dan die van de
+markt. `bot/test_waarneming.py` dwingt dat af.
+
+**De meting zelf** komt van hetzelfde station waarop de markt afrekent, uit
+dezelfde uurlijkse METAR-reeks als de dagelijkse controle. Dat het uurlijks is
+maakt `m` een *ondergrens*, en die fout staat de goede kant op: onderschatten
+kapt te weinig af, overschatten zou een vak wegstrepen dat nog kon vallen. Er
+wordt dus niets bij opgeteld. De restfactor rekent met het laatste meetmoment en
+niet met de klok, zodat een station dat 's middags uitvalt de band niet ten
+onrechte dichtknijpt — de ondergrens blijft dan gewoon staan, alleen ouder.
+
+Zonder waarneming rekent alles exact zoals daarvoor. Dat is dezelfde code, niet
+een gelijkwaardige, en het is de eerste toets in `bot/test_waarneming.py`; de
+pariteitstest in `test_kern.py` dekt nu ook de geconditioneerde tak.
+
+```
+python3 bot/waarneming.py                 wat er nu gemeten is, alle steden
+python3 bot/waarneming.py --toon-curve    de restfactortabel
+python3 bot/kalibreer_restfactor.py       de curve opnieuw uit het logboek
+```
+
+### 8. Tokio en Singapore fijnmaziger meten
+
+Dat zijn precies de twee steden die `high_uncertainty` dragen. Een deel daarvan
+is bemonsteringsruis: METAR is één meting per uur, vaak in hele graden, en het
+echte dagmaximum valt zelden op het hele uur. Die reeks onderschat hem dus
+structureel, terwijl Polymarket er wel op afrekent.
+
+Voor de Amerikaanse steden loste `kalibratie.py` dat al op met de 1-minuut
+ASOS-reeks in `verrijk_1min`. `bot/fijnmeting.py` doet hetzelfde voor de twee
+steden waar die reeks niet bestaat maar wel iets vergelijkbaars is: JMA AMeDAS
+voor Tokio (tien-minutenwaarden op 0,1 °C) en NEA via data.gov.sg voor Singapore.
+
+Verfijnen, niet vervangen. Het uitgangspunt blijft METAR; de fijne reeks mag een
+dagmaximum alleen omhoog bijstellen en een dagminimum alleen omlaag, bij minstens
+zestig metingen en binnen vier graden — dezelfde bewaking als `verrijk_1min`.
+Valt de bron om, dan staat er het oude cijfer en nooit een verzonnen cijfer. Het
+station wordt op afstand tot de stad gezocht in de stationstabel die allebei de
+bronnen zelf publiceren, in plaats van als vast nummer in de code: een overgetypt
+stationsnummer meet anders jarenlang de verkeerde stad zonder dat iemand het
+merkt.
+
+De verfijning telt twee keer: in de wekelijkse kalibratie, en op de ondergrens
+van vandaag. Daar telt hij het hardst, want die grens kapt de kansen af.
+
+`high_uncertainty` blijft voorlopig op beide steden staan. De bemonsteringsruis
+gaat hiermee weg, maar de andere helft van dat vlaggetje is een raster-tegen-
+stationprobleem, en of dát kleiner wordt is pas te zien na een hertraining met de
+verfijnde waarnemingen.
+
+```
+python3 bot/fijnmeting.py --stad TYO --dagen 7    beide bronnen naast elkaar
+```
+
+### 9. Hoeveel je zou inzetten
+
+Strategie A zei wélke vakjes, nooit hoevéél. `bot/inzet.py` rekent dat uit met
+fractionele Kelly en zet er plafonds omheen: 2% van het bankroll per positie, 20%
+totale blootstelling, twintig posities, en een dagverliesstop van 5%.
+
+Kelly is alleen optimaal als de kans klopt, dus staat de vraag voorop of de
+modelkans überhaupt beter is dan de marktprijs. Die is te beantwoorden met
+`logs/signalen.csv`. Met de mengfactor
+
+```
+logit(p) = logit(prijs) + λ · (logit(modelkans) − logit(prijs))
+```
+
+komt de best passende λ op **nul** uit, in elk venster, met een 95%
+bootstrap-interval dat nul ruim omvat:
+
+| venster | n | reeksen | λ* | 95%-interval | brier λ* | brier markt | brier model |
+| --- | --- | --- | --- | --- | --- | --- | --- |
+| meer dan 24u | 6655 | 123 | +0,046 | [−0,15, +0,34] | 0,0595 | 0,0595 | 0,0656 |
+| 12 tot 24u | 3113 | 143 | −0,099 | [−0,23, +0,12] | 0,0501 | 0,0503 | 0,0661 |
+| minder dan 12u | 1518 | 110 | +0,034 | [−0,17, +0,26] | 0,0306 | 0,0306 | 0,0627 |
+
+De Brier-score van de best passende meng is tot in vier decimalen gelijk aan die
+van de kale marktprijs. Het verschil tussen onze kans en de prijs voorspelt in
+deze steekproef dus niets.
+
+Twee dingen aan die meting die er toe doen. De bootstrap trekt **hele reeksen** en
+geen losse regels — elf vakken van dezelfde stad-dag zijn één waarneming, geen
+elf, en zonder die clustering komt er een interval uit dat een factor drie te smal
+is. En momenten waarop de markt al had afgerekend tellen niet mee: Polymarket
+schiet naar 0,0005 of 0,9995 zodra het dagcijfer binnen is terwijl het logboek
+doortikt, en zulke regels zijn geen voorspelling maar een uitslag. Dat haalde in
+het laatste venster bijna twee derde van de regels weg.
+
+`LAMBDA` staat daarom op 0,30 — de bovenkant van wat het interval toelaat, niet
+op 1. En niet op nul, want dan valt er nooit meer iets te meten. De inzetten die
+daaruit komen zijn klein, en dat is geen voorzichtigheid die erin gedraaid is
+maar wat de meting zegt.
+
+Wat de uitkomst nog kan kantelen: de steekproef is ruim honderd onafhankelijke
+reeksen, en **de conditionering uit punt 7 zit er niet in** — alle gelogde kansen
+zijn van vóór die wijziging, terwijl juist die het gat in het laatste venster
+dichtte. `--meet` draait de som opnieuw.
+
+```
+python3 bot/inzet.py --meet             de mengfactor uit het logboek
+python3 bot/inzet.py --bankroll 500     de inzetten bij de huidige stand
+```
+
+Er wordt niets geplaatst en niets verkocht.
+
+### 10. TAF als bevestigingslaag
+
+Een TAF is de luchthavenverwachting voor hetzelfde vliegveld waar de markt op
+afrekent, met een horizon van 24 tot 30 uur — precies het koopvenster van
+strategie A, en een oordeel dat niet uit ons eigen ensemble komt. De TX- en
+TN-groepen (`TX24/1015Z`) zijn een rechtstreekse voorspelling van het dagcijfer.
+
+Amerikaanse TAF's dragen die groepen meestal niet. Dat komt goed uit: de elf
+Amerikaanse steden hebben de NWS-bijmenging al, de achtendertig daarbuiten hadden
+niets. De twee lagen vullen elkaar dus aan.
+
+`TAF_GEWICHT` staat op nul. De laag logt vanaf nu in `logs/taf_log.csv` en
+verandert geen enkel cijfer. `kalibratie.leer_taf` leert het gewicht per horizon
+zodra er veertig gematchte dagen zijn, gekrompen richting nul in plaats van
+richting 0,25 zoals `leer_nws`: bij de NWS was er reden om aan te nemen dat de
+verwachting iets toevoegt, bij de TAF is dat juist de vraag, en een prior van
+0,25 legt het antwoord er half in. Dat is dezelfde les als bij de inzetregel.
+
+```
+python3 bot/taf.py             loggen
+python3 bot/taf.py --dekking   welke stations TX/TN meesturen
+```
 
 ## Opstarten
 
@@ -274,9 +467,9 @@ helemaal wil dichtzetten, past in TestBot `sw.js` dezelfde filter toe.
 
 ## Logboeken
 
-In `logs/` staan vier bestanden. Ze worden vier keer per dag bijgewerkt door
-`.github/workflows/signalen-log.yml`, die `bot/logger.py`, `bot/signalen.py` en
-`bot/signalen.py --portfolio` draait en de map commit. Ze horen in de repo thuis: op deze reeksen wordt later
+In `logs/` staan vijf bestanden. Ze worden vier keer per dag bijgewerkt door
+`.github/workflows/signalen-log.yml`, die `bot/logger.py`, `bot/signalen.py`,
+`bot/taf.py` en `bot/signalen.py --portfolio` draait en de map commit. Ze horen in de repo thuis: op deze reeksen wordt later
 gemeten of de gerealiseerde hitrate boven de betaalde prijs ligt.
 
 ### `logs/ensemble_log.csv`
@@ -342,6 +535,17 @@ meet je alleen de eigen selectie en niets over het model.
 | `volume_24u` | het 24-uursvolume van de hele reeks, voor het toetsen van de liquiditeitspoort |
 | `event_slug`, `markt_slug` | de slug van de reeks en van dit ene vak op Polymarket |
 | `strat_a_signaal` | 1 als strategie A dit vakje op het moment van loggen aanmerkt: alle regels van A gehaald, beide poorten open én binnen het koopvenster; anders 0 |
+| `waarneming` | de hoogste (of laagste) temperatuur die op het moment van loggen die dag al gemeten was, in de eenheid van de markt; leeg op lead 1 en 2 en bij een gemist station |
+| `waarneming_uur` | het lokale tijdstip van de laatste meting waar de restfactor mee gerekend heeft — niet de klok, zie punt 7 |
+| `waarneming_n` | het aantal metingen waarop die waarde rust |
+| `restfactor` | de `w` die daaruit volgde |
+| `model_kans_kaal` | de kans zonder conditionering. Blijft erin staan omdat er zonder die kolom achteraf niet te meten valt of de conditionering iets opleverde: dan is er maar één getal en geen vergelijking |
+
+De vijf kolommen achteraan zijn erbij gekomen met de conditionering. Oudere
+regels zijn met `bot/migratie_signalen_log.py` aangevuld met lege velden, zodat
+het bestand rechthoekig blijft. `model_kans_kaal` is daar met opzet leeg
+gelaten en niet uit `model_kans` overgeschreven: leeg betekent "van vóór de
+conditionering", en dat onderscheid moet blijven staan.
 
 `model_kans` en `leden_fractie` zijn twee onafhankelijke schattingen van
 dezelfde kans. Door ze allebei te loggen is achteraf te zien welke van de twee
@@ -367,6 +571,17 @@ lijst bestaat. Losse aanroep, bijvoorbeeld voor één stad en alleen vandaag:
 python3 bot/signalen.py --steden NYC,LON --dagen 1
 ```
 
+### `logs/taf_log.csv`
+
+De TX- en TN-groepen uit de luchthavenverwachting, één regel per stad en doeldag.
+Kolommen: `gelogd_utc`, `key`, `station`, `doel_datum`, `lead`, `tx_c`,
+`tx_uur_utc`, `tn_c`, `tn_uur_utc`, `geldig_van`, `geldig_tot`, `piekgroep`,
+`ruw`. Vanaf 40 gematchte dagen leert `kalibratie.leer_taf` hier het
+bijmenggewicht per horizon uit; tot die tijd is het 0 en verandert deze reeks
+geen enkel cijfer. `piekgroep` is de FM/BECMG/TEMPO-groep die over het piekuur
+valt, als ruwe tekst — die gaat nergens in mee en ligt hier om later te kunnen
+kijken of bewolking op het piekuur iets zegt.
+
 ### `logs/portfolio_history.csv`
 
 Eén regel per open positie per portefeuillerun. Dat is het hele punt van de
@@ -384,6 +599,12 @@ rood daadwerkelijk verlies voorspelde.
 | `current_bid` | de bied uit de data-API |
 | `city_bias_used` | de correctie die de kalibratie op het kale ledengemiddelde legde |
 | `light` | `red`, `amber`, `green` of `unknown` |
+| `observed_today` | wat er die dag al gemeten was, in de eenheid van de markt |
+| `restfactor` | de `w` waarmee geconditioneerd is |
+
+Die laatste twee staan er om dezelfde reden als `city_bias_used`: zonder die
+kolommen lijkt een kans die verspringt doordat de meting binnenkwam later op een
+weersverandering.
 
 `city_bias_used` staat er expliciet in omdat `app_params.js` periodiek opnieuw
 gekalibreerd wordt. Zonder die kolom lijkt zo'n bijstelling later in de grafiek
@@ -397,9 +618,16 @@ eruit, en restjes onder een half aandeel tellen niet mee.
 
 ```
 python3 bot/test_kern.py                        # rekenkern index.html == kalibratie.py
-                                                # en kansfunctie == polymarkt.js
+                                                # en kansfunctie == polymarkt.js,
+                                                # ook geconditioneerd
 python3 bot/test_portfolio.py                   # slug terug, afstanden, netteren
                                                 # en elke tak van het stoplicht
+python3 bot/test_waarneming.py                  # de conditionering: onveranderd
+                                                # zonder meting, nooit krapper
+                                                # dan de markt, puntmassa
+python3 bot/test_inzet.py                       # Kelly, plafonds, dagstop, en
+                                                # lambda op een bekend logboek
+python3 bot/test_taf.py                         # TX/TN, maandrand, doeldag
 python3 weerbot-modellen/controleer_upload.py   # bestandshashes tegen MANIFEST.txt
 python3 weerbot-modellen/controleer_schil.py    # servicewerkerversie dekt de schil
                                                 # (--zet werkt hem bij)
@@ -419,6 +647,11 @@ Deze draaien ook in `.github/workflows/zelftest.yml` bij elke push.
 | `weerbot-modellen/polymarkt.js` | Polymarket-koppeling en het marktvenster |
 | `weerbot-modellen/weerbot-ml*.js` | ML-modellen, nog in schaduwfase |
 | `bot/` | kalibratie, logboeken, portefeuillebewaking en zelftests in Python |
+| `bot/waarneming.py` | de meting van vandaag en de conditionering erop |
+| `bot/fijnmeting.py` | AMeDAS en NEA, fijner dan het uurlijkse METAR |
+| `bot/inzet.py` | positiegrootte, risicoplafonds en het meten van de edge |
+| `bot/taf.py` | de luchthavenverwachting, voorlopig alleen loggend |
+| `bot/jslezer.py` | tabellen uit polymarkt.js lezen; één parser voor allebei |
 | `logs/` | ensemblelog, NWS-log, signalenlog en portefeuillereeks; zie hierboven |
 | `.github/workflows/` | dagelijkse en wekelijkse herberekeningen |
 | `REVIEW.md` | externe codereview en het narekenen van de aanbevelingen |
