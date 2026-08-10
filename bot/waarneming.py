@@ -314,7 +314,38 @@ def haal_vandaag(steden: list, pauze: float = 0.5) -> dict:
                 "datum": vandaag.isoformat(),
                 "station": s["station"],
             }
+        verfijn_vandaag(groep, uit, vandaag)
     return uit
+
+
+def verfijn_vandaag(steden: list, uit: dict, vandaag) -> None:
+    """De ondergrens bijstellen met een fijnmaziger reeks, waar die er is.
+
+    Hier telt de verfijning harder dan bij de dagelijkse controle. `m` kapt de
+    kansen af, dus een `m` die twee tienden te laag staat laat een vak open dat
+    de dag al voorbij is gelopen. De bewaking blijft dezelfde: alleen omhoog voor
+    het maximum, alleen omlaag voor het minimum, en binnen de marge. Zie
+    bot/fijnmeting.py.
+
+    Valt de bron om, dan blijft de METAR-waarde staan. Dat is de veilige kant:
+    een te lage ondergrens kapt te weinig af, een te hoge zou een vak wegstrepen
+    dat nog kon vallen."""
+    doel = [s for s in steden if s.get("fijn") and s["key"] in uit]
+    if not doel:
+        return
+    import fijnmeting
+    for s in doel:
+        w = uit[s["key"]]
+        for soort in ("max", "min"):
+            los = {vandaag.isoformat(): w[soort]}
+            try:
+                if fijnmeting.verfijn(s, los, [vandaag], soort):
+                    w[soort] = round(los[vandaag.isoformat()], 2)
+                    w["fijn"] = s["fijn"]
+            except Exception as ex:                # noqa: BLE001
+                print(f"  {s['key']}: fijne reeks {s['fijn']} mislukt ({ex}); "
+                      "de METAR-ondergrens blijft staan")
+                break
 
 
 def voor_stad(waarnemingen: dict, key: str, doel_datum: str, lead: int,

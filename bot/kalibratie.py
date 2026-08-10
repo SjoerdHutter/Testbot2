@@ -331,6 +331,17 @@ def haal_actuals(stad: dict, d1: date, d2: date, soort: str = "max") -> dict:
             uit[dag] = waarde_f if stad["eenheid"] == "F" else weer.c_van_f(waarde_f)
     if stad["eenheid"] == "F" and soort == "max":
         stad["_1min"] = verrijk_1min(stad, uit, d1, d2)
+    elif stad.get("fijn"):
+        # Hetzelfde idee als verrijk_1min, voor de steden zonder 1-minuut ASOS:
+        # een fijnmaziger reeks van hetzelfde station mag het uurlijkse cijfer
+        # bijstellen, nooit vervangen. Zie bot/fijnmeting.py.
+        import fijnmeting
+        dagen = [d1 + timedelta(days=i) for i in range((d2 - d1).days + 1)]
+        try:
+            stad["_fijn"] = fijnmeting.verfijn(stad, uit, dagen, soort)
+        except Exception as ex:                    # noqa: BLE001
+            print(f"      [let op] fijne reeks {stad['fijn']} mislukt: {ex}")
+            stad["_fijn"] = 0
     return uit
 
 
@@ -945,6 +956,8 @@ def run(dagen: int = 240):
             resultaat[stad["key"]] = stad_uit
             r1 = stad_uit.get("1", {})
             extra1m = f"  1min+{stad.pop('_1min')}" if "_1min" in stad else ""
+            if "_fijn" in stad:
+                extra1m += f"  {stad['fijn']}+{stad.pop('_fijn')}"
             print(f"h1: {r1.get('mae_basis')}\u2192{r1.get('mae_nieuw')}  n={r1.get('n_totaal')}{extra1m}")
         else:
             print("overgeslagen")

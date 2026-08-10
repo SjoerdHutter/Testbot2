@@ -232,10 +232,58 @@ def test_iem() -> bool:
     return ok
 
 
+def test_fijn() -> bool:
+    """De verfijning uit bot/fijnmeting.py mag een dagcijfer alleen de goede kant
+    op bijstellen, en alleen bij genoeg metingen binnen de marge. Alles wat daar
+    niet aan voldoet moet het uurlijkse METAR-cijfer laten staan — dat is de
+    veilige kant, want een te hoge ondergrens streept een vak weg dat nog kon
+    vallen."""
+    import fijnmeting as F
+    stad = {"key": "TYO", "fijn": "amedas", "eenheid": "C", "naam": "Tokio",
+            "lat": 35.55, "lon": 139.78, "tz": "Asia/Tokyo", "station": "RJTT"}
+    dag = "2026-08-10"
+    echt = F.reeks_voor
+    fouten = []
+
+    def proef(reeks, start, soort, verwacht, wat):
+        F.reeks_voor = lambda s, d: {dag: reeks}
+        uit = {dag: start}
+        F.verfijn(stad, uit, [], soort)
+        if abs(uit[dag] - verwacht) > 1e-9:
+            fouten.append(f"{wat}: {uit[dag]} in plaats van {verwacht}")
+
+    vol = {"max": 31.4, "min": 24.1, "n": 144}
+    try:
+        proef(vol, 30.0, "max", 31.4, "een hoger maximum hoort door te komen")
+        proef(vol, 32.0, "max", 32.0, "een lager maximum mag niet overschrijven")
+        proef(vol, 25.0, "max", 25.0, "meer dan de marge erboven hoort te blijven staan")
+        proef(vol, 25.0, "min", 24.1, "een lager minimum hoort door te komen")
+        proef(vol, 23.0, "min", 23.0, "een hoger minimum mag niet overschrijven")
+        proef({"max": 31.4, "min": 24.1, "n": 3}, 30.0, "max", 30.0,
+              "te weinig metingen hoort te blijven staan")
+        proef({"max": None, "min": None, "n": 144}, 30.0, "max", 30.0,
+              "een lege reeks hoort te blijven staan")
+        # een stad zonder fijne bron mag er nooit een krijgen
+        F.reeks_voor = echt
+        kaal = {"key": "AMS", "eenheid": "C", "lat": 52.3, "lon": 4.8,
+                "tz": "Europe/Amsterdam", "station": "EHAM"}
+        uit = {dag: 20.0}
+        if F.verfijn(kaal, uit, []) != 0 or uit[dag] != 20.0:
+            fouten.append("een stad zonder `fijn` wordt toch verfijnd")
+    finally:
+        F.reeks_voor = echt
+
+    ok = not fouten
+    print(f"  fijn         {'ok' if ok else 'MISLUKT'}: verfijnen stelt alleen "
+          "de goede kant op bij" + ("" if ok else "; " + "; ".join(fouten)))
+    return ok
+
+
 def main() -> int:
     print("\n  Zelftest intraday-conditionering\n")
     goed = all([test_onveranderd(), test_behoudend(), test_verloop(),
-                test_onmogelijk(), test_puntmassa(), test_spiegel(), test_iem()])
+                test_onmogelijk(), test_puntmassa(), test_spiegel(), test_iem(),
+                test_fijn()])
     print("\n  " + ("Alles in orde.\n" if goed else "ER GING IETS MIS.\n"))
     return 0 if goed else 1
 

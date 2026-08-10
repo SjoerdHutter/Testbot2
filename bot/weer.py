@@ -47,6 +47,13 @@ JSON_BESTAND = MAP / "weer_data.json"
 # lat/lon  = de coordinaten van dat vliegveld (niet het stadscentrum), zodat het
 #            model zo dicht mogelijk op het resolutiestation zit.
 # eenheid  = wat er lokaal gebruikt wordt: F alleen voor de drie Amerikaanse steden.
+# bron     = waar de werkelijkheid vandaan komt: 'iem' is het METAR-archief,
+#            'hko' het Hong Kong Observatory, 'era5' het raster als terugval.
+# fijn     = een fijnmaziger reeks van datzelfde station, die het uurlijkse METAR
+#            alleen bijstelt en nooit vervangt (bot/fijnmeting.py). Amerikaanse
+#            steden krijgen die verfijning al via de 1-minuut ASOS-reeks in
+#            kalibratie.verrijk_1min; dit veld regelt hem voor de twee steden
+#            waar zo'n reeks niet bestaat maar wel iets vergelijkbaars is.
 # Twijfelgevallen, pas gerust aan: Bangkok kan ook VTBS (Suvarnabhumi) zijn en
 # Seoul ook RKSI (Incheon); vergelijk een paar dagen met wunderground.com.
 STEDEN = [
@@ -72,7 +79,7 @@ STEDEN = [
     {"key": "ANK", "naam": "Ankara", "station": "LTAC", "lat": 40.1281, "lon": 32.9951, "tz": "Europe/Istanbul", "eenheid": "C", "bron": "iem"},
     {"key": "IST", "naam": "Istanbul", "station": "LTFM", "lat": 41.2629, "lon": 28.7413, "tz": "Europe/Istanbul", "eenheid": "C", "bron": "iem"},
     {"key": "MOW", "naam": "Moskou", "station": "UUWW", "lat": 55.5915, "lon": 37.2615, "tz": "Europe/Moscow", "eenheid": "C", "bron": "iem"},
-    {"key": "TYO", "naam": "Tokio", "station": "RJTT", "lat": 35.5533, "lon": 139.7811, "tz": "Asia/Tokyo", "eenheid": "C", "bron": "iem"},
+    {"key": "TYO", "naam": "Tokio", "station": "RJTT", "lat": 35.5533, "lon": 139.7811, "tz": "Asia/Tokyo", "eenheid": "C", "bron": "iem", "fijn": "amedas"},
     {"key": "SEL", "naam": "Seoul", "station": "RKSI", "lat": 37.4667, "lon": 126.4500, "tz": "Asia/Seoul", "eenheid": "C", "bron": "iem"},
     {"key": "PUS", "naam": "Busan", "station": "RKPK", "lat": 35.1795, "lon": 128.9382, "tz": "Asia/Seoul", "eenheid": "C", "bron": "iem"},
     {"key": "TPE", "naam": "Taipei", "station": "RCSS", "lat": 25.0694, "lon": 121.5517, "tz": "Asia/Taipei", "eenheid": "C", "bron": "iem"},
@@ -87,7 +94,7 @@ STEDEN = [
     {"key": "HKG", "naam": "Hongkong", "station": "VHHH", "lat": 22.3094, "lon": 113.9219, "tz": "Asia/Hong_Kong", "eenheid": "C", "bron": "hko"},
     {"key": "MNL", "naam": "Manila", "station": "RPLL", "lat": 14.5069, "lon": 121.0042, "tz": "Asia/Manila", "eenheid": "C", "bron": "iem"},
     {"key": "KUL", "naam": "Kuala Lumpur", "station": "WMKK", "lat": 2.7167, "lon": 101.7000, "tz": "Asia/Kuala_Lumpur", "eenheid": "C", "bron": "iem"},
-    {"key": "SIN", "naam": "Singapore", "station": "WSSS", "lat": 1.3667, "lon": 103.9833, "tz": "Asia/Singapore", "eenheid": "C", "bron": "iem"},
+    {"key": "SIN", "naam": "Singapore", "station": "WSSS", "lat": 1.3667, "lon": 103.9833, "tz": "Asia/Singapore", "eenheid": "C", "bron": "iem", "fijn": "nea"},
     {"key": "KHI", "naam": "Karachi", "station": "OPKC", "lat": 24.8456, "lon": 67.1614, "tz": "Asia/Karachi", "eenheid": "C", "bron": "iem"},
     {"key": "LKO", "naam": "Lucknow", "station": "VILK", "lat": 26.7606, "lon": 80.8893, "tz": "Asia/Kolkata", "eenheid": "C", "bron": "iem"},
     {"key": "JED", "naam": "Jeddah", "station": "OEJN", "lat": 21.6598, "lon": 39.1222, "tz": "Asia/Riyadh", "eenheid": "C", "bron": "iem"},
