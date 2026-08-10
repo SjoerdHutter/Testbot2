@@ -154,6 +154,28 @@ Naast het stoplicht staat `edge_now`: de eerlijke waarde min de huidige bied, in
 procentpunten. Dat is bewust een aparte kolom. Rood betekent "mijn aanname
 wankelt", de verkoopbeslissing is een andere som.
 
+Die kolom leest niet altijd als winst. Binnen `MARKT_VENSTER_UREN` van sluiting
+en boven `MARKT_VERSCHIL_PP` verschil komt er `market_disagrees` bij te staan, en
+het tabblad zet de edge dan oranje met een ⚠ en de reden als tooltip. Reden: op
+167 afgerekende stad-dagen uit `signalen.csv` verslaat de markt het model, en dat
+verschil loopt op naarmate de sluiting nadert (Brier-score per vak, lager is
+beter):
+
+| venster voor sluiting | model | markt | |
+| --- | --- | --- | --- |
+| meer dan 24u | 0,0662 | 0,0612 | markt 7% beter |
+| 12 tot 24u | 0,0670 | 0,0523 | markt 22% beter |
+| minder dan 12u | 0,0648 | 0,0270 | markt 58% beter |
+
+Kijk vooral naar de modelkolom: die verbetert nauwelijks als de dag vordert,
+terwijl de markt zijn fout ruimschoots halveert. Logisch, want binnen twaalf uur
+ziet de markt de al gemeten temperatuur van die dag en voorspelt het model nog
+steeds. Een groot verschil in dat venster is dus veel vaker het model dat
+ernaast zit dan een edge die te pakken valt: bij Shanghai op 9 augustus stond er
++82pp edge terwijl de markt op 92% zat en gelijk kreeg.
+
+De vlag raakt het stoplicht niet aan. Dat blijft in graden staan, zoals bedoeld.
+
 Valt de ensemblefetch van een stad om, dan volgen er twee herkansingen met tien
 en twintig seconden pauze. Zonder die herkansingen kost één hapering in de
 verbinding het hele modelbeeld van een stad, en staat elke positie daar die run

@@ -3,7 +3,7 @@
 
   python3 bot/test_portfolio.py
 
-Controleert acht dingen:
+Controleert negen dingen:
 
   slug      De slug van een markt valt terug uiteen in stad, doeldag, reeks en
             vak, precies andersom dan slug_van in signalen.py hem opbouwt.
@@ -27,6 +27,9 @@ Controleert acht dingen:
   herkans   De ensemblefetch krijgt herkansingen, want één hapering kostte
             anders het hele modelbeeld van een stad. Blijft het misgaan, dan
             blijft de positie staan met unknown en de reden erbij.
+  markt     Dicht op sluiting wordt een groot verschil met de markt gemarkeerd,
+            want daar is de markt gemeten nauwkeuriger dan het model. Het
+            stoplicht blijft daarbij ongemoeid: dat staat in graden.
   uitvoer   De hele keten op datzelfde setje: de JSON heeft de afgesproken
             velden, is op kleur en uren tot sluiting gesorteerd, en een positie
             zonder instapregel houdt lege deltavelden met entry_known false.
@@ -645,10 +648,76 @@ def test_herkansing() -> bool:
     return goed
 
 
+# ── 9. de markt is het oneens ────────────────────────────────────────────────
+
+def test_markt_oneens() -> bool:
+    """Dicht op sluiting is een groot verschil met de markt vaker het model dat
+    ernaast zit dan een edge om te pakken. Gemeten op 167 afgerekende stad-dagen
+    is de markt in de laatste twaalf uur 58% nauwkeuriger.
+
+    De stand hieronder is die van Shanghai op 9 augustus: het model gaf de NO
+    84% terwijl de markt op 8% stond, en de markt kreeg gelijk. De kolom edge
+    zette daar +82pp neer alsof het gratis geld was."""
+    goed = True
+    dag = _dag("SHA", 0)
+    ruw = [
+        # het geval zelf: laat, en 76pp uit elkaar
+        {"size": 38.3, "avgPrice": 0.70, "curPrice": 0.08, "outcome": "No",
+         "slug": _slug("SHA", dag, "28c"), "title": "28°C"},
+        # even laat, maar model en markt zijn het eens
+        {"size": 10, "avgPrice": 0.80, "curPrice": 0.86, "outcome": "No",
+         "slug": _slug("SHA", dag, "31c"), "title": "31°C"},
+    ]
+    # 29,22 laat het vak 28 (27,5-28,5) net buiten bereik, zoals die dag
+    uit = P.bouw(ruw, {}, {}, "0xtest", NepCache({("SHA", dag): 29.22}))
+    op_vak = {r["bracket"]: r for r in uit["positions"]}
+
+    laat = op_vak.get("28°C") or {}
+    if not laat.get("market_disagrees"):
+        print(f"  markt     MISLUKT: {laat.get('edge_now')}pp op "
+              f"{laat.get('hours_to_close')} uur is niet gemarkeerd")
+        goed = False
+    if "twijfel aan het model" not in laat.get("market_note", ""):
+        print(f"  markt     MISLUKT: de toelichting wijst niet op het model: "
+              f"{laat.get('market_note')}")
+        goed = False
+    # de vlag mag het stoplicht niet aanraken: dat blijft in graden
+    zonder = P.stoplicht(laat.get("d"), laat.get("b"), laat.get("model_win_prob"),
+                         laat.get("delta_prob"), laat.get("d") == 0, False)
+    if laat.get("light") != zonder[0]:
+        print(f"  markt     MISLUKT: het stoplicht is verschoven naar {laat.get('light')}")
+        goed = False
+
+    eens = op_vak.get("31°C") or {}
+    if eens.get("market_disagrees"):
+        print("  markt     MISLUKT: een klein verschil wordt gemarkeerd")
+        goed = False
+
+    # ver van sluiting telt hetzelfde verschil niet
+    ver = _dag("SHA", 2)
+    uit2 = P.bouw([{"size": 38.3, "avgPrice": 0.70, "curPrice": 0.08, "outcome": "No",
+                    "slug": _slug("SHA", ver, "28c"), "title": "28°C"}],
+                  {}, {}, "0xtest", NepCache({("SHA", ver): 29.22}))
+    if (uit2["positions"] or [{}])[0].get("market_disagrees"):
+        print("  markt     MISLUKT: buiten het venster wordt toch gemarkeerd")
+        goed = False
+
+    if uit["summary"].get("n_market_disagrees") != 1:
+        print(f"  markt     MISLUKT: teller is "
+              f"{uit['summary'].get('n_market_disagrees')}")
+        goed = False
+
+    if goed:
+        print(f"  markt     ok: gemarkeerd binnen {P.MARKT_VENSTER_UREN:.0f}u boven "
+              f"{P.MARKT_VERSCHIL_PP:.0f}pp, stoplicht blijft ongemoeid")
+    return goed
+
+
 def main() -> int:
     print("\n  Zelftest portefeuille\n")
     goed = all([test_slug(), test_afstand(), test_netto(), test_stoplicht(),
-                test_vak(), test_beslist(), test_herkansing(), test_uitvoer()])
+                test_vak(), test_beslist(), test_herkansing(),
+                test_markt_oneens(), test_uitvoer()])
     print("\n  " + ("Alles in orde.\n" if goed else "ER GING IETS MIS.\n"))
     return 0 if goed else 1
 

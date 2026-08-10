@@ -147,6 +147,10 @@
     margin-left: 6px; font-size: 9px; letter-spacing: 0.08em; color: var(--oranje);
     border: 1px solid rgba(201,138,43,0.45); border-radius: 5px; padding: 1px 4px; cursor: help;
   }
+  /* Edge waar de markt het dicht op sluiting sterk mee oneens is. Niet groen:
+     in dat venster is de markt gemeten nauwkeuriger dan het model, dus dit is
+     eerder twijfel aan de eigen som dan een koopje. */
+  .edge-twijfel { color: var(--oranje); cursor: help; }
 
   /* ── Niet gekoppeld ── */
   .unmapped { border-color: rgba(192, 57, 43, 0.5); padding: 0 2px 4px; }
@@ -191,7 +195,7 @@
           <th title="aantal aandelen">size</th>
           <th title="gemiddelde instapprijs">instap</th>
           <th title="huidige bied uit de data-API">bied</th>
-          <th title="eerlijke waarde min de huidige bied, in procentpunten. Dit is de verkoopsom en staat los van het stoplicht.">edge</th>
+          <th title="eerlijke waarde min de huidige bied, in procentpunten. Dit is de verkoopsom en staat los van het stoplicht. Oranje met ⚠: binnen twaalf uur van sluiting en meer dan 20pp verschil met de markt — in dat venster is de markt gemeten nauwkeuriger dan het model.">edge</th>
           <th title="kans dat deze positie wint: bij NO 1 min de vakkans, bij YES de vakkans zelf">winkans</th>
           <th title="afstand van de verwachting tot de dichtstbijzijnde vakrand, 0 als de verwachting in het vak ligt">d</th>
           <th class="dm" title="hoeveel de verwachting sinds de instap is opgeschoven. Positief is naar het vak toe.">Δ verwachting sinds instap</th>
@@ -304,12 +308,17 @@
       "<td>" + nl(r.size, 1) + "</td>" +
       "<td>" + prijs(r.avg_price) + "</td>" +
       "<td>" + prijs(r.current_bid) + "</td>" +
-      /* Bij een afgerekende positie is edge geen kans maar het verschil tussen
-         de uitslag en wat het model dacht; die mag hier niet als winst lezen. */
+      /* Edge leest alleen als winst wanneer het dat ook is. Bij een afgerekende
+         positie is het het verschil tussen de uitslag en wat het model dacht,
+         en dicht op sluiting is een groot verschil met de markt vaker het model
+         dat ernaast zit dan een koopje. */
       "<td>" + (licht === "settled"
                  ? '<span class="dim" title="afgerekend: dit is geen te pakken edge">'
                    + nl(r.edge_now, 1) + "pp</span>"
-                 : pp(r.edge_now)) + "</td>" +
+                 : (r.market_disagrees
+                     ? '<span class="edge-twijfel" title="' + ontsnap(r.market_note) + '">'
+                       + (r.edge_now >= 0 ? "+" : "") + nl(r.edge_now, 1) + "pp ⚠</span>"
+                     : pp(r.edge_now))) + "</td>" +
       "<td>" + procent(r.model_win_prob) + "</td>" +
       "<td>" + (r.d === null || r.d === undefined
                  ? '<span class="dim">·</span>'
@@ -329,6 +338,9 @@
     t.push('<span class="teller groen">groen <b>' + (s.n_green || 0) + "</b></span>");
     if (s.n_unknown) t.push('<span class="teller">onbekend <b>' + s.n_unknown + "</b></span>");
     if (s.n_settled) t.push('<span class="teller">afgerekend <b>' + s.n_settled + "</b></span>");
+    if (s.n_market_disagrees)
+      t.push('<span class="teller oranje" title="dicht op sluiting wijkt het model hier sterk van de markt af">' +
+             "markt oneens <b>" + s.n_market_disagrees + "</b></span>");
     t.push('<span class="teller">blootstelling <b>$' + nl(s.total_exposure, 2) + "</b></span>");
     return t.join("");
   }

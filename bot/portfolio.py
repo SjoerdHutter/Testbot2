@@ -106,6 +106,25 @@ DELTA_PROB_ORANJE = 15.0 # procentpunten kansstijging die oranje rechtvaardigt
 BESLIST_LAAG = 0.02
 BESLIST_HOOG = 0.98
 
+# Wanneer een meningsverschil met de markt tegen het model pleit in plaats van
+# voor een koopje. Gemeten op 167 afgerekende stad-dagen uit signalen.csv, met
+# de Brier-score van model en markt per vak (lager is beter):
+#
+#     meer dan 24u voor sluiting   model 0,0662   markt 0,0612    markt  7% beter
+#     12 tot 24u voor sluiting     model 0,0670   markt 0,0523    markt 22% beter
+#     minder dan 12u               model 0,0648   markt 0,0270    markt 58% beter
+#
+# Het model verbetert nauwelijks naarmate de dag vordert; de markt halveert zijn
+# fout ruimschoots, want die ziet de al gemeten temperatuur van die dag terwijl
+# het model nog voorspelt. In dat laatste venster is een groot verschil dus veel
+# vaker het model dat ernaast zit dan een edge die te pakken valt. Bij Shanghai
+# stond er +82pp edge terwijl de markt op 92% zat en gelijk kreeg.
+#
+# Dit raakt het stoplicht niet: dat blijft in graden staan. Het is een vlag
+# naast edge_now, zodat die kolom in dit venster niet als winst leest.
+MARKT_VENSTER_UREN = 12.0
+MARKT_VERSCHIL_PP = 20.0
+
 # Herkansingen op de ensemblefetch. Eén hapering kost anders het hele
 # modelbeeld van een stad en daarmee het licht van elke positie daar.
 FETCH_POGINGEN = 3
@@ -644,6 +663,7 @@ def beoordeel(pos: dict, cache: ModelCache, instap: dict) -> dict:
         "hours_to_close": None, "light": "unknown", "reason": "",
         "entry_known": False,
         "market_decided": False,
+        "market_disagrees": False, "market_note": "",
         "high_uncertainty": key in HOGE_ONZEKERHEID,
         "unit": eenheid,
         "bracket_lo": lo, "bracket_hi": hi,
@@ -722,7 +742,39 @@ def beoordeel(pos: dict, cache: ModelCache, instap: dict) -> dict:
                                             rij["delta_prob"], d == 0, is_ja)
     if rij["high_uncertainty"]:
         rij["reason"] += " · let op: geen betrouwbare biaskalibratie voor deze stad"
+
+    markeer_markt(rij, uren)
     return rij
+
+
+def markeer_markt(rij: dict, uren) -> None:
+    """Zet de vlag als het model dicht op sluiting sterk van de markt afwijkt.
+
+    Staat bewust los van het stoplicht en verandert de kleur niet: het alarm
+    blijft in graden. Dit gaat over de kolom edge, die zo'n verschil als kans
+    presenteert terwijl het in dit venster meestal het model is dat ernaast
+    zit."""
+    edge = rij["edge_now"]
+    if edge is None or uren is None or not 0 <= uren <= MARKT_VENSTER_UREN:
+        return
+    if abs(edge) <= MARKT_VERSCHIL_PP:
+        return
+    rij["market_disagrees"] = True
+    # de prijs van jouw kant is de kans die de markt jouw positie geeft
+    markt = rij["current_bid"]
+    if edge > 0:
+        rij["market_note"] = (
+            f"nog {uren:.1f} uur te gaan en het model zit {edge:+.1f}pp boven de "
+            f"markt ({rij['model_win_prob'] * 100:.0f}% tegen {markt * 100:.0f}%). "
+            f"In dit venster is de markt gemeten 58% nauwkeuriger dan het model, "
+            f"want die ziet de al gemeten temperatuur van vandaag. Lees dit eerder "
+            f"als twijfel aan het model dan als een edge om te pakken")
+    else:
+        rij["market_note"] = (
+            f"nog {uren:.1f} uur te gaan en de markt prijst deze positie {-edge:.1f}pp "
+            f"hoger dan het model ({markt * 100:.0f}% tegen "
+            f"{rij['model_win_prob'] * 100:.0f}%). In dit venster heeft de markt "
+            f"meestal gelijk, dus het model is hier waarschijnlijk te somber")
 
 
 # ── Stap 1i: de uitvoer ───────────────────────────────────────────────────────
@@ -778,6 +830,7 @@ def bouw(posities_ruw: list, params: dict, instap: dict, wallet: str,
             "n_green": sum(1 for r in rijen if r["light"] == "green"),
             "n_unknown": sum(1 for r in rijen if r["light"] == "unknown"),
             "n_settled": sum(1 for r in rijen if r["light"] == "settled"),
+            "n_market_disagrees": sum(1 for r in rijen if r["market_disagrees"]),
             "n_unmapped": len(unmapped),
             "total_exposure": round(blootstelling, 2),
         },
@@ -831,6 +884,9 @@ def run(wallet: str = WALLET, posities_bestand: str = None) -> int:
         if r["light"] in ("red", "amber", "unknown", "settled"):
             print(f"  {r['light']:<7} {r['city']} {r['date']} {r['bracket']} "
                   f"{r['direction']}: {r['reason']}")
+    for r in payload["positions"]:
+        if r["market_disagrees"]:
+            print(f"  markt   {r['city']} {r['date']} {r['bracket']}: {r['market_note']}")
     for u in payload["unmapped"]:
         print(f"  unmapped: {u['reason']}")
     return 0
