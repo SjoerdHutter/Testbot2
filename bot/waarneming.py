@@ -185,16 +185,25 @@ def cdf(t: float, mu_r: float, sigma_r: float, m, soort: str, phi) -> float:
 
 # ── De meting ophalen ─────────────────────────────────────────────────────────
 
-def _iem_url(stations, tznaam: str, d1, d2) -> str:
+def _iem_url(stations, tznaam: str, d1, d2, soorten=("3",)) -> str:
+    """`soorten` zijn de report_type-waarden van IEM: 3 is de routinemelding van
+    het hele uur, 4 zijn de specials en 1 is de MADIS-HFMETAR-stroom met
+    sub-uurlijkse meldingen.
+
+    Standaard blijft het alleen 3. Dat is met opzet: dat is de reeks die
+    Wunderground toont en waar de afrekening op rust. Zie bot/fijnmeting.py voor
+    wanneer de andere twee wél mogen meedoen — dat hangt ervan af of de markt op
+    het fijne record afrekent of op het uurlijkse."""
     d2p = d2 + timedelta(days=1)          # eindgrens ruim nemen
     delen = "&".join("station=" + urllib.parse.quote(s) for s in stations)
+    types = "".join("&report_type=" + urllib.parse.quote(str(t)) for t in soorten)
     return (
         "https://mesonet.agron.iastate.edu/cgi-bin/request/asos.py"
         f"?{delen}&data=tmpf"
         f"&year1={d1.year}&month1={d1.month}&day1={d1.day}"
         f"&year2={d2p.year}&month2={d2p.month}&day2={d2p.day}"
         f"&tz={urllib.parse.quote(tznaam)}&format=comma&latlon=no"
-        "&missing=M&trace=T&direct=no&report_type=3"
+        f"&missing=M&trace=T&direct=no{types}"
     )
 
 
@@ -236,7 +245,8 @@ def ontleed_iem(tekst: str, stations) -> dict:
     return uit
 
 
-def haal_stations(stations, tznaam: str, d1, d2, pauze: float = 0.5) -> dict:
+def haal_stations(stations, tznaam: str, d1, d2, pauze: float = 0.5,
+                  soorten=("3",)) -> dict:
     """Eén verzoek per bundel stations in plaats van één per station.
 
     IEM accepteert meerdere `station=`-parameters. Blijft er een station leeg,
@@ -250,7 +260,8 @@ def haal_stations(stations, tznaam: str, d1, d2, pauze: float = 0.5) -> dict:
         tekst = ""
         for poging in range(IEM_POGINGEN):
             try:
-                tekst = weer._get(_iem_url(deel, tznaam, d1, d2), timeout=90)
+                tekst = weer._get(_iem_url(deel, tznaam, d1, d2, soorten),
+                                  timeout=90)
                 break
             except Exception:
                 time.sleep(2 + poging * 3)
@@ -261,7 +272,8 @@ def haal_stations(stations, tznaam: str, d1, d2, pauze: float = 0.5) -> dict:
         tekst = ""
         for poging in range(IEM_POGINGEN):
             try:
-                tekst = weer._get(_iem_url([st], tznaam, d1, d2), timeout=90)
+                tekst = weer._get(_iem_url([st], tznaam, d1, d2, soorten),
+                                  timeout=90)
                 break
             except Exception:
                 time.sleep(2 + poging * 3)

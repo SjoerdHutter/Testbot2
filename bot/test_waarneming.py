@@ -3,7 +3,7 @@
 
   python3 bot/test_waarneming.py
 
-Controleert zeven dingen:
+Controleert negen dingen:
 
   onveranderd  Zonder waarneming rekent onze_kansen exact zoals daarvoor. Dat is
                de belangrijkste toets van allemaal: de conditionering mag lead 1
@@ -22,6 +22,12 @@ Controleert zeven dingen:
   iem          De komma-uitvoer van IEM wordt goed ontleed, inclusief de
                ontbrekende waarden, en voor_stad laat een meting van gisteren of
                van lead 1 niet door.
+  fijn         Een fijnmaziger reeks stelt een dagcijfer alleen de goede kant op
+               bij, en alleen bij genoeg metingen binnen de marge.
+  hfmetar      De MADIS-stroom vraagt de goede report_type-waarden op, rekent
+               naar °C om, en valt vanzelf af voor een station dat alleen het
+               hele uur meldt — zonder dat er een deelnemerslijst bijgehouden
+               hoeft te worden.
 
 Alles draait offline; er gaat geen verzoek uit.
 """
@@ -279,11 +285,88 @@ def test_fijn() -> bool:
     return ok
 
 
+def test_hfmetar() -> bool:
+    """De MADIS-stroom is hetzelfde verzoek met report_type=1 erbij, en valt
+    vanzelf af voor een station dat alleen het hele uur meldt."""
+    import fijnmeting as F
+    fouten = []
+
+    # 1. de URL draagt de goede report_type-waarden, en de standaard blijft 3
+    from datetime import date as _date
+    kaal = W._iem_url(["LGA"], "America/New_York", _date(2026, 8, 9), _date(2026, 8, 10))
+    if kaal.count("report_type=") != 1 or "report_type=3" not in kaal:
+        fouten.append(f"de standaard-URL is veranderd: {kaal[-40:]}")
+    hf = W._iem_url(["LGA"], "America/New_York", _date(2026, 8, 9),
+                    _date(2026, 8, 10), F.HFMETAR_SOORTEN)
+    for soort in ("1", "3", "4"):
+        if f"report_type={soort}" not in hf:
+            fouten.append(f"report_type={soort} ontbreekt in de HFMETAR-URL")
+
+    # 2. de reeks komt in °C terug, ook al geeft IEM °F
+    echt = W.haal_stations
+    stad = {"key": "AMS", "station": "EHAM", "tz": "Europe/Amsterdam",
+            "eenheid": "C", "lat": 52.3, "lon": 4.8, "bron": "iem",
+            "fijn": "hfmetar"}
+    W.haal_stations = lambda st, tz, d1, d2, pauze=0.5, soorten=("3",): {
+        "EHAM": {"2026-08-10": {"maxf": 77.0, "minf": 59.0, "n": 288,
+                                "laatste_uur": 23.5}}}
+    try:
+        per = F.hfmetar_reeks(stad, [_date(2026, 8, 10)])
+        e = per.get("2026-08-10") or {}
+        if abs((e.get("max") or 0) - 25.0) > 1e-9:
+            fouten.append(f"77 °F hoort 25 °C te zijn, kreeg {e.get('max')}")
+        if e.get("n") != 288:
+            fouten.append(f"het aantal metingen komt niet mee: {e.get('n')}")
+
+        # 3. het belangrijkste: een station dat alleen uurlijks meldt haalt
+        #    MIN_METINGEN niet en wordt dus niet verfijnd, zonder dat er ergens
+        #    een lijst met deelnemers bijgehouden hoeft te worden.
+        W.haal_stations = lambda st, tz, d1, d2, pauze=0.5, soorten=("3",): {
+            "EHAM": {"2026-08-10": {"maxf": 77.0, "minf": 59.0, "n": 24,
+                                    "laatste_uur": 23.0}}}
+        uit = {"2026-08-10": 24.0}
+        if F.verfijn(stad, uit, [_date(2026, 8, 10)], "max") != 0:
+            fouten.append("een station met 24 meldingen per dag wordt toch verfijnd")
+        if uit["2026-08-10"] != 24.0:
+            fouten.append("het uurlijkse cijfer is aangepast terwijl dat niet mocht")
+    finally:
+        W.haal_stations = echt
+
+    # 4. het oordeel in de dekkingstabel: meer meldingen én effect is pas een
+    #    kandidaat, alleen meer meldingen niet.
+    rijen = [
+        {"key": "AAA", "station": "A", "dagen": 7, "n_routine": 24.0,
+         "n_hf": 288.0, "gemiddeld": 0.4, "grootste": 0.9, "eenheid": "C"},
+        {"key": "BBB", "station": "B", "dagen": 7, "n_routine": 24.0,
+         "n_hf": 288.0, "gemiddeld": 0.01, "grootste": 0.1, "eenheid": "C"},
+        {"key": "CCC", "station": "C", "dagen": 7, "n_routine": 24.0,
+         "n_hf": 25.0, "gemiddeld": 0.0, "grootste": 0.0, "eenheid": "C"},
+        {"key": "DDD", "station": "D", "dagen": 0, "n_routine": 0, "n_hf": 0,
+         "gemiddeld": None, "grootste": None, "eenheid": "C"},
+    ]
+    import io
+    import contextlib
+    buf = io.StringIO()
+    with contextlib.redirect_stdout(buf):
+        F.toon_dekking(rijen, 7)
+    tekst = buf.getvalue()
+    if "1 kandidaten" not in tekst:
+        fouten.append("de telling van kandidaten klopt niet")
+    for stuk in ("KANDIDAAT", "voegt niets toe", "alleen uurlijks", "geen data"):
+        if stuk not in tekst:
+            fouten.append(f"het oordeel {stuk!r} ontbreekt in de tabel")
+
+    ok = not fouten
+    print(f"  hfmetar      {'ok' if ok else 'MISLUKT'}: report_type, omrekening en "
+          "de eis van genoeg metingen" + ("" if ok else "; " + "; ".join(fouten)))
+    return ok
+
+
 def main() -> int:
     print("\n  Zelftest intraday-conditionering\n")
     goed = all([test_onveranderd(), test_behoudend(), test_verloop(),
                 test_onmogelijk(), test_puntmassa(), test_spiegel(), test_iem(),
-                test_fijn()])
+                test_fijn(), test_hfmetar()])
     print("\n  " + ("Alles in orde.\n" if goed else "ER GING IETS MIS.\n"))
     return 0 if goed else 1
 

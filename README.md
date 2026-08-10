@@ -318,9 +318,38 @@ echte dagmaximum valt zelden op het hele uur. Die reeks onderschat hem dus
 structureel, terwijl Polymarket er wel op afrekent.
 
 Voor de Amerikaanse steden loste `kalibratie.py` dat al op met de 1-minuut
-ASOS-reeks in `verrijk_1min`. `bot/fijnmeting.py` doet hetzelfde voor de twee
-steden waar die reeks niet bestaat maar wel iets vergelijkbaars is: JMA AMeDAS
-voor Tokio (tien-minutenwaarden op 0,1 °C) en NEA via data.gov.sg voor Singapore.
+ASOS-reeks in `verrijk_1min`. Die reeks bestaat alleen voor de VS — ASOS is een
+Amerikaans netwerk. `bot/fijnmeting.py` levert drie alternatieven:
+
+| bron | wat | staat aan voor |
+| --- | --- | --- |
+| `hfmetar` | de MADIS-stroom: hetzelfde IEM-eindpunt met `report_type=1` erbij | niemand, tot `--hfmetar-dekking` het uitwijst |
+| `amedas` | JMA, tien-minutenwaarden op 0,1 °C | TYO |
+| `nea` | data.gov.sg, ongeveer per minuut op 0,1 °C | SIN |
+
+De eerste is verreweg de goedkoopste: hetzelfde verzoek aan hetzelfde archief.
+Zit een station in MADIS, dan komen er vijf- of twintigminutenwaarden terug in
+plaats van één melding per uur; zit het er niet in, dan verandert er niets en valt
+de verfijning vanzelf af op de eis van zestig metingen per dag. Er hoeft dus
+nergens een lijst met deelnemers bijgehouden te worden.
+
+**Fijner is niet vanzelf beter.** De reeks die je wilt is die waarop *afgerekend*
+wordt, niet de fijnste die bestaat — daarom staat er bij `report_type=3` in
+`weer.py` dat het de reeks is die Wunderground toont. Voor de Amerikaanse
+stations lopen die samen (ASOS rekent het dagmaximum uit vijfsecondegemiddelden
+en dat is wat de NWS publiceert), buiten de VS hangt het van de nationale dienst
+af. En voor de ondergrens uit punt 7 telt het dubbel: `m` te laag kapt te weinig
+af en is onschuldig, `m` te hoog streept een vak weg dat nog kon vallen.
+
+Daarom staat `fijn` per stad uit tot iemand gemeten heeft dat het klopt.
+`--hfmetar-dekking` doet die meting: twee aanroepen per tijdzone over dezelfde
+afgeronde dagen, en per station het aantal meldingen per dag naast elkaar plus
+hoeveel het dagmaximum omhoog gaat. Stations komen eruit als *kandidaat*, *wel
+fijner maar zonder effect*, *alleen uurlijks* of *geen data*.
+
+Waar het om gaat: op welk raster ligt de reeks nu? Gemeten in je eigen historie
+staan LON en MUC al op 0,1 °C en acht Aziatische steden op 0,5 °C; de elf
+Amerikaanse staan op 1 °F. De 22 steden op hele graden zijn de doelgroep.
 
 Verfijnen, niet vervangen. Het uitgangspunt blijft METAR; de fijne reeks mag een
 dagmaximum alleen omhoog bijstellen en een dagminimum alleen omlaag, bij minstens
@@ -341,6 +370,8 @@ verfijnde waarnemingen.
 
 ```
 python3 bot/fijnmeting.py --stad TYO --dagen 7    beide bronnen naast elkaar
+python3 bot/fijnmeting.py --hfmetar-dekking      welke stations sub-uurlijks
+                                                 melden, en wat het toevoegt
 ```
 
 ### 9. Hoeveel je zou inzetten
