@@ -48,6 +48,8 @@ sys.path.insert(0, str(Path(__file__).resolve().parent))
 import weer
 import logger
 import kalibratie as K
+import waarneming as W
+import jslezer
 
 WORTEL = Path(__file__).resolve().parent.parent
 POLY_JS = WORTEL / "weerbot-modellen" / "polymarkt.js"
@@ -61,43 +63,23 @@ NWS_MAX_VERSCHIL = 15    # verder uit elkaar dan dit mengt de app niet bij
 KOP = ["gelogd_utc", "key", "doel_datum", "lead", "soort", "eenheid",
        "bracket_label", "bracket_lo", "bracket_hi", "verwachting", "p10", "p90",
        "model_kans", "leden_fractie", "markt_prijs", "edge_pp", "volume_24u",
-       "event_slug", "markt_slug", "strat_a_signaal"]
+       "event_slug", "markt_slug", "strat_a_signaal",
+       # vanaf de intraday-conditionering: wat er op het moment van loggen al
+       # gemeten was, en wat de conditionering daarmee deed. model_kans_kaal is
+       # de oude kans zonder waarneming en blijft erin staan, want zonder die
+       # kolom is achteraf niet te meten of de conditionering iets opleverde.
+       "waarneming", "waarneming_uur", "waarneming_n", "restfactor",
+       "model_kans_kaal"]
 
 
 # ── polymarkt.js als bron van waarheid ────────────────────────────────────────
+# De lezer zelf staat in jslezer.py, omdat waarneming.py de restfactortabel uit
+# hetzelfde bestand haalt en dezelfde parser twee keer in de repo vragen is om
+# twee versies die uiteenlopen.
 
-def _js_letterlijk(naam: str, tekst: str):
-    """De waarde van `var <naam> = {...};` of `var <naam> = [...];` uit een
-    javascriptbestand, als python-waarde. Genoeg voor de drie tabellen die we
-    delen: sleutels zonder aanhalingstekens, verder alleen getallen en teksten."""
-    m = re.search(r"\bvar\s+" + re.escape(naam) + r"\s*=\s*", tekst)
-    if not m:
-        raise ValueError(f"{naam} niet gevonden in {POLY_JS.name}")
-    begin = m.end()
-    open_teken = tekst[begin]
-    sluit = {"{": "}", "[": "]"}.get(open_teken)
-    if not sluit:
-        raise ValueError(f"{naam} is geen object of lijst")
-    diep, eind = 0, None
-    for i in range(begin, len(tekst)):
-        if tekst[i] == open_teken:
-            diep += 1
-        elif tekst[i] == sluit:
-            diep -= 1
-            if diep == 0:
-                eind = i + 1
-                break
-    if eind is None:
-        raise ValueError(f"{naam} loopt niet netjes af")
-    blok = tekst[begin:eind]
-    blok = re.sub(r"/\*.*?\*/", "", blok, flags=re.S)        # blokcommentaar eruit
-    blok = re.sub(r"//[^\n]*", "", blok)                     # regelcommentaar eruit
-    blok = re.sub(r"([{,]\s*)([A-Za-z_$][\w$]*)\s*:", r'\1"\2":', blok)
-    blok = re.sub(r",\s*([}\]])", r"\1", blok)               # komma voor het slot
-    return json.loads(blok)
+_js_letterlijk = jslezer.letterlijk
 
-
-_POLY = POLY_JS.read_text()
+_POLY = jslezer.poly_tekst()
 SLUG = _js_letterlijk("SLUG", _POLY)
 MAAND = _js_letterlijk("MAAND", _POLY)
 STRAT_A = _js_letterlijk("STRAT_A", _POLY)
@@ -164,10 +146,17 @@ def delta_naar(v, van, naar):
     return v * 9 / 5 if naar == "°F" else v * 5 / 9
 
 
-def onze_kansen(vakken: list, dag: dict, markt_eenheid, app_eenheid):
+def onze_kansen(vakken: list, dag: dict, markt_eenheid, app_eenheid,
+                waarneming: dict = None):
     """De eigen kans per vak, cijfer voor cijfer gelijk aan onzeKansen in
     polymarkt.js: een normale verdeling met sigma = (p90 - p10) / (2 * 1,2816),
-    ondergrens 0,05, en de halve-graad randcorrectie op lo en hi."""
+    ondergrens 0,05, en de halve-graad randcorrectie op lo en hi.
+
+    Met `waarneming` komt daar de conditionering op het al gemeten cijfer van
+    vandaag bij: het dagmaximum is max(m, R), dus onder `m` is de kans nul en
+    het vak waar `m` in valt krijgt de puntmassa "de piek is al geweest". Zie
+    bot/waarneming.py voor de afleiding. Zonder waarneming verandert er niets —
+    dat is dezelfde code, niet een gelijkwaardige."""
     if not dag or not vakken:
         return None
     mu = naar_eenheid(dag.get("verwachting"), app_eenheid, markt_eenheid)
@@ -177,10 +166,24 @@ def onze_kansen(vakken: list, dag: dict, markt_eenheid, app_eenheid):
     sigma = breedte / (2 * 1.2815515655446004)
     if not (sigma > 0.05):
         sigma = 0.05
+
+    m, soort = None, "max"
+    if waarneming and waarneming.get("m") is not None:
+        m = naar_eenheid(waarneming["m"], app_eenheid, markt_eenheid)
+        soort = "min" if waarneming.get("soort") == "min" else "max"
+        w = W.restfactor(waarneming.get("uur"), soort)
+        mu = mu * w + m * (1 - w)
+        sigma = sigma * w
+        if not (sigma > 0.05):
+            sigma = 0.05
+
+    def F(t):
+        return W.cdf(t, mu, sigma, m, soort, phi)
+
     uit = []
     for b in vakken:
-        boven = 1 if b["hi"] is None else phi((b["hi"] + 0.5 - mu) / sigma)
-        onder = 0 if b["lo"] is None else phi((b["lo"] - 0.5 - mu) / sigma)
+        boven = 1 if b["hi"] is None else F(b["hi"] + 0.5)
+        onder = 0 if b["lo"] is None else F(b["lo"] - 0.5)
         uit.append(max(0, min(1, boven - onder)))
     return uit
 
@@ -441,7 +444,7 @@ def _tekst(x, dec=None):
 
 
 def rijen_voor_stad(nu: str, stad: dict, leden: dict, markten: dict,
-                    params: dict, nws: dict) -> list:
+                    params: dict, nws: dict, waarnemingen: dict = None) -> list:
     """Alle regels van één stad: per reeks, per doeldag en per vak één."""
     key = stad["key"]
     app_eenheid = "°F" if stad["eenheid"] == "F" else "°C"
@@ -476,7 +479,14 @@ def rijen_voor_stad(nu: str, stad: dict, leden: dict, markten: dict,
                     eigen = dag_min(kort, stat, hp, mk)
 
             markt_eenheid = d["eenheid"] or app_eenheid
-            onze = onze_kansen(d["vakken"], eigen, markt_eenheid, app_eenheid) if eigen else None
+            # De meting van vandaag telt alleen mee op lead 0, en alleen als hij
+            # over dezelfde lokale dag gaat als de markt.
+            wn = W.voor_stad(waarnemingen or {}, key, dag, lead, soort)
+            onze = kaal = None
+            if eigen:
+                kaal = onze_kansen(d["vakken"], eigen, markt_eenheid, app_eenheid)
+                onze = onze_kansen(d["vakken"], eigen, markt_eenheid,
+                                   app_eenheid, wn) if wn else kaal
             merk = beoordeel_a(d, onze, eigen, markt_eenheid, app_eenheid)
 
             # Alles wat in de regel staat is in de eenheid van de markt, zodat
@@ -488,6 +498,11 @@ def rijen_voor_stad(nu: str, stad: dict, leden: dict, markten: dict,
                 p10 = naar_eenheid(eigen["p10"], app_eenheid, markt_eenheid)
                 p90 = naar_eenheid(eigen["p90"], app_eenheid, markt_eenheid)
                 pool = [naar_eenheid(v, app_eenheid, markt_eenheid) for v in eigen["pool"]]
+
+            # De waarneming staat in de eenheid van de app; het logboek schrijft
+            # alles in die van de markt, zodat de regel na te rekenen is.
+            wn_m = naar_eenheid(wn["m"], app_eenheid, markt_eenheid) if wn else None
+            wn_w = W.restfactor(wn["uur"], soort) if wn else None
 
             for i, b in enumerate(d["vakken"]):
                 kans = onze[i] if onze else None
@@ -504,6 +519,9 @@ def rijen_voor_stad(nu: str, stad: dict, leden: dict, markten: dict,
                     _tekst(kans, 4), _tekst(fractie, 4), _tekst(b["ja"], 4),
                     _tekst(edge, 2), _tekst(d["volume24"], 2),
                     d["slug"], b["slug"], 1 if merk[i] else 0,
+                    _tekst(wn_m, 2), _tekst(wn["uur"], 2) if wn else "",
+                    _tekst(wn["n"]) if wn else "", _tekst(wn_w, 4),
+                    _tekst(kaal[i] if kaal else None, 4),
                 ])
     return rijen
 
@@ -540,6 +558,17 @@ def run(steden=None, dagen: int = 3, pauze: float = 0.6) -> int:
             print(f"  {key}: NWS mislukt ({ex})")
         time.sleep(pauze)
 
+    # 1b. wat er vandaag al gemeten is op het station waarop de markt afrekent.
+    #     Faalt dit, dan valt alles terug op de onvoorwaardelijke kans: dat is
+    #     het gedrag van voor de conditionering, en dus veilig.
+    waarnemingen = {}
+    try:
+        waarnemingen = W.haal_vandaag(
+            [s for s in lijst if s["key"] in leden_per_stad], pauze)
+        print(f"  waarnemingen van vandaag: {len(waarnemingen)} steden")
+    except Exception as ex:
+        print(f"  waarnemingen mislukt ({ex}); kansen blijven onvoorwaardelijk")
+
     # 2. de marktkant: alle slugs in bundels ophalen.
     slugs = []
     for stad in lijst:
@@ -559,7 +588,7 @@ def run(steden=None, dagen: int = 3, pauze: float = 0.6) -> int:
         if leden is None:
             continue
         deel = rijen_voor_stad(nu, stad, leden, markten, params,
-                               nws_per_stad.get(stad["key"]))
+                               nws_per_stad.get(stad["key"]), waarnemingen)
         if not deel:
             zonder_markt.append(stad["key"])
         rijen.extend(deel)

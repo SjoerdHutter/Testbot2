@@ -627,7 +627,9 @@ def test_herkansing() -> bool:
         dag = _dag("SHA", 1)
         ruw = [{"size": 19.4, "avgPrice": 0.84, "curPrice": 0.81, "outcome": "No",
                 "slug": _slug("SHA", dag, "28c"), "title": "28°C"}]
-        uit = P.bouw(ruw, {}, {}, "0xtest")
+        # waarnemingen expliciet leeg: deze zelftest hoort offline te draaien,
+        # en zonder dat argument gaat bouw de metingen van vandaag ophalen
+        uit = P.bouw(ruw, {}, {}, "0xtest", waarnemingen={})
         r = (uit["positions"] or [{}])[0]
         if r.get("light") != "unknown":
             print(f"  herkans   MISLUKT: blijvende storing geeft {r.get('light')}")

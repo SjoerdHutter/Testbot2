@@ -81,6 +81,7 @@ sys.path.insert(0, str(Path(__file__).resolve().parent))
 import weer
 import logger
 import signalen as S
+import waarneming as W
 
 # Het adres dat de posities aanhoudt, niet per se het adres waarmee je tekent:
 # op Polymarket is dat vaak een apart proxy-adres, en het positie-eindpunt keert
@@ -151,7 +152,11 @@ VELD_ALIAS = {
 }
 
 HIST_KOP = ["gelogd_utc", "key", "doel_datum", "bracket_label", "adj_mean_now",
-            "model_prob_now", "current_bid", "city_bias_used", "light"]
+            "model_prob_now", "current_bid", "city_bias_used", "light",
+            # vanaf de intraday-conditionering: zonder deze twee lijkt een kans
+            # die verspringt doordat de meting binnenkwam later op een
+            # weersverandering, net als bij city_bias_used.
+            "observed_today", "restfactor"]
 
 # stadssleutel per slugdeel: precies de tabel uit polymarkt.js, omgedraaid.
 KEY_VAN_SLUG = {v: k for k, v in S.SLUG.items()}
@@ -414,8 +419,11 @@ class ModelCache:
     """Een ensemblefetch per (stad, datum), niet per positie: vijf posities op
     dezelfde dag kosten samen een verzoek."""
 
-    def __init__(self, params: dict):
+    def __init__(self, params: dict, waarnemingen: dict = None):
         self.params = params
+        # Wat er vandaag al gemeten is op het afrekenstation, per stad. Leeg
+        # gelaten rekent alles onvoorwaardelijk door, precies zoals daarvoor.
+        self.waarnemingen = waarnemingen or {}
         self._per_stad: dict = {}     # key -> leden of Exception
         self._per_dag: dict = {}      # (key, datum, soort) -> beeld of None
 
@@ -488,15 +496,23 @@ class ModelCache:
             "adj_mean": S.naar_eenheid(eigen["verwachting"], app_eenheid, markt_eenheid),
             "eigen": eigen, "app_eenheid": app_eenheid, "markt_eenheid": markt_eenheid,
             "lead": lead,
+            # De meting van vandaag telt alleen op lead 0 en alleen voor deze
+            # doeldag; voor_stad bewaakt allebei.
+            "waarneming": W.voor_stad(self.waarnemingen, key, datum, lead, soort),
         }, None)
         self._per_dag[sleutel] = uit
         return uit
 
     def vak_kans(self, beeld: dict, lo, hi):
         """De modelkans op een vak, met dezelfde functie als het signalenlog:
-        bracket_probs in de opdracht, onze_kansen hier."""
+        bracket_probs in de opdracht, onze_kansen hier.
+
+        Staat er een meting van vandaag bij, dan is die kans geconditioneerd: een
+        vak dat de dag al voorbij is gelopen krijgt nul. Juist hier telt dat, want
+        dit getal gaat als model_win_prob het stoplicht in."""
         kansen = S.onze_kansen([{"lo": lo, "hi": hi}], beeld["eigen"],
-                               beeld["markt_eenheid"], beeld["app_eenheid"])
+                               beeld["markt_eenheid"], beeld["app_eenheid"],
+                               beeld.get("waarneming"))
         return kansen[0] if kansen else None
 
 
@@ -664,6 +680,9 @@ def beoordeel(pos: dict, cache: ModelCache, instap: dict) -> dict:
         "entry_known": False,
         "market_decided": False,
         "market_disagrees": False, "market_note": "",
+        # wat er vandaag al gemeten is op het afrekenstation, en de restfactor
+        # die daaruit volgde; leeg op lead 1 en 2 en bij een gemist station
+        "observed_today": None, "observed_hour": None, "restfactor": None,
         "high_uncertainty": key in HOGE_ONZEKERHEID,
         "unit": eenheid,
         "bracket_lo": lo, "bracket_hi": hi,
@@ -684,6 +703,13 @@ def beoordeel(pos: dict, cache: ModelCache, instap: dict) -> dict:
     kans = cache.vak_kans(beeld, lo, hi)
     rij["adj_mean_now"] = None if mu is None else round(mu, 2)
     rij["model_prob_now"] = None if kans is None else round(kans, 4)
+
+    wn = beeld.get("waarneming")
+    if wn:
+        rij["observed_today"] = round(
+            S.naar_eenheid(wn["m"], beeld["app_eenheid"], beeld["markt_eenheid"]), 2)
+        rij["observed_hour"] = wn["uur"]
+        rij["restfactor"] = round(W.restfactor(wn["uur"], soort), 4)
     # De correctie die de kalibratie op het kale ledengemiddelde legt. Expliciet
     # opslaan: die tabel wordt periodiek bijgesteld, en zonder dit veld lijkt
     # zo'n bijstelling later in de reeks op een weersverandering.
@@ -742,6 +768,13 @@ def beoordeel(pos: dict, cache: ModelCache, instap: dict) -> dict:
                                             rij["delta_prob"], d == 0, is_ja)
     if rij["high_uncertainty"]:
         rij["reason"] += " · let op: geen betrouwbare biaskalibratie voor deze stad"
+    if rij["observed_today"] is not None:
+        # Waarom dit erbij hoort: een kans van nul leest heel anders als het vak
+        # de dag al voorbij gelopen is dan als het model het onwaarschijnlijk
+        # vindt. Zonder deze regel is de kleur niet na te rekenen.
+        rij["reason"] += (
+            f" · geconditioneerd op {rij['observed_today']}{eenheid} die vandaag "
+            f"tot {rij['observed_hour']:.0f} uur gemeten is")
 
     markeer_markt(rij, uren)
     return rij
@@ -784,7 +817,10 @@ VOLGORDE = {"red": 0, "amber": 1, "unknown": 2, "green": 3, "settled": 4}
 
 
 def bouw(posities_ruw: list, params: dict, instap: dict, wallet: str,
-         cache=None) -> dict:
+         cache=None, waarnemingen=None) -> dict:
+    """`waarnemingen` op None laat de metingen van vandaag ophalen; een dict
+    (ook een lege) wordt gebruikt zoals hij is. Dat tweede is wat de zelftest
+    doet: die hoort offline te draaien."""
     gekoppeld, unmapped = [], []
     for ruw in posities_ruw:
         size = _getal(_pak(ruw, "size")[0])
@@ -809,7 +845,23 @@ def bouw(posities_ruw: list, params: dict, instap: dict, wallet: str,
             continue
         open_posities.append(p)
 
-    cache = cache or ModelCache(params)
+    if cache is None:
+        # Wat er vandaag al gemeten is, alleen voor de steden waar wat open
+        # staat: dat scheelt tientallen verzoeken ten opzichte van alle 49. Valt
+        # het om, dan blijft alles onvoorwaardelijk doorrekenen — hetzelfde
+        # gedrag als voor de conditionering, dus een gemiste meting kost hooguit
+        # scherpte en nooit een licht.
+        wn = waarnemingen if waarnemingen is not None else {}
+        keys = {p["key"] for p in open_posities}
+        if waarnemingen is None and keys:
+            try:
+                wn = W.haal_vandaag([s for s in weer.STEDEN if s["key"] in keys])
+                print(f"  waarnemingen van vandaag: {len(wn)} van "
+                      f"{len(keys)} steden met posities")
+            except Exception as ex:                # noqa: BLE001
+                print(f"  waarnemingen mislukt ({ex}); "
+                      "kansen blijven onvoorwaardelijk")
+        cache = ModelCache(params, wn)
     rijen = [beoordeel(p, cache, instap) for p in open_posities]
     rijen.sort(key=lambda r: (VOLGORDE.get(r["light"], 9),
                               r["hours_to_close"] if r["hours_to_close"] is not None
@@ -845,7 +897,10 @@ def schrijf_uit(payload: dict) -> None:
               "" if r["model_prob_now"] is None else r["model_prob_now"],
               "" if r["current_bid"] is None else r["current_bid"],
               "" if r["city_bias_used"] is None else r["city_bias_used"],
-              r["light"]] for r in payload["positions"]]
+              r["light"],
+              "" if r["observed_today"] is None else r["observed_today"],
+              "" if r["restfactor"] is None else r["restfactor"],
+              ] for r in payload["positions"]]
     if rijen:
         logger.schrijf(logger.logmap() / "portfolio_history.csv", HIST_KOP, rijen)
 
