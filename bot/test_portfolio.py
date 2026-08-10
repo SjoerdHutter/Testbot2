@@ -655,61 +655,66 @@ def test_markt_oneens() -> bool:
     ernaast zit dan een edge om te pakken. Gemeten op 167 afgerekende stad-dagen
     is de markt in de laatste twaalf uur 58% nauwkeuriger.
 
-    De stand hieronder is die van Shanghai op 9 augustus: het model gaf de NO
-    84% terwijl de markt op 8% stond, en de markt kreeg gelijk. De kolom edge
-    zette daar +82pp neer alsof het gratis geld was."""
+    De cijfers hieronder zijn die van Shanghai op 9 augustus: het model gaf de
+    NO 84% terwijl de markt op 8% stond, en de markt kreeg gelijk. De kolom edge
+    zette daar +76pp neer alsof het gratis geld was.
+
+    Het aantal uur wordt hier rechtstreeks meegegeven en niet uit een doeldag
+    afgeleid. Een eerdere versie gebruikte "vandaag in Shanghai", en of dat
+    binnen het venster van twaalf uur valt hangt af van het tijdstip waarop de
+    test draait: hij slaagde bij het schrijven en viel om zodra hij 's ochtends
+    liep. Een test die van de klok afhangt bewaakt niets."""
     goed = True
-    dag = _dag("SHA", 0)
-    ruw = [
-        # het geval zelf: laat, en 76pp uit elkaar
-        {"size": 38.3, "avgPrice": 0.70, "curPrice": 0.08, "outcome": "No",
-         "slug": _slug("SHA", dag, "28c"), "title": "28°C"},
-        # even laat, maar model en markt zijn het eens
-        {"size": 10, "avgPrice": 0.80, "curPrice": 0.86, "outcome": "No",
-         "slug": _slug("SHA", dag, "31c"), "title": "31°C"},
+
+    def proef(uren, win, bied):
+        rij = {"model_win_prob": win, "current_bid": bied, "fair_value": win,
+               "edge_now": round((win - bied) * 100, 2),
+               "market_disagrees": False, "market_note": ""}
+        P.markeer_markt(rij, uren)
+        return rij
+
+    gevallen = [
+        # (uren, modelwinkans, bied, moet gemarkeerd, kernwoord in de reden)
+        (2.0,  0.84, 0.08, True,  "twijfel aan het model"),   # Shanghai zelf
+        (11.9, 0.84, 0.08, True,  "twijfel aan het model"),   # net binnen
+        (12.1, 0.84, 0.08, False, ""),                        # net buiten
+        (36.0, 0.84, 0.08, False, ""),                        # ruim buiten
+        (2.0,  0.86, 0.72, False, ""),                        # laat, klein verschil
+        (2.0,  0.86, 0.65, True,  "twijfel aan het model"),   # laat, net boven 20pp
+        (2.0,  0.55, 0.90, True,  "te somber"),               # markt prijst hoger
+        (-1.0, 0.84, 0.08, False, ""),                        # sluiting al voorbij
     ]
-    # 29,22 laat het vak 28 (27,5-28,5) net buiten bereik, zoals die dag
-    uit = P.bouw(ruw, {}, {}, "0xtest", NepCache({("SHA", dag): 29.22}))
-    op_vak = {r["bracket"]: r for r in uit["positions"]}
+    for uren, win, bied, moet, woord in gevallen:
+        r = proef(uren, win, bied)
+        if r["market_disagrees"] != moet:
+            print(f"  markt     MISLUKT: {uren}u, {r['edge_now']:+.1f}pp -> "
+                  f"gemarkeerd={r['market_disagrees']}, verwacht {moet}")
+            goed = False
+        elif moet and woord not in r["market_note"]:
+            print(f"  markt     MISLUKT: reden mist {woord!r}: {r['market_note']}")
+            goed = False
 
-    laat = op_vak.get("28°C") or {}
-    if not laat.get("market_disagrees"):
-        print(f"  markt     MISLUKT: {laat.get('edge_now')}pp op "
-              f"{laat.get('hours_to_close')} uur is niet gemarkeerd")
-        goed = False
-    if "twijfel aan het model" not in laat.get("market_note", ""):
-        print(f"  markt     MISLUKT: de toelichting wijst niet op het model: "
-              f"{laat.get('market_note')}")
-        goed = False
     # de vlag mag het stoplicht niet aanraken: dat blijft in graden
-    zonder = P.stoplicht(laat.get("d"), laat.get("b"), laat.get("model_win_prob"),
-                         laat.get("delta_prob"), laat.get("d") == 0, False)
-    if laat.get("light") != zonder[0]:
-        print(f"  markt     MISLUKT: het stoplicht is verschoven naar {laat.get('light')}")
+    dag = _dag("SHA", 1)
+    ruw = [{"size": 38.3, "avgPrice": 0.70, "curPrice": 0.08, "outcome": "No",
+            "slug": _slug("SHA", dag, "28c"), "title": "28°C"}]
+    uit = P.bouw(ruw, {}, {}, "0xtest", NepCache({("SHA", dag): 29.22}))
+    r = (uit["positions"] or [{}])[0]
+    zonder = P.stoplicht(r.get("d"), r.get("b"), r.get("model_win_prob"),
+                         r.get("delta_prob"), r.get("d") == 0, False)
+    if r.get("light") != zonder[0]:
+        print(f"  markt     MISLUKT: het stoplicht is verschoven naar {r.get('light')}")
         goed = False
-
-    eens = op_vak.get("31°C") or {}
-    if eens.get("market_disagrees"):
-        print("  markt     MISLUKT: een klein verschil wordt gemarkeerd")
+    if "market_disagrees" not in r or "market_note" not in r:
+        print("  markt     MISLUKT: de velden ontbreken in de uitvoer")
         goed = False
-
-    # ver van sluiting telt hetzelfde verschil niet
-    ver = _dag("SHA", 2)
-    uit2 = P.bouw([{"size": 38.3, "avgPrice": 0.70, "curPrice": 0.08, "outcome": "No",
-                    "slug": _slug("SHA", ver, "28c"), "title": "28°C"}],
-                  {}, {}, "0xtest", NepCache({("SHA", ver): 29.22}))
-    if (uit2["positions"] or [{}])[0].get("market_disagrees"):
-        print("  markt     MISLUKT: buiten het venster wordt toch gemarkeerd")
-        goed = False
-
-    if uit["summary"].get("n_market_disagrees") != 1:
-        print(f"  markt     MISLUKT: teller is "
-              f"{uit['summary'].get('n_market_disagrees')}")
+    if uit["summary"].get("n_market_disagrees") is None:
+        print("  markt     MISLUKT: de teller ontbreekt in de samenvatting")
         goed = False
 
     if goed:
-        print(f"  markt     ok: gemarkeerd binnen {P.MARKT_VENSTER_UREN:.0f}u boven "
-              f"{P.MARKT_VERSCHIL_PP:.0f}pp, stoplicht blijft ongemoeid")
+        print(f"  markt     ok: {len(gevallen)} gevallen rond {P.MARKT_VENSTER_UREN:.0f}u "
+              f"en {P.MARKT_VERSCHIL_PP:.0f}pp, stoplicht blijft ongemoeid")
     return goed
 
 
