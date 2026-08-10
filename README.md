@@ -321,11 +321,14 @@ Voor de Amerikaanse steden loste `kalibratie.py` dat al op met de 1-minuut
 ASOS-reeks in `verrijk_1min`. Die reeks bestaat alleen voor de VS — ASOS is een
 Amerikaans netwerk. `bot/fijnmeting.py` levert drie alternatieven:
 
-| bron | wat | staat aan voor |
-| --- | --- | --- |
-| `hfmetar` | de MADIS-stroom: hetzelfde IEM-eindpunt met `report_type=1` erbij | niemand, tot `--hfmetar-dekking` het uitwijst |
-| `amedas` | JMA, tien-minutenwaarden op 0,1 °C | TYO |
-| `nea` | data.gov.sg, ongeveer per minuut op 0,1 °C | SIN |
+| bron | wat | sleutel | staat aan voor |
+| --- | --- | --- | --- |
+| `hfmetar` | de MADIS-stroom: hetzelfde IEM-eindpunt met `report_type=1` erbij | nee | niemand, tot de dekking het uitwijst |
+| `amedas` | JMA, tien-minutenwaarden | nee | TYO |
+| `nea` | data.gov.sg, ongeveer per minuut | nee | SIN |
+| `fmi` | FMI, tien-minutenwaarden | nee | niemand |
+| `knmi` | KNMI, het officiële dagcijfer | nee | niemand |
+| `kma` | KMA ASOS, uurwaarden | `KMA_SLEUTEL` | niemand |
 
 De eerste is verreweg de goedkoopste: hetzelfde verzoek aan hetzelfde archief.
 Zit een station in MADIS, dan komen er vijf- of twintigminutenwaarden terug in
@@ -349,7 +352,26 @@ fijner maar zonder effect*, *alleen uurlijks* of *geen data*.
 
 Waar het om gaat: op welk raster ligt de reeks nu? Gemeten in je eigen historie
 staan LON en MUC al op 0,1 °C en acht Aziatische steden op 0,5 °C; de elf
-Amerikaanse staan op 1 °F. De 22 steden op hele graden zijn de doelgroep.
+Amerikaanse staan op 1 °F. De 23 steden op hele graden zijn de doelgroep, en die
+hebben allemaal een actieve markt — WLG, SEL, MIL, PAR en SZX staan bovenaan op
+volume.
+
+**Waarom de lijst niet langer is.** Van die 23 publiceert het merendeel van de
+nationale diensten niets bruikbaars: China, Nieuw-Zeeland, de Filipijnen,
+Pakistan, India en Saoedi-Arabië hebben geen open waarnemingsAPI, en Frankrijk,
+Israël en Korea vragen een sleutel. Canada publiceert wel open, maar als losse
+XML-bestanden per minuut per station — honderden verzoeken per dag, geen
+begaanbare weg. `kma` staat er als patroon voor de sleutelgevallen: de sleutel
+komt uit een omgevingsvariabele, dus de repo blijft secret-vrij en zonder
+sleutel doet de bron niets. Voor de rest is `hfmetar` de enige route, en of die
+dekking geeft is een empirische vraag.
+
+**Twee soorten bron.** De meeste zijn een fijnere *bemonstering* van hetzelfde
+station. `knmi` is iets anders: het officiële dagcijfer, door het KNMI zelf
+afgeleid uit de volledige reeks — voor Schiphol precies wat de 1-minuut
+ASOS-reeks voor de Amerikaanse velden is. Maar het komt pas de volgende ochtend
+beschikbaar, dus het helpt de wekelijkse kalibratie en niet de ondergrens van
+vandaag.
 
 Verfijnen, niet vervangen. Het uitgangspunt blijft METAR; de fijne reeks mag een
 dagmaximum alleen omhoog bijstellen en een dagminimum alleen omlaag, bij minstens
@@ -369,10 +391,19 @@ stationprobleem, en of dát kleiner wordt is pas te zien na een hertraining met 
 verfijnde waarnemingen.
 
 ```
-python3 bot/fijnmeting.py --stad TYO --dagen 7    beide bronnen naast elkaar
+python3 bot/fijnmeting.py --bronnen              wat er is en wat aanstaat
+python3 bot/fijnmeting.py --dekking              elke bron tegen het METAR,
+                                                 ook de bronnen die uitstaan
 python3 bot/fijnmeting.py --hfmetar-dekking      welke stations sub-uurlijks
                                                  melden, en wat het toevoegt
+python3 bot/fijnmeting.py --stad TYO --dagen 7   beide reeksen naast elkaar
 ```
+
+`--dekking` is de poort: hij toetst ook bronnen die nog uitstaan, en dat is
+precies wat je wilt weten voordat je `fijn` in `weer.STEDEN` zet. Per stad en
+bron komt eruit of hij reageert, hoeveel metingen per dag, hoeveel het
+dagmaximum omhoog gaat, en een oordeel — *KANDIDAAT*, *voegt niets toe*, *te
+dun*, *geen sleutel* of *geen data*.
 
 ### 9. Hoeveel je zou inzetten
 

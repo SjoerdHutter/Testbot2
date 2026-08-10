@@ -3,7 +3,7 @@
 
   python3 bot/test_waarneming.py
 
-Controleert negen dingen:
+Controleert tien dingen:
 
   onveranderd  Zonder waarneming rekent onze_kansen exact zoals daarvoor. Dat is
                de belangrijkste toets van allemaal: de conditionering mag lead 1
@@ -28,11 +28,15 @@ Controleert negen dingen:
                naar °C om, en valt vanzelf af voor een station dat alleen het
                hele uur meldt — zonder dat er een deelnemerslijst bijgehouden
                hoeft te worden.
+  bronnen      De ontleders van FMI, KNMI en KMA halen de goede cijfers uit een
+               vaste voorbeeldrespons, geven niets terug op rommel, en een bron
+               met een sleutel doet niets zolang die sleutel ontbreekt.
 
 Alles draait offline; er gaat geen verzoek uit.
 """
 import math
 import sys
+from datetime import date
 from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parent))
@@ -252,7 +256,7 @@ def test_fijn() -> bool:
     fouten = []
 
     def proef(reeks, start, soort, verwacht, wat):
-        F.reeks_voor = lambda s, d: {dag: reeks}
+        F.reeks_voor = lambda s, d, b=None: {dag: reeks}
         uit = {dag: start}
         F.verfijn(stad, uit, [], soort)
         if abs(uit[dag] - verwacht) > 1e-9:
@@ -362,11 +366,135 @@ def test_hfmetar() -> bool:
     return ok
 
 
+FMI_VOORBEELD = """<?xml version="1.0" encoding="UTF-8"?>
+<wfs:FeatureCollection xmlns:wfs="http://www.opengis.net/wfs/2.0"
+                       xmlns:BsWfs="http://xml.fmi.fi/schema/wfs/2.0">
+  <wfs:member><BsWfs:BsWfsElement>
+    <BsWfs:Time>2026-08-10T11:00:00Z</BsWfs:Time>
+    <BsWfs:ParameterName>temperature</BsWfs:ParameterName>
+    <BsWfs:ParameterValue>21.4</BsWfs:ParameterValue>
+  </BsWfs:BsWfsElement></wfs:member>
+  <wfs:member><BsWfs:BsWfsElement>
+    <BsWfs:Time>2026-08-10T12:10:00Z</BsWfs:Time>
+    <BsWfs:ParameterName>temperature</BsWfs:ParameterName>
+    <BsWfs:ParameterValue>23.9</BsWfs:ParameterValue>
+  </BsWfs:BsWfsElement></wfs:member>
+  <wfs:member><BsWfs:BsWfsElement>
+    <BsWfs:Time>2026-08-10T13:10:00Z</BsWfs:Time>
+    <BsWfs:ParameterName>temperature</BsWfs:ParameterName>
+    <BsWfs:ParameterValue>NaN</BsWfs:ParameterValue>
+  </BsWfs:BsWfsElement></wfs:member>
+  <wfs:member><BsWfs:BsWfsElement>
+    <BsWfs:Time>2026-08-09T14:00:00Z</BsWfs:Time>
+    <BsWfs:ParameterName>temperature</BsWfs:ParameterName>
+    <BsWfs:ParameterValue>18.0</BsWfs:ParameterValue>
+  </BsWfs:BsWfsElement></wfs:member>
+</wfs:FeatureCollection>"""
+
+KNMI_VOORBEELD = """# BRON: KONINKLIJK NEDERLANDS METEOROLOGISCH INSTITUUT
+# STN,YYYYMMDD,   TX,   TN
+  240,20260810,  254,  138
+  240,20260811,  231,
+  240,20260812,     ,  145
+"""
+
+KMA_VOORBEELD = {"response": {"body": {"items": {"item": [
+    {"tm": "2026-08-10 13:00", "ta": "29.4"},
+    {"tm": "2026-08-10 14:00", "ta": "31.1"},
+    {"tm": "2026-08-10 15:00", "ta": ""},
+    {"tm": "2026-08-11 03:00", "ta": "24.0"},
+]}}}}
+
+
+def test_bronnen() -> bool:
+    """De drie nieuwe ontleders tegen een vaste voorbeeldrespons.
+
+    Het eindpunt zelf is hier niet te bereiken, dus wat hier getoetst wordt is
+    het ontleden: krijgt een onverwachte of lege respons geen cijfer door, en
+    komt een goede respons op de goede lokale dag terecht. Blijkt het echte
+    formaat straks anders, dan geeft de ontleder niets terug en meldt
+    `--dekking` dat als 'geen data' — nooit een verzonnen cijfer."""
+    import fijnmeting as F
+    fouten = []
+
+    # FMI: GML met naamruimtes, een NaN ertussen, en twee lokale dagen
+    per = F._uit_tijdreeks(F._fmi_punten(FMI_VOORBEELD), "Europe/Helsinki")
+    d = per.get("2026-08-10") or {}
+    if abs((d.get("max") or 0) - 23.9) > 1e-9:
+        fouten.append(f"fmi max {d.get('max')} != 23,9")
+    if abs((d.get("min") or 0) - 21.4) > 1e-9:
+        fouten.append(f"fmi min {d.get('min')} != 21,4")
+    if d.get("n") != 2:
+        fouten.append(f"fmi telt {d.get('n')} in plaats van 2 (NaN hoort eruit)")
+    if "2026-08-09" not in per:
+        fouten.append("fmi verliest de tweede dag")
+    for rommel in ("", "<html>fout</html>", "geen xml"):
+        if F._fmi_punten(rommel):
+            fouten.append(f"fmi haalt cijfers uit {rommel!r}")
+
+    # KNMI: tienden van graden, en lege velden
+    k = F._knmi_ontleed(KNMI_VOORBEELD)
+    if (k.get("2026-08-10") or {}).get("max") != 25.4:
+        fouten.append(f"knmi 254 wordt {k.get('2026-08-10')}")
+    if (k.get("2026-08-10") or {}).get("min") != 13.8:
+        fouten.append("knmi tn komt niet mee")
+    if (k.get("2026-08-11") or {}).get("min") is not None:
+        fouten.append("knmi verzint een tn waar er geen staat")
+    if (k.get("2026-08-12") or {}).get("max") is not None:
+        fouten.append("knmi verzint een tx waar er geen staat")
+    if (k.get("2026-08-10") or {}).get("n", 0) < F.MIN_METINGEN:
+        fouten.append("knmi komt niet door de metingeneis, terwijl het het "
+                      "officiele dagcijfer is en geen bemonstering")
+    if F._knmi_ontleed("# alleen commentaar\n"):
+        fouten.append("knmi levert iets op een lege respons")
+
+    # KMA: json met lege waarden, tijden in lokale tijd
+    m = F._kma_ontleed(KMA_VOORBEELD, "Asia/Seoul")
+    if abs(((m.get("2026-08-10") or {}).get("max") or 0) - 31.1) > 1e-9:
+        fouten.append(f"kma max {m.get('2026-08-10')}")
+    if (m.get("2026-08-10") or {}).get("n") != 2:
+        fouten.append("kma telt de lege waarde mee")
+    if "2026-08-11" not in m:
+        fouten.append("kma verliest de tweede dag")
+    for rommel in (None, {}, {"response": {}}, {"response": {"body": None}}):
+        if F._kma_ontleed(rommel, "Asia/Seoul"):
+            fouten.append(f"kma levert iets op {rommel!r}")
+
+    # de registratie zelf: elke bron kent zijn steden, en een bron met een
+    # sleutel levert niets zonder die sleutel
+    import os
+    for naam, b in F.BRONNEN.items():
+        if not callable(b.get("reeks")):
+            fouten.append(f"{naam} heeft geen reeksfunctie")
+        if b["steden"]:
+            for k2 in b["steden"]:
+                if not any(s["key"] == k2 for s in F.weer.STEDEN):
+                    fouten.append(f"{naam} noemt onbekende stad {k2}")
+    oud = os.environ.pop("KMA_SLEUTEL", None)
+    try:
+        seoul = [s for s in F.weer.STEDEN if s["key"] == "SEL"][0]
+        if F.kma_reeks(seoul, [date(2026, 8, 10)]) != {}:
+            fouten.append("kma haalt data op zonder sleutel")
+    finally:
+        if oud is not None:
+            os.environ["KMA_SLEUTEL"] = oud
+
+    # een stad krijgt geen bron die niet voor haar bedoeld is
+    ams = [s for s in F.weer.STEDEN if s["key"] == "AMS"][0]
+    if F.reeks_voor(ams, [date(2026, 8, 10)], "amedas") != {}:
+        fouten.append("amsterdam krijgt de tokiobron")
+
+    ok = not fouten
+    print(f"  bronnen      {'ok' if ok else 'MISLUKT'}: FMI, KNMI en KMA "
+          "ontleden, en de registratie" + ("" if ok else "; " + "; ".join(fouten)))
+    return ok
+
+
 def main() -> int:
     print("\n  Zelftest intraday-conditionering\n")
     goed = all([test_onveranderd(), test_behoudend(), test_verloop(),
                 test_onmogelijk(), test_puntmassa(), test_spiegel(), test_iem(),
-                test_fijn(), test_hfmetar()])
+                test_fijn(), test_hfmetar(), test_bronnen()])
     print("\n  " + ("Alles in orde.\n" if goed else "ER GING IETS MIS.\n"))
     return 0 if goed else 1
 

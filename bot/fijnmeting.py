@@ -11,24 +11,54 @@ onderschat hem structureel — en juist op dat cijfer rekent Polymarket af.
 Voor de Amerikaanse steden loste kalibratie.py dat al op met `verrijk_1min`: de
 1-minuut ASOS-reeks van hetzelfde station, die een dagmax alleen omhoog bijstelt
 als er genoeg metingen zijn en het verschil plausibel is. Die reeks bestaat
-alleen voor de VS — ASOS is een Amerikaans netwerk. Dit bestand levert drie
-alternatieven:
+alleen voor de VS — ASOS is een Amerikaans netwerk. `BRONNEN` hieronder is de
+lijst alternatieven:
 
     hfmetar   de MADIS-stroom, hetzelfde IEM-eindpunt met report_type=1 erbij
-    amedas    JMA, tien-minutenwaarden op 0,1 °C — voor Tokio
-    nea       data.gov.sg, ongeveer per minuut op 0,1 °C — voor Singapore
+    amedas    JMA, tien-minutenwaarden — Tokio
+    nea       data.gov.sg, ongeveer per minuut — Singapore
+    fmi       FMI, tien-minutenwaarden — Helsinki
+    knmi      KNMI, het officiële dagcijfer — Amsterdam
+    kma       KMA ASOS, uurwaarden — Seoul en Busan, met sleutel
 
-De eerste is verreweg de goedkoopste: hetzelfde verzoek aan hetzelfde archief.
-Voor stations die in MADIS zitten komen er vijf- of twintigminutenwaarden terug
-in plaats van één melding per uur; voor stations die er niet in zitten verandert
-er niets, en dan valt de verfijning vanzelf af op de eis van MIN_METINGEN. Welke
-stations meedoen en wat het oplevert wijst `--hfmetar-dekking` uit. Blind
-aanzetten heeft geen zin — zie de waarschuwing hieronder.
+`hfmetar` is verreweg de goedkoopste: hetzelfde verzoek aan hetzelfde archief,
+en in principe voor elke stad met een METAR-station. Zit een station in MADIS,
+dan komen er vijf- of twintigminutenwaarden terug; zit het er niet in, dan
+verandert er niets en valt de verfijning af op de eis van MIN_METINGEN.
 
-De andere twee staan aan voor Tokio en Singapore, en dat zijn niet toevallig de
-twee steden die in portfolio.py `HOGE_ONZEKERHEID` dragen. De bias die daar zit
-is deels een raster-tegen-stationprobleem, dat de kalibratie opvangt, en deels
-bemonsteringsruis, en dat laatste is precies wat hier weggaat.
+Waarom de lijst niet langer is
+------------------------------
+Van de 23 steden buiten de VS die nu op hele graden staan, publiceert het
+merendeel van de nationale diensten niets bruikbaars: China, Nieuw-Zeeland, de
+Filipijnen, Pakistan, India en Saoedi-Arabië hebben geen open waarnemingsAPI, en
+Frankrijk, Israël en Korea vragen een sleutel. Canada publiceert wel open, maar
+alleen als losse XML-bestanden per minuut per station — dat zijn honderden
+verzoeken per dag en dus geen begaanbare weg.
+
+Wat er wél is staat hierboven. Voor de rest is `hfmetar` de enige route, en of
+die dekking geeft is een empirische vraag: `--hfmetar-dekking`.
+
+Sleutels
+--------
+`kma` staat er als patroon voor diensten die geen open toegang geven. De sleutel
+komt uit een omgevingsvariabele en niet uit de repo, zodat de belofte "er zijn
+geen secrets nodig" blijft gelden: zonder sleutel doet de bron niets en meldt
+`--dekking` dat met zoveel woorden.
+
+Twee soorten bron
+-----------------
+De meeste bronnen hierboven zijn een fijnere *bemonstering* van hetzelfde
+station. `knmi` is iets anders: dat is het officiële dagcijfer, door het KNMI
+zelf afgeleid uit de volledige reeks. Dat is voor Schiphol precies wat de
+1-minuut ASOS-reeks voor de Amerikaanse velden is — maar het komt pas de
+volgende ochtend beschikbaar. Voor de wekelijkse kalibratie is dat prima, voor
+de ondergrens van vandaag komt er niets terug. Dat is geen storing maar de aard
+van de bron.
+
+`amedas` en `nea` staan aan voor Tokio en Singapore, en dat zijn niet toevallig
+de twee steden die in portfolio.py `HOGE_ONZEKERHEID` dragen. De bias die daar
+zit is deels een raster-tegen-stationprobleem, dat de kalibratie opvangt, en
+deels bemonsteringsruis, en dat laatste is precies wat hier weggaat.
 
 Verfijnen, niet vervangen
 -------------------------
@@ -68,16 +98,23 @@ die al in weer.STEDEN staat.
 
 Gebruik:
 
-    python3 bot/fijnmeting.py --stad TYO            welk station er gekozen wordt
-    python3 bot/fijnmeting.py --stad TYO --dagen 3  de reeks van de laatste dagen
+    python3 bot/fijnmeting.py --bronnen             wat er is en wat aanstaat
+    python3 bot/fijnmeting.py --dekking             elke bron tegen het METAR,
+                                                    ook de bronnen die uitstaan
+    python3 bot/fijnmeting.py --dekking --bron fmi --stad HEL
     python3 bot/fijnmeting.py --hfmetar-dekking     welke stations sub-uurlijks
                                                     melden, en wat het toevoegt
+    python3 bot/fijnmeting.py --stad TYO --dagen 3  de reeks van de laatste dagen
+
+Niets staat aan zonder dat het gemeten is. `--dekking` is de poort.
 """
 import json
 import math
+import os
 import sys
 import time
 import urllib.parse
+import urllib.request
 from datetime import date, datetime, timedelta
 from pathlib import Path
 from zoneinfo import ZoneInfo
@@ -282,38 +319,267 @@ def hfmetar_reeks(stad: dict, dagen: list) -> dict:
     return per
 
 
-# ── De verfijning zelf ────────────────────────────────────────────────────────
+# ── FMI Finland ───────────────────────────────────────────────────────────────
 
-def reeks_voor(stad: dict, dagen: list) -> dict:
-    """De fijne reeks van een stad, of niets als er geen bron voor is."""
-    fijn = stad.get("fijn")
-    if fijn == "amedas":
-        sleutel = stad["key"]
-        if sleutel not in _station_bak:
-            kandidaten = amedas_stations(stad)
-            _station_bak[sleutel] = kandidaten
-        for _afst, code, _naam in _station_bak[sleutel]:
-            per = amedas_reeks(code, dagen, stad["tz"])
-            if per:
-                for e in per.values():
-                    e["station"] = code
-                return per
+FMI = "https://opendata.fmi.fi/wfs"
+
+
+def fmi_reeks(stad: dict, dagen: list) -> dict:
+    """Tien-minutenwaarnemingen van het Finse instituut, zonder sleutel.
+
+    De opgeslagen bevraging `observations::weather::simple` geeft een GML-lijst
+    met per regel een tijdstip, een parameternaam en een waarde. Het station
+    wordt met een kadertje om de coördinaten van het vliegveld gekozen in plaats
+    van met een nummer: FMI gebruikt eigen stationsnummers en een overgetypt
+    nummer meet stilletjes de verkeerde plaats."""
+    if not dagen:
         return {}
-    if fijn == "nea":
-        return nea_reeks(stad, dagen)
-    if fijn == "hfmetar":
-        return hfmetar_reeks(stad, dagen)
+    d = 0.15                                   # graden; ruim een vliegveld
+    kader = (f"{stad['lon'] - d:.4f},{stad['lat'] - d:.4f},"
+             f"{stad['lon'] + d:.4f},{stad['lat'] + d:.4f}")
+    url = (FMI + "?service=WFS&version=2.0.0&request=getFeature"
+           "&storedquery_id=fmi::observations::weather::simple"
+           "&parameters=temperature&timestep=10"
+           f"&bbox={urllib.parse.quote(kader)}"
+           f"&starttime={dagen[0].isoformat()}T00:00:00Z"
+           f"&endtime={dagen[-1].isoformat()}T23:59:59Z")
+    try:
+        tekst = weer._get(url, timeout=90)
+    except Exception:
+        return {}
+    return _uit_tijdreeks(_fmi_punten(tekst), stad["tz"])
+
+
+def _fmi_punten(tekst: str) -> list:
+    """[(tijdstip in UTC, °C)] uit de GML van FMI.
+
+    Met de standaardbibliotheek en zonder naamruimtes uit te schrijven: de
+    elementnamen eindigen op Time en ParameterValue, en dat is genoeg om ze te
+    herkennen. Een lege of onverwachte respons geeft een lege lijst, geen fout —
+    dan meldt de dekkingsmeting "geen data" en blijft het uurlijkse cijfer staan."""
+    import xml.etree.ElementTree as ET
+    try:
+        wortel = ET.fromstring(tekst)
+    except ET.ParseError:
+        return []
+    punten = []
+    for el in wortel.iter():
+        naam = el.tag.rsplit("}", 1)[-1]
+        if naam != "BsWfsElement":
+            continue
+        tijd = waarde = None
+        for kind in el:
+            k = kind.tag.rsplit("}", 1)[-1]
+            if k == "Time":
+                tijd = (kind.text or "").strip()
+            elif k == "ParameterValue":
+                try:
+                    waarde = float((kind.text or "").strip())
+                except ValueError:
+                    waarde = None
+        if tijd and waarde is not None and waarde == waarde:   # NaN eruit
+            try:
+                punten.append((datetime.fromisoformat(
+                    tijd.replace("Z", "+00:00")), waarde))
+            except ValueError:
+                continue
+    return punten
+
+
+def _uit_tijdreeks(punten: list, tznaam: str) -> dict:
+    """[(tijdstip, °C)] naar {lokale datum: {"max", "min", "n"}}."""
+    tz = ZoneInfo(tznaam)
+    per: dict = {}
+    for tijd, waarde in punten:
+        dag = tijd.astimezone(tz).date().isoformat()
+        e = per.setdefault(dag, {"max": None, "min": None, "n": 0})
+        e["n"] += 1
+        if e["max"] is None or waarde > e["max"]:
+            e["max"] = waarde
+        if e["min"] is None or waarde < e["min"]:
+            e["min"] = waarde
+    return per
+
+
+# ── KNMI Nederland ────────────────────────────────────────────────────────────
+
+KNMI = "https://www.daggegevens.knmi.nl/klimatologie/daggegevens"
+KNMI_STATION = {"AMS": 240}       # 240 is Schiphol, hetzelfde veld als EHAM
+
+
+def knmi_reeks(stad: dict, dagen: list) -> dict:
+    """Het officiële dagmaximum van het KNMI, in 0,1 °C.
+
+    Dit is geen fijnere bemonstering maar het *officiële* dagcijfer: het KNMI
+    leidt TX en TN af uit de volledige reeks van het station, niet uit
+    uurwaarden. Daarmee is het voor Schiphol precies wat de 1-minuut ASOS-reeks
+    voor de Amerikaanse velden is — hetzelfde station, de echte extremen in
+    plaats van een greep per uur.
+
+    Let op: het komt pas de volgende ochtend beschikbaar. Voor de wekelijkse
+    kalibratie is dat prima, voor de ondergrens van vandaag in waarneming.py
+    komt er dus niets terug. Dat is geen storing maar de aard van de bron; de
+    dekkingsmeting laat dat zien als nul metingen voor vandaag."""
+    nummer = KNMI_STATION.get(stad["key"])
+    if not nummer or not dagen:
+        return {}
+    lading = urllib.parse.urlencode({
+        "stns": nummer, "vars": "TX:TN",
+        "start": dagen[0].strftime("%Y%m%d"),
+        "end": dagen[-1].strftime("%Y%m%d"),
+    }).encode()
+    try:
+        verzoek = urllib.request.Request(KNMI, data=lading,
+                                         headers={"User-Agent": "weerbot2"})
+        tekst = urllib.request.urlopen(verzoek, timeout=60).read().decode(
+            "utf-8", "replace")
+    except Exception:
+        return {}
+    return _knmi_ontleed(tekst)
+
+
+def _knmi_ontleed(tekst: str) -> dict:
+    """De regels `STN,YYYYMMDD,TX,TN` uit de daggegevens, TX in 0,1 °C."""
+    per = {}
+    for regel in tekst.splitlines():
+        regel = regel.strip()
+        if not regel or regel.startswith("#"):
+            continue
+        delen = [d.strip() for d in regel.split(",")]
+        if len(delen) < 3 or len(delen[1]) != 8 or not delen[1].isdigit():
+            continue
+        dag = f"{delen[1][:4]}-{delen[1][4:6]}-{delen[1][6:8]}"
+        def graden(x):
+            try:
+                return float(x) / 10.0
+            except ValueError:
+                return None
+        tx = graden(delen[2])
+        tn = graden(delen[3]) if len(delen) > 3 else None
+        if tx is None and tn is None:
+            continue
+        # n staat op MIN_METINGEN zodat verfijn hem accepteert: dit is geen
+        # bemonstering maar het officiële cijfer, dus een telling zou liegen.
+        per[dag] = {"max": tx, "min": tn, "n": MIN_METINGEN, "station": "KNMI"}
+    return per
+
+
+# ── KMA Korea, met sleutel ────────────────────────────────────────────────────
+
+KMA = ("https://apis.data.go.kr/1360000/AsosHourlyInfoService/getWthrDataList")
+KMA_STATION = {"SEL": 108, "PUS": 159}    # Seoul en Busan, de ASOS-nummers
+
+
+def kma_reeks(stad: dict, dagen: list) -> dict:
+    """Koreaanse ASOS-waarnemingen. Vereist een sleutel in `KMA_SLEUTEL`.
+
+    Deze staat er als patroon voor de diensten die geen open toegang geven. De
+    sleutel komt uit de omgeving en niet uit de repo, zodat de belofte "er zijn
+    geen secrets nodig" blijft gelden: zonder sleutel meldt de dekkingsmeting
+    dat, en verandert er niets."""
+    sleutel = os.environ.get("KMA_SLEUTEL")
+    nummer = KMA_STATION.get(stad["key"])
+    if not sleutel or not nummer or not dagen:
+        return {}
+    url = (KMA + "?serviceKey=" + urllib.parse.quote(sleutel)
+           + "&dataType=JSON&dataCd=ASOS&dateCd=HR&numOfRows=999&pageNo=1"
+           + f"&stnIds={nummer}"
+           + f"&startDt={dagen[0].strftime('%Y%m%d')}&startHh=00"
+           + f"&endDt={dagen[-1].strftime('%Y%m%d')}&endHh=23")
+    try:
+        data = weer._get_json(url, timeout=90)
+    except Exception:
+        return {}
+    return _kma_ontleed(data, stad["tz"])
+
+
+def _kma_ontleed(data, tznaam: str) -> dict:
+    items = (((data or {}).get("response") or {}).get("body") or {}).get("items")
+    rijen = (items or {}).get("item") or []
+    punten = []
+    for rij in rijen if isinstance(rijen, list) else []:
+        try:
+            waarde = float(rij.get("ta"))
+        except (TypeError, ValueError):
+            continue
+        stempel = str(rij.get("tm") or "")          # "2026-08-10 15:00"
+        try:
+            tijd = datetime.fromisoformat(stempel).replace(tzinfo=ZoneInfo(tznaam))
+        except ValueError:
+            continue
+        punten.append((tijd, waarde))
+    return _uit_tijdreeks(punten, tznaam)
+
+
+# ── Welke bron hoort bij welke stad ───────────────────────────────────────────
+# `steden` leeg betekent: bruikbaar voor elke stad met een METAR-station.
+# `sleutel` is de omgevingsvariabele die nodig is; None betekent open toegang.
+BRONNEN = {
+    "hfmetar": {"reeks": lambda s, d: hfmetar_reeks(s, d), "steden": (),
+                "sleutel": None, "wat": "MADIS, sub-uurlijkse METAR"},
+    "amedas":  {"reeks": lambda s, d: _amedas_voor(s, d), "steden": ("TYO",),
+                "sleutel": None, "wat": "JMA, tien-minutenwaarden"},
+    "nea":     {"reeks": lambda s, d: nea_reeks(s, d), "steden": ("SIN",),
+                "sleutel": None, "wat": "data.gov.sg, ongeveer per minuut"},
+    "fmi":     {"reeks": lambda s, d: fmi_reeks(s, d), "steden": ("HEL",),
+                "sleutel": None, "wat": "FMI, tien-minutenwaarden"},
+    "knmi":    {"reeks": lambda s, d: knmi_reeks(s, d), "steden": ("AMS",),
+                "sleutel": None, "wat": "KNMI, officieel dagcijfer (pas morgen)"},
+    "kma":     {"reeks": lambda s, d: kma_reeks(s, d), "steden": ("SEL", "PUS"),
+                "sleutel": "KMA_SLEUTEL", "wat": "KMA ASOS, uurwaarden"},
+}
+
+
+def _amedas_voor(stad: dict, dagen: list) -> dict:
+    sleutel = stad["key"]
+    if sleutel not in _station_bak:
+        _station_bak[sleutel] = amedas_stations(stad)
+    for _afst, code, _naam in _station_bak[sleutel]:
+        per = amedas_reeks(code, dagen, stad["tz"])
+        if per:
+            for e in per.values():
+                e["station"] = code
+            return per
     return {}
 
 
-def verfijn(stad: dict, uit: dict, dagen: list, soort: str = "max") -> int:
+def bronnen_voor(stad: dict) -> list:
+    """Welke bronnen op deze stad van toepassing zijn, ongeacht of ze aanstaan."""
+    uit = []
+    for naam, b in BRONNEN.items():
+        if b["steden"] and stad["key"] not in b["steden"]:
+            continue
+        if naam == "hfmetar" and stad.get("bron") != "iem":
+            continue
+        uit.append(naam)
+    return uit
+
+
+# ── De verfijning zelf ────────────────────────────────────────────────────────
+
+def reeks_voor(stad: dict, dagen: list, bron: str = None) -> dict:
+    """De fijne reeks van een stad, of niets als er geen bron voor is.
+
+    `bron` overschrijft het `fijn`-veld; dat is wat de dekkingsmeting gebruikt om
+    een bron te toetsen die nog niet aanstaat."""
+    naam = bron or stad.get("fijn")
+    b = BRONNEN.get(naam)
+    if not b:
+        return {}
+    if b["steden"] and stad["key"] not in b["steden"]:
+        return {}
+    return b["reeks"](stad, dagen)
+
+
+def verfijn(stad: dict, uit: dict, dagen: list, soort: str = "max",
+            bron: str = None) -> int:
     """Stelt de dagcijfers in `uit` bij met de fijne reeks. Geeft het aantal
     dagen dat aangepast is.
 
     De bewaking is dezelfde als verrijk_1min in kalibratie.py: genoeg metingen,
     de goede richting op, en niet verder dan MARGE. `uit` staat in de eenheid van
     de stad, de fijne reeks altijd in °C."""
-    per = reeks_voor(stad, dagen)
+    per = reeks_voor(stad, dagen, bron)
     if not per:
         return 0
     naar_f = stad["eenheid"] == "F"
@@ -450,6 +716,101 @@ def toon_dekking(rijen: list, aantal: int) -> None:
           "de gevaarlijke kant op.\n")
 
 
+def bron_dekking(steden: list, aantal: int = 7, alleen: str = None) -> list:
+    """Per stad en bron: reageert hij, hoeveel metingen, en wat voegt het toe?
+
+    Dit is de poort waar elke bron doorheen moet voor hij aangezet wordt. Hij
+    werkt ook — juist — voor bronnen die nog uitstaan, want dat is precies wat je
+    wilt weten voordat je `fijn` in weer.STEDEN zet.
+
+    Vergeleken wordt tegen het uurlijkse METAR van hetzelfde station over
+    dezelfde afgeronde dagen. Vandaag doet niet mee: een halve dag meet het
+    tijdstip en niet de bron."""
+    uit = []
+    for stad in steden:
+        namen = [b for b in bronnen_voor(stad)
+                 if b != "hfmetar" and (alleen is None or b == alleen)]
+        if not namen:
+            continue
+        vandaag = datetime.now(ZoneInfo(stad["tz"])).date()
+        dagen = [vandaag - timedelta(days=i) for i in range(aantal, 0, -1)]
+        try:
+            metar = weer.fetch_station_maxen(stad["station"], stad["tz"],
+                                             dagen[0], dagen[-1])
+        except Exception:
+            metar = {}
+        for naam in namen:
+            b = BRONNEN[naam]
+            rij = {"key": stad["key"], "bron": naam, "wat": b["wat"],
+                   "aan": stad.get("fijn") == naam, "dagen": 0, "n": 0,
+                   "gemiddeld": None, "grootste": None, "eenheid": stad["eenheid"],
+                   "reden": ""}
+            if b["sleutel"] and not os.environ.get(b["sleutel"]):
+                rij["reden"] = f"geen sleutel in ${b['sleutel']}"
+                uit.append(rij)
+                continue
+            try:
+                per = reeks_voor(stad, dagen, naam)
+            except Exception as ex:                # noqa: BLE001
+                rij["reden"] = f"mislukt: {str(ex)[:40]}"
+                uit.append(rij)
+                continue
+            gedeeld = [d for d in per if d in metar
+                       and metar[d].get("maxf") is not None]
+            if not gedeeld:
+                rij["reden"] = "geen overlappende dagen"
+                uit.append(rij)
+                continue
+            verschillen = []
+            for d in gedeeld:
+                ruw = weer.c_van_f(metar[d]["maxf"])       # de fijne reeks is °C
+                fijn = per[d].get("max")
+                if fijn is None:
+                    continue
+                delta = fijn - ruw
+                verschillen.append(delta * 9 / 5 if stad["eenheid"] == "F" else delta)
+            rij["dagen"] = len(gedeeld)
+            rij["n"] = round(sum(per[d]["n"] for d in gedeeld) / len(gedeeld), 1)
+            if verschillen:
+                rij["gemiddeld"] = sum(verschillen) / len(verschillen)
+                rij["grootste"] = max(verschillen)
+            uit.append(rij)
+    return uit
+
+
+def toon_bron_dekking(rijen: list, aantal: int) -> None:
+    print(f"\n  Bronnen naast het uurlijkse METAR, laatste {aantal} afgeronde dagen\n")
+    print("  stad  bron      dagen  metingen  gemiddeld  grootste  oordeel")
+    kandidaten = []
+    for r in rijen:
+        eh = "°F" if r["eenheid"] == "F" else "°C"
+        gem, gr = r["gemiddeld"], r["grootste"]
+        if r["reden"]:
+            oordeel = r["reden"]
+        elif r["n"] < MIN_METINGEN:
+            oordeel = f"te dun ({r['n']:g} < {MIN_METINGEN})"
+        elif gem is None:
+            oordeel = "geen cijfers"
+        elif gem < 0.05:
+            oordeel = "voegt niets toe"
+        elif r["aan"]:
+            oordeel = "AAN, en terecht"
+        else:
+            oordeel = "KANDIDAAT"
+            kandidaten.append((r["key"], r["bron"], gem, eh))
+        print(f"  {r['key']:5s} {r['bron']:9s} {r['dagen']:4d}  {r['n']:8.1f}  "
+              f"{'' if gem is None else f'{gem:+8.2f}'}{eh if gem is not None else '   '}  "
+              f"{'' if gr is None else f'{gr:+7.2f}'}   {oordeel}")
+    if kandidaten:
+        print("\n  Kandidaten:")
+        for key, bron, gem, eh in kandidaten:
+            print(f"    {key}: zet `\"fijn\": \"{bron}\"` — {gem:+.2f}{eh} op het dagmax")
+    print("\n  Een bron die aanstaat en 'voegt niets toe' geeft is geen fout, maar\n"
+          "  wel een verzoek per run dat je terug kunt krijgen.\n"
+          "  En zoals altijd: fijner is alleen beter als de markt op het fijne\n"
+          "  record afrekent. Zie de kop van dit bestand.\n")
+
+
 def dagreeks(tznaam: str, aantal: int) -> list:
     vandaag = datetime.now(ZoneInfo(tznaam)).date()
     return [vandaag - timedelta(days=i) for i in range(aantal - 1, -1, -1)]
@@ -463,11 +824,44 @@ def main(argv: list) -> int:
         elif a == "--dagen" and i + 1 < len(argv):
             aantal = max(1, int(argv[i + 1]))
 
+    bron = None
+    for i, a in enumerate(argv):
+        if a == "--bron" and i + 1 < len(argv):
+            bron = argv[i + 1]
+
     if "--hfmetar-dekking" in argv:
         if "--dagen" not in argv:
             aantal = 7
         lijst = [s for s in weer.STEDEN if key is None or s["key"] == key]
         toon_dekking(hfmetar_dekking(lijst, aantal), aantal)
+        return 0
+
+    if "--dekking" in argv:
+        if "--dagen" not in argv:
+            aantal = 7
+        lijst = [s for s in weer.STEDEN if key is None or s["key"] == key]
+        rijen = bron_dekking(lijst, aantal, bron)
+        if not rijen:
+            print("\n  Geen bron van toepassing op deze steden. Bekend: "
+                  + ", ".join(n for n in BRONNEN if n != "hfmetar")
+                  + "\n  Voor de MADIS-stroom: --hfmetar-dekking\n")
+            return 1
+        toon_bron_dekking(rijen, aantal)
+        return 0
+
+    if "--bronnen" in argv:
+        print("\n  Bronnen in bot/fijnmeting.py\n")
+        print("  naam      steden               sleutel                  wat")
+        for naam, b in BRONNEN.items():
+            steden = ", ".join(b["steden"]) if b["steden"] else "elke stad met METAR"
+            sl = b["sleutel"] or "-"
+            gereed = "" if not b["sleutel"] else (
+                " (aanwezig)" if os.environ.get(b["sleutel"]) else " (ONTBREEKT)")
+            print(f"  {naam:9s} {steden:20s} {sl + gereed:24s} {b['wat']}")
+        aan = [(s["key"], s["fijn"]) for s in weer.STEDEN if s.get("fijn")]
+        print("\n  Staat aan: " + (", ".join(f"{k} via {b}" for k, b in aan)
+                                   if aan else "niets"))
+        print("  Toetsen voor je iets aanzet: python3 bot/fijnmeting.py --dekking\n")
         return 0
 
     steden = [s for s in weer.STEDEN if s.get("fijn") and (key is None or s["key"] == key)]
