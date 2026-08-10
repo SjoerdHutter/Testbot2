@@ -659,7 +659,15 @@ def test_markt_oneens() -> bool:
 
     De stand hieronder is die van Shanghai op 9 augustus: het model gaf de NO
     84% terwijl de markt op 8% stond, en de markt kreeg gelijk. De kolom edge
-    zette daar +82pp neer alsof het gratis geld was."""
+    zette daar +82pp neer alsof het gratis geld was.
+
+    De uren tot sluiting worden hier vastgezet in plaats van uit de klok
+    gehaald. Dat was eerst niet zo, en daardoor viel deze test om zodra hij
+    draaide terwijl het in Shanghai net na middernacht was: `_dag("SHA", 0)`
+    geeft dan de nieuwe dag, sluiting ligt bijna 24 uur weg, en het venster van
+    twaalf uur wordt nooit geraakt. Dat maakte hem de halve dag rood in
+    .github/workflows/zelftest.yml, afhankelijk van het moment van pushen. Waar
+    het venster zelf over gaat wordt hieronder los getoetst."""
     goed = True
     dag = _dag("SHA", 0)
     ruw = [
@@ -671,7 +679,12 @@ def test_markt_oneens() -> bool:
          "slug": _slug("SHA", dag, "31c"), "title": "31°C"},
     ]
     # 29,22 laat het vak 28 (27,5-28,5) net buiten bereik, zoals die dag
-    uit = P.bouw(ruw, {}, {}, "0xtest", NepCache({("SHA", dag): 29.22}))
+    echte_uren = P.uren_tot_sluiting
+    P.uren_tot_sluiting = lambda key, datum: 6.0      # binnen het venster
+    try:
+        uit = P.bouw(ruw, {}, {}, "0xtest", NepCache({("SHA", dag): 29.22}))
+    finally:
+        P.uren_tot_sluiting = echte_uren
     op_vak = {r["bracket"]: r for r in uit["positions"]}
 
     laat = op_vak.get("28°C") or {}
@@ -697,12 +710,24 @@ def test_markt_oneens() -> bool:
 
     # ver van sluiting telt hetzelfde verschil niet
     ver = _dag("SHA", 2)
-    uit2 = P.bouw([{"size": 38.3, "avgPrice": 0.70, "curPrice": 0.08, "outcome": "No",
-                    "slug": _slug("SHA", ver, "28c"), "title": "28°C"}],
-                  {}, {}, "0xtest", NepCache({("SHA", ver): 29.22}))
+    P.uren_tot_sluiting = lambda key, datum: 30.0     # buiten het venster
+    try:
+        uit2 = P.bouw([{"size": 38.3, "avgPrice": 0.70, "curPrice": 0.08, "outcome": "No",
+                        "slug": _slug("SHA", ver, "28c"), "title": "28°C"}],
+                      {}, {}, "0xtest", NepCache({("SHA", ver): 29.22}))
+    finally:
+        P.uren_tot_sluiting = echte_uren
     if (uit2["positions"] or [{}])[0].get("market_disagrees"):
         print("  markt     MISLUKT: buiten het venster wordt toch gemarkeerd")
         goed = False
+
+    # en de urenberekening zelf, los van de vlag: middernacht aan het einde van
+    # de doeldag in de lokale tijdzone, dus altijd tussen 0 en 24 uur vooruit.
+    for key in ("SHA", "NYC", "LON"):
+        u = echte_uren(key, _dag(key, 0))
+        if u is None or not -0.1 <= u <= 24.1:
+            print(f"  markt     MISLUKT: uren_tot_sluiting({key}) geeft {u}")
+            goed = False
 
     if uit["summary"].get("n_market_disagrees") != 1:
         print(f"  markt     MISLUKT: teller is "
