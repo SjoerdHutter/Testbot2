@@ -526,7 +526,8 @@ def run(steden=None, dagen: int = 3, pauze: float = 0.6) -> int:
             zonder_slug.append(stad["key"])
             continue
         try:
-            leden_per_stad[stad["key"]] = logger.haal_leden(stad, ENS_VELDEN)
+            leden_per_stad[stad["key"]] = logger.met_herkansing(
+                logger.haal_leden, stad, ENS_VELDEN, timeout=logger.FETCH_TIMEOUT)
         except Exception as ex:
             print(f"  {stad['key']}: ensemble mislukt ({ex})")
             fouten += 1
@@ -535,7 +536,8 @@ def run(steden=None, dagen: int = 3, pauze: float = 0.6) -> int:
         if key not in leden_per_stad:
             continue
         try:
-            nws_per_stad[key] = logger.haal_nws(url)
+            nws_per_stad[key] = logger.met_herkansing(
+                logger.haal_nws, url, timeout=logger.FETCH_TIMEOUT)
         except Exception as ex:
             print(f"  {key}: NWS mislukt ({ex})")
         time.sleep(pauze)
