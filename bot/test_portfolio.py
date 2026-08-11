@@ -3,7 +3,7 @@
 
   python3 bot/test_portfolio.py
 
-Controleert negen dingen:
+Controleert tien dingen:
 
   slug      De slug van een markt valt terug uiteen in stad, doeldag, reeks en
             vak, precies andersom dan slug_van in signalen.py hem opbouwt.
@@ -30,6 +30,10 @@ Controleert negen dingen:
   markt     Dicht op sluiting wordt een groot verschil met de markt gemarkeerd,
             want daar is de markt gemeten nauwkeuriger dan het model. Het
             stoplicht blijft daarbij ongemoeid: dat staat in graden.
+  piek      Het uur van de dagpiek uit de uurcurve, spiegel van piekenUit in
+            index.html, en de klok die daaruit volgt. Uren tot sluiting telde
+            door tot middernacht terwijl de uitslag er ligt zodra het
+            dagmaximum gevallen is.
   uitvoer   De hele keten op datzelfde setje: de JSON heeft de afgesproken
             velden, is op kleur en uren tot sluiting gesorteerd, en een positie
             zonder instapregel houdt lege deltavelden met entry_known false.
@@ -71,6 +75,12 @@ class NepCache(P.ModelCache):
         super().__init__({})
         self.beelden = beelden        # (key, datum) -> adj_mean, of None = fout
         self.band = band
+
+    def piek(self, key, datum):
+        """Geen uurcurve, zonder het netwerk op te gaan. Zonder deze override
+        valt de test terug op de echte fetch en wacht hij per stad drie
+        pogingen met pauzes af — een test hoort nooit aan een API te hangen."""
+        return None
 
     def beeld(self, key, datum, soort):
         mu = self.beelden.get((key, datum))
@@ -718,11 +728,98 @@ def test_markt_oneens() -> bool:
     return goed
 
 
+# ── 10. het piektijdstip ─────────────────────────────────────────────────────
+
+def test_piek() -> bool:
+    """Het uur van de dagpiek uit de uurcurve, en de klok die daaruit volgt.
+
+    Uren tot sluiting telde door tot middernacht, terwijl de uitslag er ligt
+    zodra het dagmaximum gevallen is. Bij Busan rekende Polymarket af met nog
+    bijna drie uur op de klok."""
+    goed = True
+
+    # twee modellen, twee dagen: piek op 15u en op 13u, met de modellen een uur
+    # uit elkaar op de tweede dag
+    tijden, a, b = [], [], []
+    for dag, (piek_a, piek_b) in (("2026-08-11", (15, 15)), ("2026-08-12", (13, 14))):
+        for u in range(24):
+            tijden.append(f"{dag}T{u:02d}:00")
+            a.append(20 - abs(u - piek_a))
+            b.append(20 - abs(u - piek_b))
+    j = {"hourly": {"time": tijden,
+                    "temperature_2m_ecmwf_ifs025": a,
+                    "temperature_2m_gfs_seamless": b}}
+    p = P.pieken_uit(j)
+    if (p.get("2026-08-11") or {}).get("uur") != 15:
+        print(f"  piek      MISLUKT: dag 1 -> {p.get('2026-08-11')}, verwacht uur 15")
+        goed = False
+    tweede = p.get("2026-08-12") or {}
+    if tweede.get("lo") != 13 or tweede.get("hi") != 14:
+        print(f"  piek      MISLUKT: spreiding dag 2 -> {tweede}, verwacht 13-14")
+        goed = False
+
+    # een dag met te weinig uren telt niet mee, net als in de app
+    kort = {"hourly": {"time": [f"2026-08-13T{u:02d}:00" for u in range(4)],
+                       "temperature_2m_ecmwf_ifs025": [10, 11, 12, 11]}}
+    if P.pieken_uit(kort):
+        print("  piek      MISLUKT: een dag met vier uurwaarden telt mee")
+        goed = False
+    if P.pieken_uit({}) != {} or P.pieken_uit({"hourly": {}}) != {}:
+        print("  piek      MISLUKT: lege invoer geeft geen lege uitkomst")
+        goed = False
+
+    # de klok: morgen om 15u ligt in de toekomst, gisteren om 15u erachter
+    morgen = _dag("AMS", 1)
+    u = P.uren_tot_piek("AMS", morgen, 15)
+    if u is None or not 0 < u < 48:
+        print(f"  piek      MISLUKT: uren tot piek morgen = {u}")
+        goed = False
+    gisteren = (date.fromisoformat(_dag("AMS", 0)) - timedelta(days=1)).isoformat()
+    if (P.uren_tot_piek("AMS", gisteren, 15) or 0) >= 0:
+        print("  piek      MISLUKT: een piek van gisteren telt niet als geweest")
+        goed = False
+
+    # en de hele keten: de piek komt in de rij terecht en stuurt de sortering
+    class PiekCache(NepCache):
+        def piek(self, key, datum):
+            return {"uur": 15, "lo": 14, "hi": 16}
+
+    dag = _dag("AMS", 1)
+    ruw = [{"size": 10, "avgPrice": 0.6, "curPrice": 0.55, "outcome": "No",
+            "slug": _slug("AMS", dag, "20c"), "title": "20°C"}]
+    uit = P.bouw(ruw, {}, {}, "0xtest", PiekCache({("AMS", dag): 17.0}))
+    r = (uit["positions"] or [{}])[0]
+    if r.get("peak_hour") != 15 or r.get("peak_hour_spread") != [14, 16]:
+        print(f"  piek      MISLUKT: piekvelden {r.get('peak_hour')}, "
+              f"{r.get('peak_hour_spread')}")
+        goed = False
+    if r.get("hours_to_peak") is None or r.get("hours_to_close") is None:
+        print("  piek      MISLUKT: een van beide klokken ontbreekt")
+        goed = False
+    elif not r["hours_to_peak"] < r["hours_to_close"]:
+        print(f"  piek      MISLUKT: piek ({r['hours_to_peak']}) ligt niet voor "
+              f"sluiting ({r['hours_to_close']})")
+        goed = False
+
+    # valt de uurcurve weg, dan blijft de sluiting over in plaats van niets
+    uit2 = P.bouw(ruw, {}, {}, "0xtest", NepCache({("AMS", dag): 17.0}))
+    r2 = (uit2["positions"] or [{}])[0]
+    if r2.get("hours_to_peak") is not None or r2.get("hours_to_close") is None:
+        print(f"  piek      MISLUKT: zonder uurcurve {r2.get('hours_to_peak')} / "
+              f"{r2.get('hours_to_close')}")
+        goed = False
+
+    if goed:
+        print("  piek      ok: uur en spreiding uit de curve, klok telt naar de piek, "
+              "sluiting als terugval")
+    return goed
+
+
 def main() -> int:
     print("\n  Zelftest portefeuille\n")
     goed = all([test_slug(), test_afstand(), test_netto(), test_stoplicht(),
                 test_vak(), test_beslist(), test_herkansing(),
-                test_markt_oneens(), test_uitvoer()])
+                test_markt_oneens(), test_piek(), test_uitvoer()])
     print("\n  " + ("Alles in orde.\n" if goed else "ER GING IETS MIS.\n"))
     return 0 if goed else 1
 

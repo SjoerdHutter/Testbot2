@@ -185,9 +185,26 @@ het misgaan, dan blijft de positie staan met `light: "unknown"` en de reden
 erbij — een stad stilletjes laten verdwijnen is erger dan een gat dat zichzelf
 meldt.
 
-Uren tot sluiting worden gerekend als middernacht aan het einde van de doeldag
-in de lokale tijdzone van de stad, met `zoneinfo` — niet met een vaste
-UTC-offset, want die klopt maar in een deel van het jaar.
+De klok in het tabblad telt af naar het **verwachte warmste moment**
+(`hours_to_peak`), niet naar de sluiting. De markt sluit formeel om middernacht,
+maar de uitslag ligt er zodra het dagmaximum gevallen is: bij Busan rekende
+Polymarket af terwijl er lokaal nog bijna drie uur op de klok stonden, en die
+uren telden mee alsof er nog iets kon veranderen. Is de piek voorbij, dan staat
+er "piek geweest" in plaats van een aftellend getal.
+
+Het piekuur komt uit de uurcurve van dezelfde vijf modelsystemen als de app:
+`pieken_uit()` in `portfolio.py` is het spiegelbeeld van `piekenUit` in
+`index.html`, inclusief de eis van minstens zes uurwaarden per dag. Dat kost één
+extra verzoek per stad, dat meteen drie dagen dekt. Ontbreekt die curve, dan valt
+het tabblad terug op de sluiting en zet er een sterretje bij.
+
+`hours_to_close` blijft in de JSON staan en wordt nog steeds gerekend als
+middernacht aan het einde van de doeldag in de lokale tijdzone van de stad, met
+`zoneinfo` — niet met een vaste UTC-offset, want die klopt maar in een deel van
+het jaar. De markt-oneens-vlag hangt bewust nog aan die klok: de Brier-cijfers
+waaruit de drempel van twaalf uur komt zijn tegen de afrekentijd gemeten, niet
+tegen het piekuur. Dat opnieuw meten met de piek als nulpunt is een aparte
+oefening.
 
 Draaien, en de bestanden die eruit komen:
 

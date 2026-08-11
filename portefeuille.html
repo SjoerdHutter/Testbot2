@@ -199,7 +199,7 @@
           <th title="kans dat deze positie wint: bij NO 1 min de vakkans, bij YES de vakkans zelf">winkans</th>
           <th title="afstand van de verwachting tot de dichtstbijzijnde vakrand, 0 als de verwachting in het vak ligt">d</th>
           <th class="dm" title="hoeveel de verwachting sinds de instap is opgeschoven. Positief is naar het vak toe.">Δ verwachting sinds instap</th>
-          <th title="tot middernacht na de doeldag, in de tijdzone van de stad">uren</th>
+          <th title="uren tot het verwachte warmste moment van de doeldag, uit de uurcurve van vijf modelsystemen. Zodra de piek geweest is ligt de uitslag er in de praktijk al. Een sterretje betekent dat de uurcurve ontbrak en dit de tijd tot middernacht is.">uren tot piek</th>
           <th class="vast" title="beweeg over het stoplicht voor de reden">stoplicht</th>
         </tr>
       </thead>
@@ -258,11 +258,30 @@
     return '<span class="' + kl + '">' + (v >= 0 ? "+" : "") + nl(v, 1) + "pp</span>";
   }
 
-  function uren(v) {
+  /* Uren tot het verwachte warmste moment. Is dat geweest, dan ligt de uitslag
+     er in de praktijk al, ook al loopt de dag lokaal nog door — dus dan telt er
+     geen tijd meer af maar staat er wat er aan de hand is. */
+  function uren(r) {
+    var v = r.hours_to_peak;
+    var terug = v === null || v === undefined;
+    if (terug) v = r.hours_to_close;
     if (v === null || v === undefined) return '<span class="dim">·</span>';
-    if (v < 0) return '<span class="dim">gesloten</span>';
-    if (v < 24) return '<span class="nee">' + nl(v, 1) + " u</span>";
-    return nl(v, 1) + " u";
+
+    var titel = terug
+      ? "geen uurcurve beschikbaar, dit is de tijd tot middernacht"
+      : ("piek verwacht om " + r.peak_hour + ":00 lokale tijd" +
+         (r.peak_hour_spread && r.peak_hour_spread[0] !== r.peak_hour_spread[1]
+            ? " (modellen: " + r.peak_hour_spread[0] + "-" + r.peak_hour_spread[1] + "u)"
+            : "") +
+         " · sluiting over " + nl(r.hours_to_close, 1) + " u");
+    var merk = terug ? "*" : "";
+
+    if (v < 0) {
+      return '<span class="dim" title="' + ontsnap(titel) + '">piek geweest</span>';
+    }
+    var tekst = nl(v, 1) + " u" + merk;
+    if (v < 6) return '<span class="nee" title="' + ontsnap(titel) + '">' + tekst + "</span>";
+    return '<span title="' + ontsnap(titel) + '">' + tekst + "</span>";
   }
 
   /* De zwaarste kolom. Positief is naar het vak toe en dus tegen de positie in:
@@ -324,7 +343,7 @@
                  ? '<span class="dim">·</span>'
                  : nl(r.d, 2) + (r.unit || "°")) + "</td>" +
       '<td class="dm">' + deltaMean(r) + "</td>" +
-      "<td>" + uren(r.hours_to_close) + "</td>" +
+      "<td>" + uren(r) + "</td>" +
       '<td class="vast"><span class="licht ' + licht + '" title="' + ontsnap(r.reason) + '">' +
         '<span class="bol"></span>' + (LICHT_NAAM[licht] || licht) + "</span>" + vlag + "</td>" +
     "</tr>";

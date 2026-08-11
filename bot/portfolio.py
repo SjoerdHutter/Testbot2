@@ -418,6 +418,7 @@ class ModelCache:
         self.params = params
         self._per_stad: dict = {}     # key -> leden of Exception
         self._per_dag: dict = {}      # (key, datum, soort) -> beeld of None
+        self._pieken: dict = {}       # key -> {datum: {uur, lo, hi}}
 
     def _leden(self, key: str):
         """De ensembleleden van een stad, met herkansingen.
@@ -449,6 +450,26 @@ class ModelCache:
         # waarom er geen licht is in plaats van dat de positie eruit valt.
         self._per_stad[key] = RuntimeError(f"{laatste} (na {FETCH_POGINGEN} pogingen)")
         return self._per_stad[key]
+
+    def piek(self, key: str, datum: str):
+        """Het verwachte piekuur van een doeldag, of None. Eén uurcurve per
+        stad, niet per positie: die dekt drie dagen tegelijk.
+
+        Lukt de fetch niet, dan blijft het leeg en valt beoordeel() terug op de
+        sluiting. Dat is een slechtere klok, maar wel een klok."""
+        if key not in self._pieken:
+            stad = weer.STAD_OP_KEY.get(key)
+            self._pieken[key] = {}
+            if stad:
+                for poging in range(FETCH_POGINGEN):
+                    try:
+                        self._pieken[key] = pieken_uit(
+                            weer._get_json(uur_url(stad), timeout=45))
+                        break
+                    except Exception:                  # noqa: BLE001
+                        if poging + 1 < FETCH_POGINGEN:
+                            time.sleep(FETCH_PAUZE * (poging + 1))
+        return (self._pieken[key] or {}).get(datum)
 
     def beeld(self, key: str, datum: str, soort: str):
         """De verwachting en de 80%-band van nu, in de eenheid van de markt.
@@ -626,6 +647,80 @@ def stoplicht(d, b, model_win_prob, delta_prob, mu_in_vak: bool, is_ja=False):
                      if d is not None else "geen aanleiding")
 
 
+# De uurcurve waaruit het piektijdstip komt, dezelfde vijf systemen als
+# UUR_MODELLEN in index.html.
+UUR_MODELLEN = ["ecmwf_ifs025", "ecmwf_aifs025", "gfs_seamless",
+                "icon_seamless", "gem_seamless"]
+
+
+def uur_url(stad: dict) -> str:
+    """Zelfde aanroep als bundelUren in index.html: de gewone forecast-API met
+    uurwaarden, niet de ensemble-API. timezone=auto, dus de tijdstempels staan
+    al in de lokale tijd van de stad."""
+    unit = "fahrenheit" if stad["eenheid"] == "F" else "celsius"
+    return ("https://api.open-meteo.com/v1/forecast"
+            f"?latitude={stad['lat']}&longitude={stad['lon']}"
+            f"&hourly=temperature_2m&models={','.join(UUR_MODELLEN)}"
+            f"&temperature_unit={unit}&forecast_days=3&timezone=auto")
+
+
+def pieken_uit(j: dict) -> dict:
+    """{datum: {uur, lo, hi}} — het uur van de dagpiek in het modelgemiddelde,
+    met lo/hi als spreiding van dat tijdstip tussen de modellen. Spiegelbeeld
+    van piekenUit in index.html, inclusief de eis van minstens zes uurwaarden
+    voordat een dag meetelt."""
+    H = (j or {}).get("hourly") or {}
+    tijden = H.get("time") or []
+    reeksen = [v for k, v in H.items()
+               if k.startswith("temperature_2m") and isinstance(v, list)]
+    if not tijden or not reeksen:
+        return {}
+
+    per_dag: dict = {}
+    for i, ts in enumerate(tijden):
+        waarden = [r[i] for r in reeksen
+                   if i < len(r) and r[i] is not None]
+        if not waarden:
+            continue
+        per_dag.setdefault(ts[:10], []).append(
+            {"uur": int(ts[11:13]), "gem": sum(waarden) / len(waarden), "vals": waarden})
+
+    uit = {}
+    for dag, rij in per_dag.items():
+        if len(rij) < 6:              # te weinig uren, geen betrouwbare piek
+            continue
+        beste = max(rij, key=lambda x: x["gem"])
+        aantal = max(len(x["vals"]) for x in rij)
+        arg = []
+        for m in range(aantal):
+            kandidaten = [x for x in rij if len(x["vals"]) > m]
+            if kandidaten:
+                arg.append(max(kandidaten, key=lambda x: x["vals"][m])["uur"])
+        uit[dag] = {"uur": beste["uur"],
+                    "lo": min(arg) if arg else beste["uur"],
+                    "hi": max(arg) if arg else beste["uur"]}
+    return uit
+
+
+def uren_tot_piek(key: str, datum: str, uur: int):
+    """Uren tot het verwachte warmste moment van de doeldag, in de lokale tijd
+    van de stad. Negatief zodra de piek geweest is.
+
+    Dit is de klok die er voor een positie toe doet. De markt sluit formeel om
+    middernacht, maar de uitslag ligt er zodra het dagmaximum gevallen is: bij
+    Busan rekende Polymarket af terwijl er lokaal nog uren op de klok stonden.
+    Uren tot sluiting telde die uren mee alsof er nog iets kon veranderen."""
+    stad = weer.STAD_OP_KEY.get(key)
+    if not stad or uur is None:
+        return None
+    try:
+        dag = date.fromisoformat(datum)
+    except ValueError:
+        return None
+    piek = datetime.combine(dag, dtime(int(uur), 0), tzinfo=ZoneInfo(stad["tz"]))
+    return (piek - datetime.now(timezone.utc)).total_seconds() / 3600
+
+
 def uren_tot_sluiting(key: str, datum: str):
     """Middernacht aan het einde van de doeldag in de lokale tijdzone van de
     stad. Niet met een vaste UTC-offset: die klopt maar in een deel van het jaar
@@ -660,7 +755,9 @@ def beoordeel(pos: dict, cache: ModelCache, instap: dict) -> dict:
         "model_prob_now": None, "model_prob_entry": None, "model_win_prob": None,
         "d": None, "b": round(b, 2), "delta_prob": None, "delta_mean": None,
         "fair_value": None, "edge_now": None,
-        "hours_to_close": None, "light": "unknown", "reason": "",
+        "hours_to_close": None, "hours_to_peak": None,
+        "peak_hour": None, "peak_hour_spread": None,
+        "light": "unknown", "reason": "",
         "entry_known": False,
         "market_decided": False,
         "market_disagrees": False, "market_note": "",
@@ -673,6 +770,16 @@ def beoordeel(pos: dict, cache: ModelCache, instap: dict) -> dict:
 
     uren = uren_tot_sluiting(key, datum)
     rij["hours_to_close"] = None if uren is None else round(uren, 2)
+
+    # De klok die er voor de positie toe doet: tot het verwachte warmste moment,
+    # niet tot middernacht. Zodra de piek geweest is ligt de uitslag er, ook al
+    # loopt de dag lokaal nog uren door.
+    p = cache.piek(key, datum)
+    if p:
+        rij["peak_hour"] = p["uur"]
+        rij["peak_hour_spread"] = [p["lo"], p["hi"]]
+        u = uren_tot_piek(key, datum, p["uur"])
+        rij["hours_to_peak"] = None if u is None else round(u, 2)
 
     # 1c: het modelbeeld van nu.
     beeld, fout = cache.beeld(key, datum, soort)
@@ -811,9 +918,15 @@ def bouw(posities_ruw: list, params: dict, instap: dict, wallet: str,
 
     cache = cache or ModelCache(params)
     rijen = [beoordeel(p, cache, instap) for p in open_posities]
-    rijen.sort(key=lambda r: (VOLGORDE.get(r["light"], 9),
-                              r["hours_to_close"] if r["hours_to_close"] is not None
-                              else math.inf))
+    # Binnen een kleur op de klok die telt: tot de piek, en pas als die
+    # ontbreekt tot de sluiting.
+    def wanneer(r):
+        for veld in ("hours_to_peak", "hours_to_close"):
+            if r[veld] is not None:
+                return r[veld]
+        return math.inf
+
+    rijen.sort(key=lambda r: (VOLGORDE.get(r["light"], 9), wanneer(r)))
 
     blootstelling = sum((r["size"] or 0) * (r["current_bid"] if r["current_bid"]
                                             is not None else (r["avg_price"] or 0))
