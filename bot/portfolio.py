@@ -172,8 +172,22 @@ VELD_ALIAS = {
     "redeemable":    ["redeemable"],
 }
 
+# peak_hour staat achteraan en niet ertussen: de bestaande kolommen houden hun
+# plek, zodat wie op index leest niets merkt. Oude regels zijn met
+# bot/migratie_portfolio_history.py aangevuld met een leeg veld.
 HIST_KOP = ["gelogd_utc", "key", "doel_datum", "bracket_label", "adj_mean_now",
-            "model_prob_now", "current_bid", "city_bias_used", "light"]
+            "model_prob_now", "current_bid", "city_bias_used", "light",
+            "peak_hour"]
+
+
+def hist_rij(r: dict, nu: str) -> list:
+    """Een regel voor portfolio_history.csv, in de volgorde van HIST_KOP."""
+    def leeg(x):
+        return "" if x is None else x
+    return [nu, r["city"], r["date"], r["bracket"],
+            leeg(r["adj_mean_now"]), leeg(r["model_prob_now"]),
+            leeg(r["current_bid"]), leeg(r["city_bias_used"]),
+            r["light"], leeg(r["peak_hour"])]
 
 # stadssleutel per slugdeel: precies de tabel uit polymarkt.js, omgedraaid.
 KEY_VAN_SLUG = {v: k for k, v in S.SLUG.items()}
@@ -995,12 +1009,7 @@ def bouw(posities_ruw: list, params: dict, instap: dict, wallet: str,
 def schrijf_uit(payload: dict) -> None:
     UIT_JSON.write_text(json.dumps(payload, indent=1, ensure_ascii=False) + "\n")
     nu = payload["generated_at"]
-    rijen = [[nu, r["city"], r["date"], r["bracket"],
-              "" if r["adj_mean_now"] is None else r["adj_mean_now"],
-              "" if r["model_prob_now"] is None else r["model_prob_now"],
-              "" if r["current_bid"] is None else r["current_bid"],
-              "" if r["city_bias_used"] is None else r["city_bias_used"],
-              r["light"]] for r in payload["positions"]]
+    rijen = [hist_rij(r, nu) for r in payload["positions"]]
     if rijen:
         logger.schrijf(logger.logmap() / "portfolio_history.csv", HIST_KOP, rijen)
 

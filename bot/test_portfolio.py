@@ -3,7 +3,7 @@
 
   python3 bot/test_portfolio.py
 
-Controleert tien dingen:
+Controleert elf dingen:
 
   slug      De slug van een markt valt terug uiteen in stad, doeldag, reeks en
             vak, precies andersom dan slug_van in signalen.py hem opbouwt.
@@ -34,6 +34,9 @@ Controleert tien dingen:
             index.html, en de klok die daaruit volgt. Uren tot sluiting telde
             door tot middernacht terwijl de uitslag er ligt zodra het
             dagmaximum gevallen is.
+  reeks     De kop en de regel van portfolio_history.csv zijn even breed, en
+            het bestand op schijf ook. Een kolom erbij zonder migratie schuift
+            alle waarden een plek op zonder dat er iets omvalt.
   uitvoer   De hele keten op datzelfde setje: de JSON heeft de afgesproken
             velden, is op kleur en uren tot sluiting gesorteerd, en een positie
             zonder instapregel houdt lege deltavelden met entry_known false.
@@ -819,11 +822,62 @@ def test_piek() -> bool:
     return goed
 
 
+# ── 11. de reeks ─────────────────────────────────────────────────────────────
+
+def test_reeks() -> bool:
+    """De kop en de regel van portfolio_history.csv moeten even breed zijn, en
+    het bestand op schijf ook.
+
+    logger.schrijf zet de kop alleen als het bestand nieuw is. Een kolom erbij
+    zonder migratie levert dus regels van tien velden onder een kop van negen,
+    en dat valt nergens om: het schuift alleen alle waarden een plek op zodra
+    iemand er met een DictReader op leest."""
+    goed = True
+    rij = {"city": "AMS", "date": "2026-08-11", "bracket": "20°C",
+           "adj_mean_now": 19.9, "model_prob_now": 0.21, "current_bid": 0.79,
+           "city_bias_used": 0.4, "light": "red", "peak_hour": 15}
+    r = P.hist_rij(rij, "2026-08-11T09:00:00+00:00")
+    if len(r) != len(P.HIST_KOP):
+        print(f"  reeks     MISLUKT: regel telt {len(r)} velden, kop {len(P.HIST_KOP)}")
+        goed = False
+    if P.HIST_KOP[-1] != "peak_hour" or r[-1] != 15:
+        print(f"  reeks     MISLUKT: peak_hour staat niet achteraan: "
+              f"{P.HIST_KOP[-1]} / {r[-1]}")
+        goed = False
+
+    # lege waarden worden lege velden, niet de tekst None
+    leeg = P.hist_rij({**rij, "peak_hour": None, "adj_mean_now": None}, "x")
+    if leeg[4] != "" or leeg[-1] != "":
+        print(f"  reeks     MISLUKT: ontbrekende waarden geven {leeg[4]!r} / {leeg[-1]!r}")
+        goed = False
+
+    # en het bestand in de repo is rechthoekig
+    pad = Path(__file__).resolve().parent.parent / "logs" / "portfolio_history.csv"
+    if pad.exists():
+        import csv
+        regels = list(csv.reader(open(pad, newline="")))
+        breedtes = {len(x) for x in regels}
+        if breedtes != {len(P.HIST_KOP)}:
+            print(f"  reeks     MISLUKT: portfolio_history.csv heeft regels van "
+                  f"{sorted(breedtes)} velden, kop telt {len(P.HIST_KOP)}. "
+                  f"Draai bot/migratie_portfolio_history.py")
+            goed = False
+        elif regels and regels[0] != P.HIST_KOP:
+            print(f"  reeks     MISLUKT: de kop op schijf wijkt af: {regels[0]}")
+            goed = False
+
+    if goed:
+        print(f"  reeks     ok: {len(P.HIST_KOP)} kolommen, kop en regel gelijk, "
+              f"bestand rechthoekig")
+    return goed
+
+
 def main() -> int:
     print("\n  Zelftest portefeuille\n")
     goed = all([test_slug(), test_afstand(), test_netto(), test_stoplicht(),
                 test_vak(), test_beslist(), test_herkansing(),
-                test_markt_oneens(), test_piek(), test_uitvoer()])
+                test_markt_oneens(), test_piek(), test_reeks(),
+                test_uitvoer()])
     print("\n  " + ("Alles in orde.\n" if goed else "ER GING IETS MIS.\n"))
     return 0 if goed else 1
 

@@ -436,11 +436,21 @@ dagen staan er met tussenpozen van zes uur in, daarna uurlijks.
 | `model_prob_now` | de modelkans op dat vak |
 | `current_bid` | de bied uit de data-API |
 | `city_bias_used` | de correctie die de kalibratie op het kale ledengemiddelde legde |
-| `light` | `red`, `amber`, `green` of `unknown` |
+| `light` | `red`, `amber`, `green`, `settled` of `unknown` |
+| `peak_hour` | het verwachte uur van de dagpiek, lokale tijd; leeg als de uurcurve ontbrak |
 
 `city_bias_used` staat er expliciet in omdat `app_params.js` periodiek opnieuw
 gekalibreerd wordt. Zonder die kolom lijkt zo'n bijstelling later in de grafiek
 op een weersverandering.
+
+`peak_hour` staat er sinds 11 augustus bij, achteraan zodat de bestaande
+kolommen hun plek houden. De drempels van de markt-oneens-vlag zijn gemeten
+tegen een aangenomen piekuur van 15:00 lokaal, omdat het echte piekuur nergens
+bewaard werd; met deze kolom is die meting over een paar weken over te doen met
+de werkelijke uren. De regels van vóór die datum zijn met
+`bot/migratie_portfolio_history.py` aangevuld met een leeg veld, zodat het
+bestand rechthoekig is. Die migratie mag opnieuw gedraaid worden; staat de
+nieuwe kop er al, dan gebeurt er niets.
 
 De stand van nu staat in `portfolio.json` in de hoofdmap; dat bestand leest het
 tabblad. Alleen open posities: een positie waarvan de doeldag voorbij is valt
