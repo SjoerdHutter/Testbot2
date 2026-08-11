@@ -73,8 +73,20 @@ self.addEventListener("fetch", function (e) {
     e.respondWith(
       caches.open(VERSIE).then(function (c) {
         return fetch(e.request).then(function (antwoord) {
-          if (antwoord && antwoord.ok) c.put(e.request, antwoord.clone());
-          return antwoord;
+          if (antwoord && antwoord.ok) {
+            c.put(e.request, antwoord.clone());
+            return antwoord;
+          }
+          /* Wél een antwoord, maar een foutantwoord. Hiervoor ging dat
+             onveranderd door naar het scherm, ook al stond er een bruikbare
+             pagina in de cache. Toen Pages een keer uit stond gaf dit blad
+             daardoor "There isn't a GitHub Pages site here", terwijl de kaart
+             ernaast gewoon doordraaide: die is cache-first en kwam niet eens
+             langs het netwerk. Een oude portefeuille met een datum erboven is
+             beter dan de 404-pagina van GitHub. */
+          return c.match(e.request).then(function (bewaard) {
+            return bewaard || antwoord;       // niets bewaard: dan toch de fout
+          });
         }).catch(function () {
           return c.match(e.request);          // offline: de bewaarde versie
         });
