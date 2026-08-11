@@ -154,25 +154,38 @@ Naast het stoplicht staat `edge_now`: de eerlijke waarde min de huidige bied, in
 procentpunten. Dat is bewust een aparte kolom. Rood betekent "mijn aanname
 wankelt", de verkoopbeslissing is een andere som.
 
-Die kolom leest niet altijd als winst. Binnen `MARKT_VENSTER_UREN` van sluiting
-en boven `MARKT_VERSCHIL_PP` verschil komt er `market_disagrees` bij te staan, en
-het tabblad zet de edge dan oranje met een ⚠ en de reden als tooltip. Reden: op
-167 afgerekende stad-dagen uit `signalen.csv` verslaat de markt het model, en dat
-verschil loopt op naarmate de sluiting nadert (Brier-score per vak, lager is
-beter):
+Die kolom leest niet altijd als winst. Binnen `MARKT_VENSTER_UREN` van de
+**verwachte piek** en boven `MARKT_VERSCHIL_PP` verschil komt er
+`market_disagrees` bij te staan, en het tabblad zet de edge dan oranje met een ⚠
+en de reden als tooltip. Beide drempels zijn gemeten op 230 afgerekende
+stad-dagen uit `signalen.csv` (Brier-score per vak, lager is beter):
 
-| venster voor sluiting | model | markt | |
+| venster voor de piek | model | markt | |
 | --- | --- | --- | --- |
-| meer dan 24u | 0,0662 | 0,0612 | markt 7% beter |
-| 12 tot 24u | 0,0670 | 0,0523 | markt 22% beter |
-| minder dan 12u | 0,0648 | 0,0270 | markt 58% beter |
+| meer dan 24u | 0,0655 | 0,0599 | markt 9% beter |
+| 12 tot 24u | 0,0673 | 0,0592 | markt 12% beter |
+| 6 tot 12u | 0,0666 | 0,0505 | markt 24% beter |
+| 0 tot 6u | 0,0640 | 0,0370 | markt 42% beter |
+| piek voorbij | 0,0670 | 0,0098 | markt 85% beter |
 
 Kijk vooral naar de modelkolom: die verbetert nauwelijks als de dag vordert,
-terwijl de markt zijn fout ruimschoots halveert. Logisch, want binnen twaalf uur
-ziet de markt de al gemeten temperatuur van die dag en voorspelt het model nog
-steeds. Een groot verschil in dat venster is dus veel vaker het model dat
+terwijl de markt er een orde van grootte op vooruitgaat. Logisch, want de markt
+ziet de al gemeten temperatuur van die dag en het model voorspelt nog steeds.
+Bij twaalf uur voor de piek verdubbelt het voordeel van de markt, en daar ligt
+de grens. Een groot verschil in dat venster is dus veel vaker het model dat
 ernaast zit dan een edge die te pakken valt: bij Shanghai op 9 augustus stond er
 +82pp edge terwijl de markt op 92% zat en gelijk kreeg.
+
+Het piekuur staat niet in `signalen.csv`, dus voor de meting is 15:00 lokaal
+aangenomen. De uitkomst hangt daar niet aan: over aangenomen piekuren van 13:00
+tot 17:00 blijft het patroon 8-9% / 11-14% / 20-28% / 31-62% / 73-100%.
+
+Ook de 20pp is gemeten en niet gekozen. Binnen twaalf uur voor de piek, naar de
+grootte van het meningsverschil: bij alle vakken zit de markt 44% dichter bij de
+uitkomst, boven 10pp 57%, boven 20pp 67%, boven 40pp 85%. Hoe groter het
+verschil, hoe vaker de markt gelijk had. Lager dan 20pp zou verdedigbaar zijn,
+maar dan markeert de vlag een op de drie vakken en zegt hij niets meer; bij 20pp
+is het ongeveer een op de acht.
 
 De vlag raakt het stoplicht niet aan. Dat blijft in graden staan, zoals bedoeld.
 
@@ -201,10 +214,8 @@ het tabblad terug op de sluiting en zet er een sterretje bij.
 `hours_to_close` blijft in de JSON staan en wordt nog steeds gerekend als
 middernacht aan het einde van de doeldag in de lokale tijdzone van de stad, met
 `zoneinfo` — niet met een vaste UTC-offset, want die klopt maar in een deel van
-het jaar. De markt-oneens-vlag hangt bewust nog aan die klok: de Brier-cijfers
-waaruit de drempel van twaalf uur komt zijn tegen de afrekentijd gemeten, niet
-tegen het piekuur. Dat opnieuw meten met de piek als nulpunt is een aparte
-oefening.
+het jaar. De markt-oneens-vlag telt inmiddels ook naar de piek en niet meer naar
+die sluiting; de drempel is opnieuw gemeten met het piekmoment als nulpunt.
 
 Draaien, en de bestanden die eruit komen:
 

@@ -107,18 +107,40 @@ BESLIST_LAAG = 0.02
 BESLIST_HOOG = 0.98
 
 # Wanneer een meningsverschil met de markt tegen het model pleit in plaats van
-# voor een koopje. Gemeten op 167 afgerekende stad-dagen uit signalen.csv, met
-# de Brier-score van model en markt per vak (lager is beter):
+# voor een koopje. Beide drempels zijn gemeten op 230 afgerekende stad-dagen uit
+# signalen.csv, met de Brier-score van model en markt per vak (lager is beter).
 #
-#     meer dan 24u voor sluiting   model 0,0662   markt 0,0612    markt  7% beter
-#     12 tot 24u voor sluiting     model 0,0670   markt 0,0523    markt 22% beter
-#     minder dan 12u               model 0,0648   markt 0,0270    markt 58% beter
+# De klok telt af naar het verwachte piekmoment en niet naar de sluiting, want
+# dat is de klok die telt: de markt loopt voor omdat hij de al gemeten
+# temperatuur van die dag ziet, en dat voordeel hangt aan het moment waarop het
+# dagmaximum valt, niet aan middernacht.
 #
-# Het model verbetert nauwelijks naarmate de dag vordert; de markt halveert zijn
-# fout ruimschoots, want die ziet de al gemeten temperatuur van die dag terwijl
-# het model nog voorspelt. In dat laatste venster is een groot verschil dus veel
-# vaker het model dat ernaast zit dan een edge die te pakken valt. Bij Shanghai
-# stond er +82pp edge terwijl de markt op 92% zat en gelijk kreeg.
+#     meer dan 24u voor de piek   model 0,0655   markt 0,0599    markt  9% beter
+#     12 tot 24u voor de piek     model 0,0673   markt 0,0592    markt 12% beter
+#     6 tot 12u voor de piek      model 0,0666   markt 0,0505    markt 24% beter
+#     0 tot 6u voor de piek       model 0,0640   markt 0,0370    markt 42% beter
+#     piek voorbij                model 0,0670   markt 0,0098    markt 85% beter
+#
+# Het model verbetert nauwelijks naarmate de dag vordert; de markt gaat er een
+# orde van grootte op vooruit. Bij twaalf uur voor de piek verdubbelt zijn
+# voordeel, en daar ligt de grens.
+#
+# Het piekuur staat niet in signalen.csv, dus voor de meting is 15:00 lokaal
+# aangenomen. De uitkomst hangt daar niet aan: over aangenomen piekuren van
+# 13:00 tot 17:00 blijft het patroon 8-9% / 11-14% / 20-28% / 31-62% / 73-100%.
+#
+# De 20pp is net zo gemeten. Binnen twaalf uur voor de piek, uitgesplitst naar
+# de grootte van het meningsverschil:
+#
+#     alle vakken     model 0,0661   markt 0,0367    markt 44% beter
+#     meer dan 10pp   model 0,1869   markt 0,0809    markt 57% beter
+#     meer dan 20pp   model 0,2983   markt 0,0991    markt 67% beter
+#     meer dan 40pp   model 0,4962   markt 0,0736    markt 85% beter
+#
+# Hoe groter het verschil, hoe vaker de markt gelijk had. Lager dan 20pp zou
+# verdedigbaar zijn, want ook daar wint de markt, maar dan markeert de vlag een
+# op de drie vakken en zegt hij niets meer; bij 20pp is het ongeveer een op de
+# acht.
 #
 # Dit raakt het stoplicht niet: dat blijft in graden staan. Het is een vlag
 # naast edge_now, zodat die kolom in dit venster niet als winst leest.
@@ -850,38 +872,58 @@ def beoordeel(pos: dict, cache: ModelCache, instap: dict) -> dict:
     if rij["high_uncertainty"]:
         rij["reason"] += " · let op: geen betrouwbare biaskalibratie voor deze stad"
 
-    markeer_markt(rij, uren)
+    # De vlag telt naar de piek; ontbreekt die, dan blijft de sluiting over.
+    markeer_markt(rij, rij["hours_to_peak"] if rij["hours_to_peak"] is not None
+                  else rij["hours_to_close"])
     return rij
 
 
 def markeer_markt(rij: dict, uren) -> None:
-    """Zet de vlag als het model dicht op sluiting sterk van de markt afwijkt.
+    """Zet de vlag als het model dicht op de piek sterk van de markt afwijkt.
+
+    `uren` is de tijd tot het verwachte warmste moment, en mag negatief zijn:
+    is de piek voorbij, dan is dat juist het sterkste geval — daar zit de markt
+    85% dichter bij de uitkomst dan het model. Ontbreekt het piekuur, dan komt
+    hier de tijd tot sluiting binnen; die grens is grover maar dezelfde orde.
 
     Staat bewust los van het stoplicht en verandert de kleur niet: het alarm
     blijft in graden. Dit gaat over de kolom edge, die zo'n verschil als kans
     presenteert terwijl het in dit venster meestal het model is dat ernaast
     zit."""
     edge = rij["edge_now"]
-    if edge is None or uren is None or not 0 <= uren <= MARKT_VENSTER_UREN:
+    if edge is None or uren is None or uren > MARKT_VENSTER_UREN:
         return
     if abs(edge) <= MARKT_VERSCHIL_PP:
         return
     rij["market_disagrees"] = True
     # de prijs van jouw kant is de kans die de markt jouw positie geeft
     markt = rij["current_bid"]
+    # Hoe dichter op de piek, hoe groter het gemeten voordeel van de markt; na
+    # de piek is er van voorspellen geen sprake meer.
+    if uren < 0:
+        wanneer = f"de piek is {-uren:.1f} uur geleden verwacht"
+        hoeveel = "85%"
+    elif uren <= 6:
+        wanneer = f"nog {uren:.1f} uur tot de verwachte piek"
+        hoeveel = "42%"
+    else:
+        wanneer = f"nog {uren:.1f} uur tot de verwachte piek"
+        hoeveel = "24%"
+
     if edge > 0:
         rij["market_note"] = (
-            f"nog {uren:.1f} uur te gaan en het model zit {edge:+.1f}pp boven de "
-            f"markt ({rij['model_win_prob'] * 100:.0f}% tegen {markt * 100:.0f}%). "
-            f"In dit venster is de markt gemeten 58% nauwkeuriger dan het model, "
-            f"want die ziet de al gemeten temperatuur van vandaag. Lees dit eerder "
-            f"als twijfel aan het model dan als een edge om te pakken")
+            f"{wanneer} en het model zit {edge:+.1f}pp boven de markt "
+            f"({rij['model_win_prob'] * 100:.0f}% tegen {markt * 100:.0f}%). "
+            f"Zo dicht op de piek zit de markt gemeten {hoeveel} dichter bij de "
+            f"uitkomst dan het model, want die ziet de al gemeten temperatuur van "
+            f"vandaag. Lees dit eerder als twijfel aan het model dan als een edge "
+            f"om te pakken")
     else:
         rij["market_note"] = (
-            f"nog {uren:.1f} uur te gaan en de markt prijst deze positie {-edge:.1f}pp "
-            f"hoger dan het model ({markt * 100:.0f}% tegen "
-            f"{rij['model_win_prob'] * 100:.0f}%). In dit venster heeft de markt "
-            f"meestal gelijk, dus het model is hier waarschijnlijk te somber")
+            f"{wanneer} en de markt prijst deze positie {-edge:.1f}pp hoger dan het "
+            f"model ({markt * 100:.0f}% tegen {rij['model_win_prob'] * 100:.0f}%). "
+            f"Zo dicht op de piek heeft de markt meestal gelijk ({hoeveel} dichter "
+            f"bij de uitkomst), dus het model is hier waarschijnlijk te somber")
 
 
 # ── Stap 1i: de uitvoer ───────────────────────────────────────────────────────

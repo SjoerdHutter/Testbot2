@@ -684,15 +684,19 @@ def test_markt_oneens() -> bool:
         return rij
 
     gevallen = [
-        # (uren, modelwinkans, bied, moet gemarkeerd, kernwoord in de reden)
-        (2.0,  0.84, 0.08, True,  "twijfel aan het model"),   # Shanghai zelf
-        (11.9, 0.84, 0.08, True,  "twijfel aan het model"),   # net binnen
-        (12.1, 0.84, 0.08, False, ""),                        # net buiten
-        (36.0, 0.84, 0.08, False, ""),                        # ruim buiten
-        (2.0,  0.86, 0.72, False, ""),                        # laat, klein verschil
-        (2.0,  0.86, 0.65, True,  "twijfel aan het model"),   # laat, net boven 20pp
-        (2.0,  0.55, 0.90, True,  "te somber"),               # markt prijst hoger
-        (-1.0, 0.84, 0.08, False, ""),                        # sluiting al voorbij
+        # (uren tot de piek, modelwinkans, bied, moet gemarkeerd, kernwoord)
+        (2.0,   0.84, 0.08, True,  "twijfel aan het model"),  # Shanghai zelf
+        (11.9,  0.84, 0.08, True,  "twijfel aan het model"),  # net binnen
+        (12.1,  0.84, 0.08, False, ""),                       # net buiten
+        (36.0,  0.84, 0.08, False, ""),                       # ruim buiten
+        (2.0,   0.86, 0.72, False, ""),                       # laat, klein verschil
+        (2.0,   0.86, 0.65, True,  "twijfel aan het model"),  # laat, net boven 20pp
+        (2.0,   0.55, 0.90, True,  "te somber"),              # markt prijst hoger
+        # De piek voorbij is het sterkste geval en niet het zwakste: daar zit de
+        # markt 85% dichter bij de uitkomst. Op de oude klok viel dit buiten de
+        # vlag omdat er een ondergrens van nul stond.
+        (-1.0,  0.84, 0.08, True,  "piek is 1.0 uur geleden"),
+        (-6.0,  0.84, 0.08, True,  "85%"),
     ]
     for uren, win, bied, moet, woord in gevallen:
         r = proef(uren, win, bied)
