@@ -1,5 +1,5 @@
 {
- "generated_at": "2026-08-11T11:43:30+00:00",
+ "generated_at": "2026-08-11T11:54:00+00:00",
  "wallet": "0x470b23A4b98C191e50b90AcD62D2cc18670A52AB",
  "positions": [
   {
@@ -24,8 +24,8 @@
    "delta_mean": -0.05,
    "fair_value": 0.8128,
    "edge_now": -2.22,
-   "hours_to_close": 28.28,
-   "hours_to_peak": 20.28,
+   "hours_to_close": 28.12,
+   "hours_to_peak": 20.12,
    "peak_hour": 16,
    "peak_hour_spread": [
     14,
@@ -67,8 +67,8 @@
    "delta_mean": -0.02,
    "fair_value": 0.8308,
    "edge_now": 6.08,
-   "hours_to_close": 34.28,
-   "hours_to_peak": 25.28,
+   "hours_to_close": 34.12,
+   "hours_to_peak": 25.12,
    "peak_hour": 15,
    "peak_hour_spread": [
     14,
@@ -97,7 +97,7 @@
    "direction": "NO",
    "size": 73.9822,
    "avg_price": 0.692,
-   "current_bid": 0.56,
+   "current_bid": 0.49,
    "adj_mean_now": 18.18,
    "adj_mean_entry": 18.49,
    "city_bias_used": 0.47,
@@ -109,9 +109,9 @@
    "delta_prob": -8.76,
    "delta_mean": -0.31,
    "fair_value": 0.9769,
-   "edge_now": 41.69,
-   "hours_to_close": 10.28,
-   "hours_to_peak": 1.28,
+   "edge_now": 48.69,
+   "hours_to_close": 10.12,
+   "hours_to_peak": 1.12,
    "peak_hour": 15,
    "peak_hour_spread": [
     15,
@@ -122,7 +122,7 @@
    "entry_known": true,
    "market_decided": false,
    "market_disagrees": true,
-   "market_note": "nog 1.3 uur tot de verwachte piek en het model zit +41.7pp boven de markt (98% tegen 56%). Zo dicht op de piek zit de markt gemeten 42% dichter bij de uitkomst dan het model, want die ziet de al gemeten temperatuur van vandaag. Lees dit eerder als twijfel aan het model dan als een edge om te pakken",
+   "market_note": "nog 1.1 uur tot de verwachte piek en het model zit +48.7pp boven de markt (98% tegen 49%). Zo dicht op de piek zit de markt gemeten 42% dichter bij de uitkomst dan het model, want die ziet de al gemeten temperatuur van vandaag. Lees dit eerder als twijfel aan het model dan als een edge om te pakken",
    "high_uncertainty": false,
    "unit": "°C",
    "bracket_lo": 20,
@@ -153,8 +153,8 @@
    "delta_mean": -0.53,
    "fair_value": 0.9264,
    "edge_now": 19.64,
-   "hours_to_close": 17.28,
-   "hours_to_peak": 6.28,
+   "hours_to_close": 17.12,
+   "hours_to_peak": 6.12,
    "peak_hour": 13,
    "peak_hour_spread": [
     12,
@@ -183,7 +183,7 @@
    "direction": "NO",
    "size": 23.8095,
    "avg_price": 0.6299,
-   "current_bid": 0.44,
+   "current_bid": 0.445,
    "adj_mean_now": 102.11,
    "adj_mean_entry": 100.73,
    "city_bias_used": 1.5,
@@ -195,10 +195,10 @@
    "delta_prob": -17.71,
    "delta_mean": -1.38,
    "fair_value": 0.9619,
-   "edge_now": 52.19,
-   "hours_to_close": 17.28,
-   "hours_to_peak": 10.28,
-   "peak_hour": 17,
+   "edge_now": 51.69,
+   "hours_to_close": 17.12,
+   "hours_to_peak": 9.12,
+   "peak_hour": 16,
    "peak_hour_spread": [
     16,
     17
@@ -208,7 +208,7 @@
    "entry_known": true,
    "market_decided": false,
    "market_disagrees": true,
-   "market_note": "nog 10.3 uur tot de verwachte piek en het model zit +52.2pp boven de markt (96% tegen 44%). Zo dicht op de piek zit de markt gemeten 24% dichter bij de uitkomst dan het model, want die ziet de al gemeten temperatuur van vandaag. Lees dit eerder als twijfel aan het model dan als een edge om te pakken",
+   "market_note": "nog 9.1 uur tot de verwachte piek en het model zit +51.7pp boven de markt (96% tegen 44%). Zo dicht op de piek zit de markt gemeten 24% dichter bij de uitkomst dan het model, want die ziet de al gemeten temperatuur van vandaag. Lees dit eerder als twijfel aan het model dan als een edge om te pakken",
    "high_uncertainty": false,
    "unit": "°F",
    "bracket_lo": 98,
@@ -239,8 +239,8 @@
    "delta_mean": 0.11,
    "fair_value": 0.9346,
    "edge_now": 18.46,
-   "hours_to_close": 28.28,
-   "hours_to_peak": 15.27,
+   "hours_to_close": 28.1,
+   "hours_to_peak": 15.1,
    "peak_hour": 11,
    "peak_hour_spread": [
     11,
@@ -269,7 +269,7 @@
    "direction": "NO",
    "size": 16.8539,
    "avg_price": 0.8899,
-   "current_bid": 0.93,
+   "current_bid": 0.935,
    "adj_mean_now": 34.81,
    "adj_mean_entry": 34.29,
    "city_bias_used": 1.21,
@@ -281,9 +281,9 @@
    "delta_prob": -2.43,
    "delta_mean": -0.52,
    "fair_value": 0.9976,
-   "edge_now": 6.76,
-   "hours_to_close": 28.28,
-   "hours_to_peak": 18.28,
+   "edge_now": 6.26,
+   "hours_to_close": 28.12,
+   "hours_to_peak": 18.12,
    "peak_hour": 14,
    "peak_hour_spread": [
     12,
@@ -325,8 +325,8 @@
    "delta_mean": -0.52,
    "fair_value": 0.9477,
    "edge_now": 33.27,
-   "hours_to_close": 28.28,
-   "hours_to_peak": 18.28,
+   "hours_to_close": 28.12,
+   "hours_to_peak": 18.12,
    "peak_hour": 14,
    "peak_hour_spread": [
     12,
@@ -368,8 +368,8 @@
    "delta_mean": 0.12,
    "fair_value": 0.9257,
    "edge_now": 17.07,
-   "hours_to_close": 27.28,
-   "hours_to_peak": 19.28,
+   "hours_to_close": 27.12,
+   "hours_to_peak": 19.1,
    "peak_hour": 16,
    "peak_hour_spread": [
     15,
@@ -411,8 +411,8 @@
    "delta_mean": -0.17,
    "fair_value": 0.9834,
    "edge_now": 7.84,
-   "hours_to_close": 34.28,
-   "hours_to_peak": 28.28,
+   "hours_to_close": 34.12,
+   "hours_to_peak": 28.12,
    "peak_hour": 18,
    "peak_hour_spread": [
     17,
@@ -576,6 +576,6 @@
   "n_settled": 0,
   "n_market_disagrees": 2,
   "n_unmapped": 4,
-  "total_exposure": 149.98
+  "total_exposure": 145.01
  }
 }
