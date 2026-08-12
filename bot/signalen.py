@@ -195,6 +195,23 @@ def onze_kansen(vakken: list, dag: dict, markt_eenheid, app_eenheid,
     return uit
 
 
+# ── De al gemeten dagmax als ondergrens (dag 0) ───────────────────────────────
+# Deze module knotte de verdeling hier zelf af op de al gemeten dagmax, naar
+# aanleiding van Kaapstad op 11 augustus 2026: om 14:34 lokale tijd gaf het
+# model nog 53% aan 18° terwijl het station al 20° had gemeten.
+#
+# Die afknotting is vervangen door bot/waarneming.py, dat hetzelfde gat dicht
+# met een ander model. Het verschil is niet cosmetisch. Afknotten en
+# herschalen rekent de voorwaardelijke kans P(T | T > m) uit en zegt daarmee
+# dat het dagmaximum stellig bóven de meting uitkomt. Dat klopt niet: is de
+# piek geweest, dan ís het dagmaximum die meting. waarneming.py modelleert
+# T = max(m, R), waarbij het vak waar m in valt vanzelf de puntmassa "de piek
+# is al geweest" krijgt, en laat de spreiding over de dag krimpen met een op
+# het logboek gemeten restfactor.
+#
+# Concreet: om 16:00 met m = 20 en een model op mu = 18 legde het herschalen
+# alle massa boven 20, dus op verdere opwarming die er nauwelijks in zat.
+
 # ── Markt ophalen ─────────────────────────────────────────────────────────────
 
 def _getal(x):
@@ -336,7 +353,10 @@ def dag_max(kort: dict, stat: dict, hp) -> dict:
         b_lo, b_hi = hp.get("res_q10"), hp.get("res_q90")
         if hp.get("qz10") is not None and hp.get("sig_c") is not None:
             sp = s_live if s_live is not None else (hp.get("s_gem") or 0)
-            sig = max(0.2, hp["sig_c"] + hp["sig_d"] * sp)
+            # sig_vloer is de ondergrens uit de recente |restfouten|: eensgezinde
+            # modellen maken de spreiding klein, maar niet de fout (kalibratie.py).
+            sig = max(0.2, hp["sig_c"] + hp["sig_d"] * sp,
+                      hp.get("sig_vloer") or 0.0)
             b_lo, b_hi = hp["qz10"] * sig, hp["qz90"] * sig
         if b_lo is not None and b_hi is not None:
             if hp.get("band_lokaal"):

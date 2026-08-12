@@ -1,9 +1,9 @@
 # sha256 (eerste 16 tekens) · bytes · pad
 c64bb896011c0d1e       3207  weerbot-modellen/controleer_schil.py
 # Controle: python3 weerbot-modellen/controleer_upload.py
-0a43f3b3e2c3471f     239154  index.html
+61cdbd31157ee7a3     240429  index.html
 07bf71493e979ca9      22215  portefeuille.html
-6472dafae3570d57       5708  sw.js
+24aad452c7e9ef40       5708  sw.js
 ded0a476a3cb785b       8808  weerbot-modellen/bereken_klim_vandaag.py
 ffc861e9125d66cd       2301  weerbot-modellen/controleer_upload.py
 09d1d18d1efd8d4f      14592  weerbot-modellen/deel9_wekelijks.py
