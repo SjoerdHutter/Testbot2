@@ -32,6 +32,37 @@ ENS_KOP = ["gelogd_utc", "key", "doel_datum", "lead", "model", "gemiddelde", "n_
            "sd", "min", "p10", "p25", "p50", "p75", "p90", "max"]
 KWANTIELEN = [0.10, 0.25, 0.50, 0.75, 0.90]
 
+# Herkansingen op een haperende verbinding. Zonder deze verloor elke run vijf
+# tot zeven van de 49 steden aan een TLS-handshake die niet rond kwam
+# (`_ssl.c:993: The handshake operation timed out`): een kwaal van het moment,
+# niet van de stad, want het waren elke keer andere steden. Een tweede poging
+# even later haalt het gewoon. portfolio.py deed dit al voor zichzelf; hier
+# staat het nu voor logger.py en signalen.py, die het allebei misten.
+FETCH_POGINGEN = 3
+FETCH_PAUZE    = 4.0     # seconden, oplopend per poging
+# Korter dan de 60 s van haal_leden: een geslaagde aanroep is in een seconde
+# terug, dus een handshake die na 30 s nog niet staat komt niet meer. Zonder
+# die kortere grens kost elke mislukking een volle minuut en duurt de run met
+# herkansingen langer dan hij nu al doet.
+FETCH_TIMEOUT  = 30
+
+
+def met_herkansing(haal, *args, pogingen: int = FETCH_POGINGEN,
+                   pauze: float = FETCH_PAUZE, **kw):
+    """Voert `haal` uit en probeert het opnieuw zolang de verbinding hapert.
+
+    Blijft het misgaan, dan gaat de laatste reden mee omhoog met het aantal
+    pogingen erbij, zodat in het logboek staat wat er misging en hoe vaak."""
+    laatste = None
+    for poging in range(pogingen):
+        try:
+            return haal(*args, **kw)
+        except Exception as ex:                # noqa: BLE001 - reden gaat mee
+            laatste = ex
+            if poging + 1 < pogingen:
+                time.sleep(pauze * (poging + 1))
+    raise RuntimeError(f"{laatste} (na {pogingen} pogingen)") from laatste
+
 
 def logmap() -> Path:
     m = Path.cwd() / "logs"
@@ -113,7 +144,7 @@ def run() -> int:
     ens_rijen, nws_rijen, fouten = [], [], 0
     for stad in weer.STEDEN:
         try:
-            per = haal_leden(stad)
+            per = met_herkansing(haal_leden, stad, timeout=FETCH_TIMEOUT)
         except Exception as e:
             print(f"  {stad['key']}: ensemble mislukt ({e})")
             fouten += 1
@@ -135,7 +166,7 @@ def run() -> int:
         if not stad:
             continue
         try:
-            per_dag = haal_nws(nws_url)
+            per_dag = met_herkansing(haal_nws, nws_url, timeout=FETCH_TIMEOUT)
         except Exception as e:
             print(f"  {key}: NWS mislukt ({e})")
             fouten += 1

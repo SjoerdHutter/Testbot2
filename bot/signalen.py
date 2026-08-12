@@ -25,6 +25,10 @@ Gebruik (vanuit de hoofdmap van de repo):
     python3 bot/signalen.py              alle steden, drie doeldagen
     python3 bot/signalen.py --steden NYC,LON
     python3 bot/signalen.py --dagen 1    alleen vandaag
+    python3 bot/signalen.py --portfolio  de portefeuillebewaking uit
+                                         portfolio.py; schrijft portfolio.json
+                                         en logs/portfolio_history.csv, en logt
+                                         zelf geen signalen
 
 Alleen de standaardbibliotheek, en alleen leesverzoeken: naar de ensemble-API
 van Open-Meteo, naar api.weather.gov voor de Amerikaanse bijmenging en naar de
@@ -537,7 +541,8 @@ def run(steden=None, dagen: int = 3, pauze: float = 0.6) -> int:
             zonder_slug.append(stad["key"])
             continue
         try:
-            leden_per_stad[stad["key"]] = logger.haal_leden(stad, ENS_VELDEN)
+            leden_per_stad[stad["key"]] = logger.met_herkansing(
+                logger.haal_leden, stad, ENS_VELDEN, timeout=logger.FETCH_TIMEOUT)
         except Exception as ex:
             print(f"  {stad['key']}: ensemble mislukt ({ex})")
             fouten += 1
@@ -546,7 +551,8 @@ def run(steden=None, dagen: int = 3, pauze: float = 0.6) -> int:
         if key not in leden_per_stad:
             continue
         try:
-            nws_per_stad[key] = logger.haal_nws(url)
+            nws_per_stad[key] = logger.met_herkansing(
+                logger.haal_nws, url, timeout=logger.FETCH_TIMEOUT)
         except Exception as ex:
             print(f"  {key}: NWS mislukt ({ex})")
         time.sleep(pauze)
@@ -592,6 +598,13 @@ def main(argv: list) -> int:
     steden = None
     dagen = 3
     for i, a in enumerate(argv):
+        if a == "--portfolio":
+            # De portefeuillebewaking staat los van het loggen: hij leest het
+            # signalenlog dat hierboven ontstaat en schrijft portfolio.json.
+            # Pas hier importeren, zodat een losse --steden-run niet over de
+            # data-API van Polymarket struikelt.
+            import portfolio
+            return portfolio.main([a for a in argv if a != "--portfolio"])
         if a == "--steden" and i + 1 < len(argv):
             steden = {s.strip().upper() for s in argv[i + 1].split(",") if s.strip()}
         elif a == "--dagen" and i + 1 < len(argv):

@@ -23,8 +23,24 @@ jobs:
       - name: Bestanden controleren
         run: python weerbot-modellen/controleer_upload.py
 
+      - name: Schilversie controleren
+        # Valt om zodra een schilbestand wijzigt zonder dat de servicewerker een
+        # nieuwe versie kreeg. Zonder deze stap houden bezoekers de oude pagina,
+        # en dat is op het scherm niet te zien: hij laadt, hij is alleen oud.
+        run: python weerbot-modellen/controleer_schil.py
+
       - name: Bundelbestand controleren
         run: python weerbot-modellen/pak_features.py check
 
       - name: Correctiekern testen (python en javascript)
         run: python bot/test_kern.py
+
+      - name: Herkansingen testen
+        # Draait offline: er wordt niets opgehaald, alleen geteld hoe vaak een
+        # haperende fetch opnieuw wordt aangeboden.
+        run: python bot/test_logger.py
+
+      - name: Portefeuillebewaking testen
+        # Draait offline: het modelbeeld is in de test verzonnen, zodat de
+        # kleurregels los van Open-Meteo en Polymarket toetsbaar blijven.
+        run: python bot/test_portfolio.py

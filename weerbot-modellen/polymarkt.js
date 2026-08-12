@@ -250,13 +250,30 @@
                     gemiddelde; dichterbij is de verboden zone
        prijs        Ja tussen 12¢ en 45¢, anders overslaan
        voorwaarde   modelkans minstens 5 procentpunt onder de marktprijs
-       moment       36 tot 12 uur voor afloop
+       moment       36 tot 24 uur voor afloop
 
      NO is ondergewaardeerd als de markt het vakje duurder prijst dan ons model:
      de NO-prijs is dan 1 - ja, terwijl onze kans op "niet dit vakje" 1 - onze is.
-     Die twee vergelijken komt neer op onze kans minstens 5 punt onder de Ja-prijs. */
+     Die twee vergelijken komt neer op onze kans minstens 5 punt onder de Ja-prijs.
+
+     uurLaat stond op 12 en is naar 24 gegaan. De strategie leunt erop dat ons
+     model de markt verslaat, en dat houdt op naarmate de dag vordert: op 167
+     afgerekende stad-dagen uit logs/signalen.csv is de Brier-score per vak
+
+         meer dan 24u   model 0,0662   markt 0,0612    markt  7% beter
+         12 tot 24u     model 0,0670   markt 0,0523    markt 22% beter
+         minder dan 12u model 0,0648   markt 0,0270    markt 58% beter
+
+     Het model verbetert nauwelijks als de dag vordert; de markt halveert zijn
+     fout, want die ziet de al gemeten temperatuur van die dag. Binnen 24 uur
+     handelen betekent dus tegen een tegenpartij die beter geinformeerd is.
+
+     De gemarkeerde signalen zelf wijzen dezelfde kant op, al is dat een dunne
+     steekproef: 87 signalen op meer dan 24 uur gaven +3,2% rendement, de 28 in
+     het venster van 12 tot 24 uur -6,0%. Dat verschil is op 28 waarnemingen
+     binnen de ruis; de Brier-cijfers hierboven dragen de keuze, niet die 28. */
   var STRAT_A = { vakAfstand: 2, prijsMin: 0.12, prijsMax: 0.45, rand: 0.05,
-                  uurVroeg: 36, uurLaat: 12,
+                  uurVroeg: 36, uurLaat: 24,
                   /* Poorten uit strategie E. De spread is een absoluut bedrag:
                      3 cent op de prijs van het vakje, niet 3 procent daarvan.
                      Liquiditeit en dagkeuze zijn instelbaar vanuit de app. */

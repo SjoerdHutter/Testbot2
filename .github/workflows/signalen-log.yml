@@ -59,11 +59,20 @@ jobs:
         # meldt het onderaan. Falen doet hij alleen als er geen enkele regel is.
         run: python bot/signalen.py
 
+      # De portefeuille stond hier tussen en draait nu elk uur in een eigen
+      # actie (.github/workflows/portefeuille.yml). Vier keer per dag klopt voor
+      # het weerbeeld, want ECMWF en GFS draaien zelf elke zes uur, maar niet
+      # voor open posities: die veranderen wanneer er gehandeld wordt. Door de
+      # twee te scheiden schrijft elke actie ook zijn eigen bestanden, en kan
+      # een rebase tussen de twee nooit botsen.
+
       - name: Committen
         run: |
           git config user.name "weerbot-actie"
           git config user.email "actions@users.noreply.github.com"
-          git add logs/
+          # Alleen de drie logboeken van deze actie. portfolio.json en
+          # logs/portfolio_history.csv zijn van de actie Portefeuille.
+          git add logs/ensemble_log.csv logs/nws_log.csv logs/signalen.csv
           if git diff --cached --quiet; then
             echo "  geen wijziging"
             exit 0

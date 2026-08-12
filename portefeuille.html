@@ -1,0 +1,448 @@
+<!DOCTYPE html>
+<html lang="nl">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover">
+<meta name="theme-color" content="#0B1118">
+<link rel="apple-touch-icon" href="apple-touch-icon.png">
+<link rel="icon" type="image/png" href="icon-192.png">
+<title>Weerbot 2 · portefeuille</title>
+<style>
+  /* Dezelfde donkere schil als index.html; accent, winst en verlies zijn de
+     kleuren van het portefeuilleblad zelf. Dit blad doet geen enkel
+     netwerkverzoek naar een API: het leest alleen portfolio.json, dat
+     bot/portfolio.py wegschrijft. */
+  :root {
+    --bg:     #0B1118;
+    --paneel: #121A24;
+    --rand:   #1F2A38;
+    --inkt:   #E8EDF4;
+    --dim:    #8792A6;
+    --accent: #5b8cf5;
+    --winst:  #3d9e6e;
+    --verlies:#c0392b;
+    --oranje: #C98A2B;
+    --mono: ui-monospace, "SF Mono", SFMono-Regular, Menlo, Consolas, "Liberation Mono", monospace;
+    --sans: -apple-system, BlinkMacSystemFont, "Segoe UI", system-ui, Roboto, "Helvetica Neue", sans-serif;
+  }
+  * { margin: 0; padding: 0; box-sizing: border-box; }
+  html { -webkit-text-size-adjust: 100%; }
+  body {
+    background: var(--bg); color: var(--inkt); font-family: var(--sans);
+    min-height: 100vh;
+    padding: 22px 14px 48px;
+    padding-top: calc(20px + env(safe-area-inset-top, 2px));
+    padding-left: max(14px, env(safe-area-inset-left, 0px));
+    padding-right: max(14px, env(safe-area-inset-right, 0px));
+  }
+  .pagina { max-width: 1180px; margin: 0 auto; }
+
+  /* ── Koptekst ── */
+  .kop { margin-bottom: 18px; padding: 0 4px; display: flex; align-items: flex-start; gap: 12px; }
+  .kop-links { flex: 1; min-width: 0; }
+  .kop-titel {
+    font-family: var(--mono); font-size: 15px; font-weight: 700;
+    letter-spacing: 0.22em; text-transform: uppercase;
+  }
+  .kop-titel span { color: var(--accent); }
+  .kop-sub { margin-top: 5px; font-family: var(--mono); font-size: 11px; color: var(--dim); line-height: 1.7; }
+  .terug {
+    font-family: var(--mono); font-size: 11px; color: var(--accent);
+    text-decoration: none; border: 1px solid var(--rand); border-radius: 8px;
+    padding: 7px 11px; white-space: nowrap; background: var(--paneel);
+  }
+  .terug:hover { border-color: var(--accent); }
+
+  /* ── Tellers ── */
+  .tellers { display: flex; flex-wrap: wrap; gap: 8px; margin-bottom: 16px; padding: 0 4px; }
+  .teller {
+    font-family: var(--mono); font-size: 11px; color: var(--dim);
+    background: var(--paneel); border: 1px solid var(--rand); border-radius: 8px;
+    padding: 7px 11px;
+  }
+  .teller b { font-weight: 700; font-size: 13px; color: var(--inkt); }
+  .teller.rood b   { color: var(--verlies); }
+  .teller.oranje b { color: var(--oranje); }
+  .teller.groen b  { color: var(--winst); }
+
+  /* ── Tabel ── */
+  .blok {
+    background: var(--paneel); border: 1px solid var(--rand);
+    border-radius: 12px; padding: 4px 2px; margin-bottom: 20px; overflow-x: auto;
+  }
+  .blok-kop {
+    font-family: var(--mono); font-size: 11px; letter-spacing: 0.16em;
+    text-transform: uppercase; color: var(--dim); padding: 12px 14px 8px;
+  }
+  table { border-collapse: collapse; width: 100%; font-size: 13px; }
+  thead th {
+    font-family: var(--mono); font-size: 9px; font-weight: 400;
+    letter-spacing: 0.08em; text-transform: uppercase; color: var(--dim);
+    text-align: right; padding: 8px 7px; border-bottom: 1px solid var(--rand);
+    white-space: nowrap; cursor: help;
+  }
+  thead th.l, tbody td.l { text-align: left; }
+  tbody td {
+    font-family: var(--mono); font-size: 12.5px; padding: 11px 7px; text-align: right;
+    border-bottom: 1px solid rgba(31, 42, 56, 0.55); white-space: nowrap;
+  }
+  tbody tr:last-child td { border-bottom: none; }
+  tbody tr:hover td { background: rgba(91, 140, 245, 0.05); }
+
+  /* De kleur van een rij moet ook te zien zijn als de tabel op een smal scherm
+     opzij geschoven staat: een streep aan de kop van de rij, en de kolom met het
+     stoplicht zelf blijft aan de rechterkant staan. */
+  tbody td.l:first-child { border-left: 3px solid transparent; padding-left: 11px; }
+  tr.red     td.l:first-child { border-left-color: var(--verlies); }
+  tr.amber   td.l:first-child { border-left-color: var(--oranje); }
+  tr.green   td.l:first-child { border-left-color: var(--winst); }
+  tr.unknown td.l:first-child { border-left-color: #4A5468; }
+  tr.settled td.l:first-child { border-left-color: #2B3A4E; }
+  th.vast, td.vast {
+    position: sticky; right: 0; background: var(--paneel);
+    border-left: 1px solid var(--rand); text-align: left;
+  }
+  tbody tr:hover td.vast { background: #16202C; }
+  .stad { font-weight: 700; letter-spacing: 0.02em; cursor: help; }
+  .datum { color: var(--dim); font-size: 11px; }
+  .vak { color: var(--inkt); }
+  .ja  { color: var(--winst); font-weight: 700; }
+  .nee { color: var(--verlies); font-weight: 700; }
+  .dim { color: var(--dim); }
+
+  /* delta_mean is de zwaarste kolom van de tabel. Een groene positie die 1,2
+     graad naar het vak toe is geschoven verdient meer aandacht dan een die al
+     rood en feitelijk verloren is; die aandacht moet uit de opmaak komen. */
+  th.dm, td.dm { border-left: 1px solid var(--rand); border-right: 1px solid var(--rand); }
+  td.dm { padding: 8px 12px; min-width: 132px; }
+  .dm-getal { font-size: 19px; font-weight: 700; letter-spacing: -0.01em; line-height: 1.15; }
+  .dm-toe  { color: var(--verlies); }
+  .dm-af   { color: var(--winst); }
+  .dm-nul  { color: var(--dim); }
+  .dm-balk { height: 3px; margin-top: 5px; border-radius: 2px; background: rgba(255,255,255,0.06); position: relative; }
+  .dm-balk i { position: absolute; top: 0; height: 3px; border-radius: 2px; }
+  .dm-leeg { font-size: 12px; color: var(--dim); font-weight: 400; }
+
+  /* ── Stoplicht ── */
+  .licht {
+    display: inline-flex; align-items: center; gap: 7px; cursor: help;
+    font-size: 10px; letter-spacing: 0.09em; text-transform: uppercase;
+  }
+  .bol { width: 11px; height: 11px; border-radius: 50%; flex: 0 0 auto; }
+  .licht.red     .bol { background: var(--verlies); box-shadow: 0 0 8px rgba(192,57,43,0.55); }
+  .licht.amber   .bol { background: var(--oranje);  box-shadow: 0 0 8px rgba(201,138,43,0.45); }
+  .licht.green   .bol { background: var(--winst); }
+  .licht.unknown .bol { background: #4A5468; }
+  .licht.settled .bol { background: transparent; border: 2px solid #4A5468; width: 9px; height: 9px; }
+  .licht.settled { color: var(--dim); }
+  /* Afgerekend: de uitslag ligt er al, dus de rij hoort niet mee te schreeuwen
+     met de rest. Wel leesbaar blijven, want dit is waar geld verdampt is. */
+  tr.settled td { opacity: 0.5; }
+  tr.settled td.vast { opacity: 1; }
+  .licht.red     { color: var(--verlies); }
+  .licht.amber   { color: var(--oranje); }
+  .licht.green   { color: var(--winst); }
+  .licht.unknown { color: var(--dim); }
+  .vlag {
+    margin-left: 6px; font-size: 9px; letter-spacing: 0.08em; color: var(--oranje);
+    border: 1px solid rgba(201,138,43,0.45); border-radius: 5px; padding: 1px 4px; cursor: help;
+  }
+  /* Edge waar de markt het dicht op sluiting sterk mee oneens is. Niet groen:
+     in dat venster is de markt gemeten nauwkeuriger dan het model, dus dit is
+     eerder twijfel aan de eigen som dan een koopje. */
+  .edge-twijfel { color: var(--oranje); cursor: help; }
+
+  /* ── Niet gekoppeld ── */
+  .unmapped { border-color: rgba(192, 57, 43, 0.5); padding: 0 2px 4px; }
+  .unmapped > summary {
+    color: var(--verlies); cursor: pointer; list-style: none;
+    -webkit-tap-highlight-color: transparent;
+  }
+  .unmapped > summary::-webkit-details-marker { display: none; }
+  .unmapped > summary::before { content: "\25B8  "; }
+  .unmapped[open] > summary::before { content: "\25BE  "; }
+  .unmapped[open] > summary { border-bottom: 1px solid rgba(192, 57, 43, 0.25); }
+  .um-rij { padding: 10px 14px; border-bottom: 1px solid rgba(31,42,56,0.55); }
+  .um-rij:last-child { border-bottom: none; }
+  .um-titel { font-family: var(--mono); font-size: 12.5px; color: var(--inkt); cursor: help; }
+  .um-waarden { font-family: var(--mono); font-size: 11.5px; color: var(--dim); margin-top: 4px; }
+  .melding { font-family: var(--mono); font-size: 12px; color: var(--dim); padding: 22px 14px; line-height: 1.8; }
+  .voet { font-family: var(--mono); font-size: 9.5px; color: #4A5468; line-height: 1.8; padding: 0 4px; }
+</style>
+</head>
+<body>
+<div class="pagina">
+
+  <div class="kop">
+    <div class="kop-links">
+      <div class="kop-titel">Weer<span>bot 2</span> · portefeuille</div>
+      <div class="kop-sub" id="kopSub">portfolio.json lezen…</div>
+    </div>
+    <a class="terug" href="index.html">← briefing</a>
+  </div>
+
+  <div class="tellers" id="tellers"></div>
+
+  <div class="blok" id="tabelBlok">
+    <div class="blok-kop">open posities</div>
+    <div class="melding" id="melding">bezig…</div>
+    <table id="tabel" hidden>
+      <thead>
+        <tr>
+          <th class="l">stad · datum</th>
+          <th class="l">vak</th>
+          <th class="l">richting</th>
+          <th title="aantal aandelen">size</th>
+          <th title="gemiddelde instapprijs">instap</th>
+          <th title="huidige bied uit de data-API">bied</th>
+          <th title="eerlijke waarde min de huidige bied, in procentpunten. Dit is de verkoopsom en staat los van het stoplicht. Oranje met ⚠: binnen twaalf uur van de verwachte piek en meer dan 20pp verschil met de markt — zo dicht op de piek zit de markt gemeten dichter bij de uitkomst dan het model, en na de piek zelfs 85%.">edge</th>
+          <th title="kans dat deze positie wint: bij NO 1 min de vakkans, bij YES de vakkans zelf">winkans</th>
+          <th title="afstand van de verwachting tot de dichtstbijzijnde vakrand, 0 als de verwachting in het vak ligt">d</th>
+          <th class="dm" title="hoeveel de verwachting sinds de instap is opgeschoven. Positief is naar het vak toe.">Δ verwachting sinds instap</th>
+          <th title="uren tot het verwachte warmste moment van de doeldag, uit de uurcurve van vijf modelsystemen. Zodra de piek geweest is ligt de uitslag er in de praktijk al. Een sterretje betekent dat de uurcurve ontbrak en dit de tijd tot middernacht is.">uren tot piek</th>
+          <th class="vast" title="beweeg over het stoplicht voor de reden">stoplicht</th>
+        </tr>
+      </thead>
+      <tbody id="lijf"></tbody>
+    </table>
+  </div>
+
+  <!-- Ingeklapt mag, maar het aantal staat in de kop: een dichte uitklapper
+       moet te onderscheiden zijn van "geen gaten". -->
+  <details class="blok unmapped" id="unmappedBlok" hidden>
+    <summary class="blok-kop" id="unmappedKop">niet gekoppeld</summary>
+    <div id="unmappedLijst"></div>
+  </details>
+
+  <div class="voet">
+    Dit blad leest alleen portfolio.json en doet zelf geen enkel API-verzoek. Het
+    stoplicht zegt of de aanname onder de positie nog staat; de kolom edge is de
+    verkoopsom en staat er bewust los van. Er wordt hier niets gehandeld.
+  </div>
+</div>
+
+<script>
+(function () {
+  "use strict";
+
+  var LICHT_NAAM = { red: "rood", amber: "oranje", green: "groen",
+                     unknown: "onbekend", settled: "afgerekend" };
+  var VOLGORDE   = { red: 0, amber: 1, unknown: 2, green: 3, settled: 4 };
+
+  function el(id) { return document.getElementById(id); }
+
+  function nl(v, dec) {
+    if (v === null || v === undefined || v === "") return "·";
+    return Number(v).toFixed(dec === undefined ? 2 : dec).replace(".", ",");
+  }
+
+  function ontsnap(s) {
+    return String(s === null || s === undefined ? "" : s)
+      .replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;")
+      .replace(/"/g, "&quot;");
+  }
+
+  function prijs(v) {
+    if (v === null || v === undefined) return '<span class="dim">·</span>';
+    return nl(v, 2);
+  }
+
+  function procent(v) {
+    if (v === null || v === undefined) return '<span class="dim">·</span>';
+    return Math.round(v * 100) + "%";
+  }
+
+  function pp(v) {
+    if (v === null || v === undefined) return '<span class="dim">·</span>';
+    var kl = v >= 0 ? "ja" : "nee";
+    return '<span class="' + kl + '">' + (v >= 0 ? "+" : "") + nl(v, 1) + "pp</span>";
+  }
+
+  /* Uren tot het verwachte warmste moment. Is dat geweest, dan ligt de uitslag
+     er in de praktijk al, ook al loopt de dag lokaal nog door — dus dan telt er
+     geen tijd meer af maar staat er wat er aan de hand is. */
+  function uren(r) {
+    var v = r.hours_to_peak;
+    var terug = v === null || v === undefined;
+    if (terug) v = r.hours_to_close;
+    if (v === null || v === undefined) return '<span class="dim">·</span>';
+
+    var titel = terug
+      ? "geen uurcurve beschikbaar, dit is de tijd tot middernacht"
+      : ("piek verwacht om " + r.peak_hour + ":00 lokale tijd" +
+         (r.peak_hour_spread && r.peak_hour_spread[0] !== r.peak_hour_spread[1]
+            ? " (modellen: " + r.peak_hour_spread[0] + "-" + r.peak_hour_spread[1] + "u)"
+            : "") +
+         " · sluiting over " + nl(r.hours_to_close, 1) + " u");
+    var merk = terug ? "*" : "";
+
+    if (v < 0) {
+      /* Zonder uurcurve is een verstreken klok geen piek maar middernacht:
+         de markt is dicht. "piek geweest" zou piekkennis claimen die er niet
+         is — de tooltip ernaast geeft zelf al toe dat die ontbreekt. */
+      return '<span class="dim" title="' + ontsnap(titel) + '">' +
+             (terug ? "gesloten" : "piek geweest") + "</span>";
+    }
+    var tekst = nl(v, 1) + " u" + merk;
+    if (v < 6) return '<span class="nee" title="' + ontsnap(titel) + '">' + tekst + "</span>";
+    return '<span title="' + ontsnap(titel) + '">' + tekst + "</span>";
+  }
+
+  /* De zwaarste kolom. Positief is naar het vak toe en dus tegen de positie in:
+     die kant krijgt de verlieskleur, ook als het stoplicht nog groen staat. */
+  function deltaMean(r) {
+    if (r.delta_mean === null || r.delta_mean === undefined) {
+      var waarom = r.entry_known === false ? "geen instapregel in signalen.csv" : "onbekend";
+      return '<span class="dm-leeg" title="' + ontsnap(waarom) + '">·</span>';
+    }
+    var v = r.delta_mean;
+    var eenheid = r.unit || "°";
+    var pijl = v > 0.049 ? "▲" : (v < -0.049 ? "▼" : "■");
+    var kl = v > 0.049 ? "dm-toe" : (v < -0.049 ? "dm-af" : "dm-nul");
+    var kleur = v > 0.049 ? "var(--verlies)" : (v < -0.049 ? "var(--winst)" : "var(--dim)");
+    /* De balk schaalt op de vakbreedte: een halve vakbreedte opschuiven is op
+       een °C markt iets heel anders dan op een °F markt. */
+    var b = r.b || 1;
+    var breed = Math.min(100, Math.abs(v) / (2 * b) * 100);
+    var kant = v >= 0 ? "left:50%;" : "right:50%;";
+    var titel = "verwachting nu " + nl(r.adj_mean_now, 2) + eenheid +
+                ", bij instap " + nl(r.adj_mean_entry, 2) + eenheid +
+                (v > 0 ? " — naar het vak toe" : (v < 0 ? " — van het vak af" : ""));
+    return '<div class="dm-getal ' + kl + '" title="' + ontsnap(titel) + '">' +
+             pijl + " " + (v > 0 ? "+" : "") + nl(Math.abs(v) < 0.005 ? 0 : v, 2) + eenheid +
+           "</div>" +
+           '<div class="dm-balk"><i style="' + kant + "width:" + breed.toFixed(1) +
+             "%;background:" + kleur + '"></i></div>';
+  }
+
+  function rijHtml(r) {
+    var licht = r.light || "unknown";
+    var vlag = r.high_uncertainty
+      ? '<span class="vlag" title="Geen betrouwbare biaskalibratie voor deze stad: het Open-Meteo raster zit er op de post waarop Polymarket afwikkelt ongeveer 2 °C naast. Lees dit stoplicht met die marge erbij.">±2°</span>'
+      : "";
+    return '<tr class="' + licht + '">' +
+      /* De naam leest, de sleutel koppelt: die staat in de tooltip, want daarop
+         zoek je de regel terug in signalen.csv en portfolio_history.csv. */
+      '<td class="l"><span class="stad" title="' + ontsnap(r.city) + '">' +
+        ontsnap(r.city_name || r.city) + "</span>" +
+        '<br><span class="datum">' + ontsnap(r.date) + "</span></td>" +
+      '<td class="l vak">' + ontsnap(r.bracket) + "</td>" +
+      '<td class="l ' + (r.direction === "YES" ? "ja" : "nee") + '">' + ontsnap(r.direction) + "</td>" +
+      "<td>" + nl(r.size, 1) + "</td>" +
+      "<td>" + prijs(r.avg_price) + "</td>" +
+      "<td>" + prijs(r.current_bid) + "</td>" +
+      /* Edge leest alleen als winst wanneer het dat ook is. Bij een afgerekende
+         positie is het het verschil tussen de uitslag en wat het model dacht,
+         en dicht op sluiting is een groot verschil met de markt vaker het model
+         dat ernaast zit dan een koopje. */
+      "<td>" + (licht === "settled"
+                 ? '<span class="dim" title="afgerekend: dit is geen te pakken edge">'
+                   + nl(r.edge_now, 1) + "pp</span>"
+                 : (r.market_disagrees
+                     ? '<span class="edge-twijfel" title="' + ontsnap(r.market_note) + '">'
+                       + (r.edge_now >= 0 ? "+" : "") + nl(r.edge_now, 1) + "pp ⚠</span>"
+                     : pp(r.edge_now))) + "</td>" +
+      "<td>" + procent(r.model_win_prob) + "</td>" +
+      "<td>" + (r.d === null || r.d === undefined
+                 ? '<span class="dim">·</span>'
+                 : nl(r.d, 2) + (r.unit || "°")) + "</td>" +
+      '<td class="dm">' + deltaMean(r) + "</td>" +
+      "<td>" + uren(r) + "</td>" +
+      '<td class="vast"><span class="licht ' + licht + '" title="' + ontsnap(r.reason) + '">' +
+        '<span class="bol"></span>' + (LICHT_NAAM[licht] || licht) + "</span>" + vlag + "</td>" +
+    "</tr>";
+  }
+
+  function tellersHtml(s, gegenereerd) {
+    var t = [];
+    t.push('<span class="teller">posities <b>' + (s.n_positions || 0) + "</b></span>");
+    t.push('<span class="teller rood">rood <b>' + (s.n_red || 0) + "</b></span>");
+    t.push('<span class="teller oranje">oranje <b>' + (s.n_amber || 0) + "</b></span>");
+    t.push('<span class="teller groen">groen <b>' + (s.n_green || 0) + "</b></span>");
+    if (s.n_unknown) t.push('<span class="teller">onbekend <b>' + s.n_unknown + "</b></span>");
+    if (s.n_settled) t.push('<span class="teller">afgerekend <b>' + s.n_settled + "</b></span>");
+    if (s.n_market_disagrees)
+      t.push('<span class="teller oranje" title="dicht op de verwachte piek wijkt het model hier sterk van de markt af">' +
+             "markt oneens <b>" + s.n_market_disagrees + "</b></span>");
+    t.push('<span class="teller">blootstelling <b>$' + nl(s.total_exposure, 2) + "</b></span>");
+    return t.join("");
+  }
+
+  /* Binnen een kleur op de klok die telt: eerst uren tot de piek, en pas als
+     die ontbreekt uren tot sluiting — dezelfde volgorde als bouw() in
+     bot/portfolio.py, zodat de tabel staat op wat de kolom ernaast toont. */
+  function klok(r) {
+    if (r.hours_to_peak !== null && r.hours_to_peak !== undefined) return r.hours_to_peak;
+    if (r.hours_to_close !== null && r.hours_to_close !== undefined) return r.hours_to_close;
+    return Infinity;
+  }
+
+  function toon(data) {
+    var rijen = (data.positions || []).slice();
+    rijen.sort(function (a, b) {
+      var va = VOLGORDE[a.light] === undefined ? 9 : VOLGORDE[a.light];
+      var vb = VOLGORDE[b.light] === undefined ? 9 : VOLGORDE[b.light];
+      if (va !== vb) return va - vb;
+      var ka = klok(a), kb = klok(b);
+      return ka === kb ? 0 : ka - kb;
+    });
+
+    var wallet = data.wallet ? data.wallet.slice(0, 6) + "…" + data.wallet.slice(-4) : "?";
+    el("kopSub").textContent = "@rainmoneymaker · " + wallet + " · stand van " +
+      String(data.generated_at || "").replace("T", " ").replace("+00:00", " UTC");
+    el("tellers").innerHTML = tellersHtml(data.summary || {}, data.generated_at);
+
+    if (!rijen.length) {
+      /* Nul posities leest als "alles gedekt". Dat hoeft het niet te zijn: het
+         kan ook het verkeerde adres zijn. Dat verschil hoort hier te staan. */
+      el("melding").innerHTML = "geen open posities in portfolio.json" +
+        "<br><br>Dat kan kloppen, maar ook betekenen dat de bewaking op het " +
+        "verkeerde adres kijkt: op Polymarket houdt vaak een apart proxy-adres " +
+        "de posities aan, en niet het adres waarmee je tekent. " +
+        "Toets met <b>python3 bot/portfolio.py --dump-raw</b>.";
+    } else {
+      el("lijf").innerHTML = rijen.map(rijHtml).join("");
+      el("melding").hidden = true;
+      el("tabel").hidden = false;
+    }
+
+    var um = data.unmapped || [];
+    if (um.length) {
+      /* Per regel de titel en de waarden, verder niets. De ruwe velden blijven
+         in portfolio.json staan voor als er iets uitgezocht moet worden; de
+         reden waarom hij niet koppelt hangt aan de regel als tooltip. */
+      el("unmappedKop").textContent = "niet gekoppeld · " + um.length +
+        (um.length === 1 ? " positie zit" : " posities zitten") + " niet in het stoplicht";
+      el("unmappedLijst").innerHTML = um.map(function (u) {
+        var r = u.raw || {};
+        var waarden = [];
+        if (r.outcome) waarden.push('<span class="' + (r.outcome === "Yes" ? "ja" : "nee") +
+                                    '">' + ontsnap(r.outcome) + "</span>");
+        if (r.size !== undefined) waarden.push(nl(r.size, 1) + " aandelen");
+        if (r.avgPrice !== undefined) waarden.push("instap " + nl(r.avgPrice, 2));
+        if (r.curPrice !== undefined) waarden.push("nu " + nl(r.curPrice, 2));
+        if (r.currentValue !== undefined) waarden.push("waarde $" + nl(r.currentValue, 2));
+        return '<div class="um-rij" title="' + ontsnap(u.reason) + '">' +
+               '<div class="um-titel">' + ontsnap(r.title || u.reason) + "</div>" +
+               '<div class="um-waarden">' + waarden.join(" · ") + "</div></div>";
+      }).join("");
+      el("unmappedBlok").hidden = false;
+    }
+  }
+
+  fetch("portfolio.json", { cache: "no-store" })
+    .then(function (r) {
+      if (!r.ok) throw new Error("portfolio.json geeft " + r.status);
+      return r.json();
+    })
+    .then(toon)
+    .catch(function (e) {
+      el("kopSub").textContent = "portfolio.json niet gelezen";
+      el("melding").innerHTML = ontsnap(e.message) +
+        "<br><br>portfolio.json ontstaat met <b>python3 bot/signalen.py --portfolio</b>" +
+        " en wordt vier keer per dag door de actie Signalenlog bijgewerkt.";
+    });
+})();
+</script>
+</body>
+</html>
