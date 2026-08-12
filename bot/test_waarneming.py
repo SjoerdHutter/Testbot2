@@ -492,6 +492,95 @@ def test_bronnen() -> bool:
     return ok
 
 
+def test_parallel() -> bool:
+    """De fijne reeksen halen hun dagen parallel op, en dat moet cijfer voor
+    cijfer hetzelfde opleveren als achter elkaar.
+
+    Waarom dit bewaakt wordt: deze reeksen gaan de kalibratie in en die schrijft
+    app_params.js. Een uitkomst die afhangt van welke draad als eerste terug is,
+    zou de wekelijkse kalibratie onreproduceerbaar maken — dan levert dezelfde
+    invoer twee keer een ander parameterbestand op. Daarom staan ophalen en
+    verwerken los: er wordt parallel gehaald en daarna in de volgorde van de
+    urls verwerkt.
+
+    De aanleiding was traagheid. Op 12 augustus 2026 liep de wekelijkse
+    kalibratie tegen zijn timeout van 120 minuten: 240 dagen maal acht
+    AMeDAS-blokken, twee keer, achter elkaar."""
+    import fijnmeting as F
+    from datetime import date as _date, timedelta as _td
+    goed = True
+
+    # Een verzonnen JMA die per blok één meting teruggeeft, met een vertraging
+    # die per verzoek verschilt: sequentieel opgeteld zou dat traag zijn, en de
+    # wisselende volgorde van terugkomen legt een volgorde-afhankelijke
+    # verwerking bloot.
+    volgorde = []
+
+    def nep_json(url, timeout=45):
+        blok = url[-7:-5]                # "..._00.json" -> "00"
+        dag = url.split("/")[-1][:8]
+        time.sleep(0.02 if int(blok) % 2 else 0.01)
+        volgorde.append(url)
+        uur = int(blok)
+        return {f"{dag}{uur:02d}0000": {"temp": [10.0 + uur]},
+                f"{dag}{uur:02d}3000": {"temp": [11.0 + uur]}}
+
+    dagen = [_date(2026, 8, 1) + _td(days=i) for i in range(6)]
+    echte_get, echte_werkers = weer._get_json, F.WERKERS
+    try:
+        weer._get_json = nep_json
+        F.WERKERS = 8
+        t0 = time.monotonic()
+        parallel = F.amedas_reeks("44132", dagen, "Asia/Tokyo")
+        t_par = time.monotonic() - t0
+
+        volgorde.clear()
+        F.WERKERS = 1                    # één werker is precies achter elkaar
+        t0 = time.monotonic()
+        serieel = F.amedas_reeks("44132", dagen, "Asia/Tokyo")
+        t_ser = time.monotonic() - t0
+    finally:
+        weer._get_json, F.WERKERS = echte_get, echte_werkers
+
+    if parallel != serieel:
+        print("  parallel  MISLUKT: parallel en serieel geven een andere reeks")
+        for d in sorted(set(parallel) | set(serieel)):
+            if parallel.get(d) != serieel.get(d):
+                print(f"     {d}: {parallel.get(d)} tegen {serieel.get(d)}")
+        goed = False
+    if len(parallel) != len(dagen):
+        print(f"  parallel  MISLUKT: {len(parallel)} dagen, verwacht {len(dagen)}")
+        goed = False
+    # de dagwaarden zelf: hoogste blok is 21, dus max 11+21 en min 10+0
+    eerste = parallel.get("2026-08-01") or {}
+    if eerste.get("max") != 32.0 or eerste.get("min") != 10.0:
+        print(f"  parallel  MISLUKT: dagcijfers {eerste}, verwacht max 32 min 10")
+        goed = False
+    if t_par >= t_ser:
+        print(f"  parallel  MISLUKT: parallel ({t_par:.2f}s) niet sneller dan "
+              f"serieel ({t_ser:.2f}s)")
+        goed = False
+
+    # en een verzoek dat blijft mislukken is geen fout, alleen een gat
+    def altijd_stuk(url, timeout=45):
+        raise OSError("verzonnen storing")
+
+    try:
+        weer._get_json = altijd_stuk
+        F.POGINGEN, echte_pog = 1, F.POGINGEN
+        leeg = F.amedas_reeks("44132", dagen[:1], "Asia/Tokyo")
+    finally:
+        weer._get_json, F.POGINGEN = echte_get, echte_pog
+    if leeg != {}:
+        print(f"  parallel  MISLUKT: een stukke bron geeft {leeg}, verwacht leeg")
+        goed = False
+
+    if goed:
+        print(f"  parallel  ok: gelijk aan serieel over {len(dagen)} dagen, "
+              f"{t_ser / t_par:.1f}x sneller, storing geeft een gat")
+    return goed
+
+
 def test_budget() -> bool:
     """Het ophalen mag nooit langer duren dan zijn tijdbudget.
 
@@ -547,7 +636,8 @@ def main() -> int:
     print("\n  Zelftest intraday-conditionering\n")
     goed = all([test_onveranderd(), test_behoudend(), test_verloop(),
                 test_onmogelijk(), test_puntmassa(), test_spiegel(), test_iem(),
-                test_fijn(), test_hfmetar(), test_bronnen(), test_budget()])
+                test_fijn(), test_hfmetar(), test_bronnen(), test_budget(),
+                test_parallel()])
     print("\n  " + ("Alles in orde.\n" if goed else "ER GING IETS MIS.\n"))
     return 0 if goed else 1
 
