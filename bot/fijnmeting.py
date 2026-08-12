@@ -127,6 +127,18 @@ MIN_METINGEN = 60        # per dag; onder dit aantal is de reeks te dun
 MARGE = 4.0              # graden; verder van METAR af is het geen verfijning
 POGINGEN = 3
 
+# Deze reeksen worden per dag opgehaald, en de kalibratie vraagt er 240 tegelijk.
+# Voor Tokio is dat 240 dagen maal acht AMeDAS-blokken, en dat twee keer (maximum
+# en minimum): ruim 3800 verzoeken. Achter elkaar duurde dat zo lang dat de
+# wekelijkse kalibratie op 12 augustus 2026 tegen zijn timeout van 120 minuten
+# aan liep en werd afgebroken.
+#
+# Acht tegelijk is precies één AMeDAS-dag, en het houdt de belasting van de JMA
+# en data.gov.sg bescheiden: hoger opschroeven wint weinig omdat de kalibratie
+# toch al door andere bronnen wordt geremd, en het is niet aan ons om die
+# diensten vol te zetten.
+WERKERS = 8
+
 # De report_type-waarden van IEM. 3 is de routinemelding van het hele uur, 4 de
 # specials, 1 de MADIS-HFMETAR-stroom met sub-uurlijkse meldingen. Zie
 # hfmetar_reeks hieronder voor waarom die drie samen worden opgevraagd.
@@ -185,47 +197,66 @@ def amedas_stations(stad: dict, hoeveel: int = 3) -> list:
     return kandidaten[:hoeveel]
 
 
+def _haal_parallel(urls: list, timeout: int, pauze: float = 1.0) -> dict:
+    """{url: json of None}, met WERKERS verzoeken tegelijk en de herkansingen
+    per verzoek zoals ze hiervoor achter elkaar liepen.
+
+    Ophalen en verwerken staan bewust los van elkaar. De aanroepers hangen de
+    uitkomsten daarna in gesorteerde volgorde aan elkaar, zodat het antwoord
+    niet afhangt van welke draad als eerste terug is. Dat is hier geen
+    theoretische netheid: deze reeksen gaan de kalibratie in, en app_params.js
+    hoort bij dezelfde invoer hetzelfde uit te komen.
+
+    Een verzoek dat niet lukt geeft None en is geen fout: bij AMeDAS bestaat het
+    blok van later vandaag domweg nog niet."""
+    from concurrent.futures import ThreadPoolExecutor
+
+    def een(url):
+        for poging in range(POGINGEN):
+            try:
+                return weer._get_json(url, timeout=timeout)
+            except Exception:                      # noqa: BLE001
+                if poging + 1 < POGINGEN:
+                    time.sleep(pauze * (poging + 1))
+        return None
+
+    if not urls:
+        return {}
+    with ThreadPoolExecutor(max_workers=min(WERKERS, len(urls))) as pool:
+        return dict(zip(urls, pool.map(een, urls)))
+
+
 def amedas_reeks(code: str, dagen: list, tznaam: str) -> dict:
     """{datum: {"max": .., "min": .., "n": ..}} in °C, uit de tien-minutenwaarden.
 
     Het JMA publiceert per blok van drie uur in lokale tijd. De sleutels in de
     respons zijn tijdstempels als YYYYMMDDHHMMSS, ook lokaal, dus de dag is er
     rechtstreeks uit te lezen."""
+    urls = [f"{AMEDAS_PUNT}/{code}/{dag.strftime('%Y%m%d')}_{blok}.json"
+            for dag in dagen for blok in AMEDAS_BLOKKEN]
+    antwoorden = _haal_parallel(urls, timeout=45)
+
     per: dict = {}
-    for dag in dagen:
-        stempel = dag.strftime("%Y%m%d")
-        for blok in AMEDAS_BLOKKEN:
-            url = f"{AMEDAS_PUNT}/{code}/{stempel}_{blok}.json"
-            data = None
-            for poging in range(POGINGEN):
-                try:
-                    data = weer._get_json(url, timeout=45)
-                    break
-                except Exception:
-                    # Een blok dat nog niet bestaat (later vandaag) is geen fout.
-                    if poging + 1 == POGINGEN:
-                        data = None
-                    else:
-                        time.sleep(1 + poging)
-            if not isinstance(data, dict):
+    for url in urls:                    # in dezelfde volgorde als hierboven
+        data = antwoorden.get(url)
+        if not isinstance(data, dict):
+            continue                    # blok bestaat nog niet, of drie keer mis
+        for stempel_tijd, rij in data.items():
+            temp = (rij or {}).get("temp")
+            if not isinstance(temp, list) or not temp:
                 continue
-            for stempel_tijd, rij in data.items():
-                temp = (rij or {}).get("temp")
-                if not isinstance(temp, list) or not temp:
-                    continue
-                try:
-                    waarde = float(temp[0])
-                except (TypeError, ValueError):
-                    continue
-                d = stempel_tijd[:8]
-                d = f"{d[:4]}-{d[4:6]}-{d[6:8]}"
-                e = per.setdefault(d, {"max": None, "min": None, "n": 0})
-                e["n"] += 1
-                if e["max"] is None or waarde > e["max"]:
-                    e["max"] = waarde
-                if e["min"] is None or waarde < e["min"]:
-                    e["min"] = waarde
-            time.sleep(0.2)
+            try:
+                waarde = float(temp[0])
+            except (TypeError, ValueError):
+                continue
+            d = stempel_tijd[:8]
+            d = f"{d[:4]}-{d[4:6]}-{d[6:8]}"
+            e = per.setdefault(d, {"max": None, "min": None, "n": 0})
+            e["n"] += 1
+            if e["max"] is None or waarde > e["max"]:
+                e["max"] = waarde
+            if e["min"] is None or waarde < e["min"]:
+                e["min"] = waarde
     return per
 
 
@@ -237,16 +268,12 @@ def nea_reeks(stad: dict, dagen: list) -> dict:
     data.gov.sg geeft per dag alle metingen van alle stations, met de
     stationstabel in dezelfde respons. Het station wordt daaruit op afstand
     gekozen — één verzoek per dag, geen aparte tabelaanroep."""
+    urls = [NEA + "?date=" + dag.isoformat() for dag in dagen]
+    antwoorden = _haal_parallel(urls, timeout=60, pauze=2.0)
+
     per: dict = {}
-    for dag in dagen:
-        url = NEA + "?date=" + dag.isoformat()
-        data = None
-        for poging in range(POGINGEN):
-            try:
-                data = weer._get_json(url, timeout=60)
-                break
-            except Exception:
-                time.sleep(1 + poging * 2)
+    for url in urls:                    # in dezelfde volgorde als hierboven
+        data = antwoorden.get(url)
         if not isinstance(data, dict):
             continue
         stations = ((data.get("metadata") or {}).get("stations")) or []
@@ -281,7 +308,6 @@ def nea_reeks(stad: dict, dagen: list) -> dict:
                     e["max"] = waarde
                 if e["min"] is None or waarde < e["min"]:
                     e["min"] = waarde
-        time.sleep(0.3)
     return per
 
 
