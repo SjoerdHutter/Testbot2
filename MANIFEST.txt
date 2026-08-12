@@ -1,19 +1,19 @@
 # sha256 (eerste 16 tekens) · bytes · pad
 c64bb896011c0d1e       3207  weerbot-modellen/controleer_schil.py
 # Controle: python3 weerbot-modellen/controleer_upload.py
-4ff3871053ae35f7     238552  index.html
-d98b11e579f12297      21628  portefeuille.html
-fce4efe18f3bcf4f       5708  sw.js
+61cdbd31157ee7a3     240429  index.html
+07bf71493e979ca9      22215  portefeuille.html
+24aad452c7e9ef40       5708  sw.js
 ded0a476a3cb785b       8808  weerbot-modellen/bereken_klim_vandaag.py
 ffc861e9125d66cd       2301  weerbot-modellen/controleer_upload.py
 09d1d18d1efd8d4f      14592  weerbot-modellen/deel9_wekelijks.py
 69d6b44d59157fca       8360  weerbot-modellen/steden.json
 f7a88e70aac76dfb       1508  weerbot-modellen/tijdzones.json
-b2f56defeff9079d      35400  weerbot-modellen/polymarkt.js
+8153f60b45d0171b      42961  weerbot-modellen/polymarkt.js
 a5b225d5fab78d3a       6235  weerbot-modellen/weerbot-ml-koppel.js
 5eea0d9d9b8d493e       8674  weerbot-modellen/weerbot-ml.js
-5a6e38dc4464a3e9      57168  weerbot-modellen/modellen/modellen.json
-011027677fe4af44     651857  weerbot-modellen/modellen/pooled_gbm.pkl
+30063920f3ed9e3f      57171  weerbot-modellen/modellen/modellen.json
+bf96c612bbbbf36b     651331  weerbot-modellen/modellen/pooled_gbm.pkl
 dca71f9b0b85ca9a     725169  weerbot-modellen/modellen/stagea_gbm_atlanta.pkl
 95aa1228cc5a1076     725105  weerbot-modellen/modellen/stagea_gbm_chengdu.pkl
 a9ecdeeea9f00e98     725209  weerbot-modellen/modellen/stagea_gbm_dallas.pkl

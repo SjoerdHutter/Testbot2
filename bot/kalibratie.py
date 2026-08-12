@@ -331,6 +331,17 @@ def haal_actuals(stad: dict, d1: date, d2: date, soort: str = "max") -> dict:
             uit[dag] = waarde_f if stad["eenheid"] == "F" else weer.c_van_f(waarde_f)
     if stad["eenheid"] == "F" and soort == "max":
         stad["_1min"] = verrijk_1min(stad, uit, d1, d2)
+    elif stad.get("fijn"):
+        # Hetzelfde idee als verrijk_1min, voor de steden zonder 1-minuut ASOS:
+        # een fijnmaziger reeks van hetzelfde station mag het uurlijkse cijfer
+        # bijstellen, nooit vervangen. Zie bot/fijnmeting.py.
+        import fijnmeting
+        dagen = [d1 + timedelta(days=i) for i in range((d2 - d1).days + 1)]
+        try:
+            stad["_fijn"] = fijnmeting.verfijn(stad, uit, dagen, soort)
+        except Exception as ex:                    # noqa: BLE001
+            print(f"      [let op] fijne reeks {stad['fijn']} mislukt: {ex}")
+            stad["_fijn"] = 0
     return uit
 
 
@@ -398,6 +409,56 @@ def leer_nws(rijen: list, act: dict, stad_uit: dict, key: str) -> dict:
                 beste_m, beste = m, wtest
         ne = n_eff([w for w, *_ in paren])
         uit[h] = round((ne * beste + 30 * 0.25) / (ne + 30), 2)
+        uit["n"] = len(paren)
+    return uit
+
+
+def leer_taf(rijen: list, act: dict, stad_uit: dict, key: str, eenheid: str) -> dict:
+    """Leert per horizon het bijmenggewicht voor de TX-groep uit de TAF.
+
+    Hetzelfde recept als leer_nws, met twee verschillen die er toe doen.
+
+    De prior is nul in plaats van 0,25. Bij de NWS was er reden om aan te nemen
+    dat de verwachting wat toevoegt; bij de TAF is dat precies de vraag, en een
+    prior van 0,25 zou het antwoord er half in leggen. Begint hij bij nul, dan
+    moet de reeks het gewicht verdienen — en blijft hij op nul als er niets in
+    zit. Dat is dezelfde les als in bot/inzet.py, waar de aanname dat de
+    modelkans de markt verslaat niet standhield tegen de meting.
+
+    En de TAF geeft graden Celsius, altijd. Voor de Amerikaanse steden staat het
+    dagcijfer in Fahrenheit, dus die rekenen we om voor we iets vergelijken.
+    Overigens dragen Amerikaanse TAF's zelden een TX-groep, dus in de praktijk
+    komt daar meestal niets terug."""
+    uit = {}
+    for h in ("0", "1", "2"):
+        if h not in stad_uit or "yhat_per_dag" not in stad_uit[h]:
+            continue
+        yh = stad_uit[h]["yhat_per_dag"]
+        paren = []
+        for r in rijen:
+            if r.get("key") != key or str(r.get("lead")) != h:
+                continue
+            try:
+                dag = r["doel_datum"]
+                tx = float(r["tx_c"])
+            except (KeyError, ValueError, TypeError):
+                continue
+            if eenheid == "F":
+                tx = weer.f_van_c(tx)
+            o = date.fromisoformat(dag).toordinal()
+            if dag in act and o in yh:
+                paren.append((ewma_gewicht(date.today().toordinal() - o),
+                              yh[o], tx, act[dag]))
+        if len(paren) < 40:
+            continue
+        beste, beste_m = 0.0, None
+        for wtest in [i * 0.02 for i in range(31)]:
+            m = sum(w * ((1 - wtest) * y + wtest * tv - a) ** 2
+                    for w, y, tv, a in paren) / sum(w for w, *_ in paren)
+            if beste_m is None or m < beste_m:
+                beste_m, beste = m, wtest
+        ne = n_eff([w for w, *_ in paren])
+        uit[h] = round((ne * beste + 30 * 0.0) / (ne + 30), 2)
         uit["n"] = len(paren)
     return uit
 
@@ -891,8 +952,10 @@ def run(dagen: int = 240):
 
     enslog = laad_log(uitvoermap() / "logs" / "ensemble_log.csv")
     nwslog = laad_log(uitvoermap() / "logs" / "nws_log.csv")
-    if enslog or nwslog:
-        print(f"    logboeken: {len(enslog)} ensembleregels, {len(nwslog)} NWS regels\n")
+    taflog = laad_log(uitvoermap() / "logs" / "taf_log.csv")
+    if enslog or nwslog or taflog:
+        print(f"    logboeken: {len(enslog)} ensembleregels, {len(nwslog)} NWS regels, "
+              f"{len(taflog)} TAF regels\n")
 
     resultaat = {}
     for stad in weer.STEDEN:
@@ -965,9 +1028,16 @@ def run(dagen: int = 240):
             nws = leer_nws(nwslog, act, stad_uit, stad["key"]) if stad["eenheid"] == "F" else {}
             if nws:
                 stad_uit["nws"] = nws
+            # De TAF-laag begint op nul en moet zijn gewicht verdienen; komt er
+            # niets terug, dan blijft `taf` weg en mengt de app niets bij.
+            taf_g = leer_taf(taflog, act, stad_uit, stad["key"], stad["eenheid"])
+            if taf_g:
+                stad_uit["taf"] = taf_g
             resultaat[stad["key"]] = stad_uit
             r1 = stad_uit.get("1", {})
             extra1m = f"  1min+{stad.pop('_1min')}" if "_1min" in stad else ""
+            if "_fijn" in stad:
+                extra1m += f"  {stad['fijn']}+{stad.pop('_fijn')}"
             print(f"h1: {r1.get('mae_basis')}\u2192{r1.get('mae_nieuw')}  n={r1.get('n_totaal')}{extra1m}")
         else:
             print("overgeslagen")

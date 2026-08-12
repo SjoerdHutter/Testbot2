@@ -69,10 +69,9 @@ import json
 import math
 import re
 import sys
-import time
 import urllib.parse
 import urllib.request
-# datetime.time heet hier dtime, zodat de module time hierboven bereikbaar blijft
+# datetime.time heet hier dtime: de naam time leest anders als de module
 from datetime import datetime, date, time as dtime, timedelta, timezone
 from pathlib import Path
 from zoneinfo import ZoneInfo
@@ -81,6 +80,7 @@ sys.path.insert(0, str(Path(__file__).resolve().parent))
 import weer
 import logger
 import signalen as S
+import waarneming as W
 
 # Het adres dat de posities aanhoudt, niet per se het adres waarmee je tekent:
 # op Polymarket is dat vaak een apart proxy-adres, en het positie-eindpunt keert
@@ -184,7 +184,12 @@ VELD_ALIAS = {
 # bot/migratie_portfolio_history.py aangevuld met een leeg veld.
 HIST_KOP = ["gelogd_utc", "key", "doel_datum", "bracket_label", "adj_mean_now",
             "model_prob_now", "current_bid", "city_bias_used", "light",
-            "peak_hour"]
+            "peak_hour",
+            # vanaf de intraday-conditionering: zonder deze twee lijkt een kans
+            # die verspringt doordat de meting binnenkwam later op een
+            # weersverandering, net als bij city_bias_used. Ze staan ná
+            # peak_hour omdat die al in het logboek op schijf staat.
+            "observed_today", "restfactor"]
 
 
 def hist_rij(r: dict, nu: str) -> list:
@@ -194,7 +199,8 @@ def hist_rij(r: dict, nu: str) -> list:
     return [nu, r["city"], r["date"], r["bracket"],
             leeg(r["adj_mean_now"]), leeg(r["model_prob_now"]),
             leeg(r["current_bid"]), leeg(r["city_bias_used"]),
-            r["light"], leeg(r["peak_hour"])]
+            r["light"], leeg(r["peak_hour"]),
+            leeg(r["observed_today"]), leeg(r["restfactor"])]
 
 # stadssleutel per slugdeel: precies de tabel uit polymarkt.js, omgedraaid.
 KEY_VAN_SLUG = {v: k for k, v in S.SLUG.items()}
@@ -457,12 +463,14 @@ class ModelCache:
     """Een ensemblefetch per (stad, datum), niet per positie: vijf posities op
     dezelfde dag kosten samen een verzoek."""
 
-    def __init__(self, params: dict):
+    def __init__(self, params: dict, waarnemingen: dict = None):
         self.params = params
+        # Wat er vandaag al gemeten is op het afrekenstation, per stad. Leeg
+        # gelaten rekent alles onvoorwaardelijk door, precies zoals daarvoor.
+        self.waarnemingen = waarnemingen or {}
         self._per_stad: dict = {}     # key -> leden of Exception
         self._per_dag: dict = {}      # (key, datum, soort) -> beeld of None
         self._pieken: dict = {}       # key -> {datum: {uur, lo, hi}}
-        self._gemeten: dict = {}      # key -> al gemeten dagmax vandaag of None
 
     def _leden(self, key: str):
         """De ensembleleden van een stad, met herkansingen.
@@ -481,53 +489,36 @@ class ModelCache:
             self._per_stad[key] = ValueError(f"{key} staat niet in weer.STEDEN")
             return self._per_stad[key]
 
-        laatste = None
-        for poging in range(FETCH_POGINGEN):
-            try:
-                self._per_stad[key] = logger.haal_leden(stad, S.ENS_VELDEN)
-                return self._per_stad[key]
-            except Exception as ex:                # noqa: BLE001 - reden gaat mee
-                laatste = ex
-                if poging + 1 < FETCH_POGINGEN:
-                    time.sleep(FETCH_PAUZE * (poging + 1))
-        # Op is op: de reden gaat mee de JSON in, zodat in het tabblad staat
-        # waarom er geen licht is in plaats van dat de positie eruit valt.
-        self._per_stad[key] = RuntimeError(f"{laatste} (na {FETCH_POGINGEN} pogingen)")
+        try:
+            self._per_stad[key] = logger.met_herkansing(
+                logger.haal_leden, stad, S.ENS_VELDEN,
+                pogingen=FETCH_POGINGEN, pauze=FETCH_PAUZE)
+        except RuntimeError as ex:
+            # Op is op: de reden gaat mee de JSON in, zodat in het tabblad staat
+            # waarom er geen licht is in plaats van dat de positie eruit valt.
+            self._per_stad[key] = ex
         return self._per_stad[key]
 
     def piek(self, key: str, datum: str):
         """Het verwachte piekuur van een doeldag, of None. Eén uurcurve per
         stad, niet per positie: die dekt drie dagen tegelijk.
 
-        Lukt de fetch niet, dan blijft het leeg en valt beoordeel() terug op de
-        sluiting. Dat is een slechtere klok, maar wel een klok."""
+        Lukt de fetch ook met herkansingen niet, dan blijft het leeg en valt
+        beoordeel() terug op de sluiting. Dat is een slechtere klok, maar wel
+        een klok — en de reden staat in de run-uitvoer, want een stad die
+        stilletjes op de grovere klok terugvalt is niet na te trekken."""
         if key not in self._pieken:
             stad = weer.STAD_OP_KEY.get(key)
             self._pieken[key] = {}
             if stad:
-                for poging in range(FETCH_POGINGEN):
-                    try:
-                        self._pieken[key] = pieken_uit(
-                            weer._get_json(uur_url(stad), timeout=45))
-                        break
-                    except Exception:                  # noqa: BLE001
-                        if poging + 1 < FETCH_POGINGEN:
-                            time.sleep(FETCH_PAUZE * (poging + 1))
-        return (self._pieken[key] or {}).get(datum)
-
-    def gemeten_max(self, key: str):
-        """De al gemeten dagmax van vandaag op het resolutiestation, of None.
-        Eén fetch per stad; mislukt hij, dan rekent alles zonder grens door."""
-        if key not in self._gemeten:
-            stad = weer.STAD_OP_KEY.get(key)
-            waarde = None
-            if stad:
                 try:
-                    waarde = weer.gemeten_max_vandaag(stad)
-                except Exception:                  # noqa: BLE001
-                    waarde = None
-            self._gemeten[key] = waarde
-        return self._gemeten[key]
+                    self._pieken[key] = pieken_uit(logger.met_herkansing(
+                        weer._get_json, uur_url(stad),
+                        pogingen=FETCH_POGINGEN, pauze=FETCH_PAUZE, timeout=45))
+                except RuntimeError as ex:
+                    print(f"  {key}: uurcurve mislukt ({ex}); "
+                          f"de sluiting blijft over als klok")
+        return (self._pieken[key] or {}).get(datum)
 
     def beeld(self, key: str, datum: str, soort: str):
         """De verwachting en de 80%-band van nu, in de eenheid van de markt.
@@ -557,12 +548,6 @@ class ModelCache:
         kort = S.kort_map(stat["model_gem"])
         if soort == "max":
             eigen = S.dag_max(kort, stat, hp)
-            if lead <= 0:
-                # De al gemeten dagmax is een harde ondergrens voor vandaag:
-                # zie pas_ondergrens_toe in signalen.py. Voor het stoplicht is
-                # dit precies het verschil tussen "het model denkt dat het bij
-                # 18° blijft" en "het station heeft al 20° gemeten".
-                S.pas_ondergrens_toe(eigen, self.gemeten_max(key))
         else:
             eigen = S.dag_min(kort, stat, hp, (pr.get("min") or {}).get(str(lead)))
 
@@ -573,16 +558,23 @@ class ModelCache:
             "adj_mean": S.naar_eenheid(eigen["verwachting"], app_eenheid, markt_eenheid),
             "eigen": eigen, "app_eenheid": app_eenheid, "markt_eenheid": markt_eenheid,
             "lead": lead,
+            # De meting van vandaag telt alleen op lead 0 en alleen voor deze
+            # doeldag; voor_stad bewaakt allebei.
+            "waarneming": W.voor_stad(self.waarnemingen, key, datum, lead, soort),
         }, None)
         self._per_dag[sleutel] = uit
         return uit
 
     def vak_kans(self, beeld: dict, lo, hi):
         """De modelkans op een vak, met dezelfde functie als het signalenlog:
-        kansen_van verwerkt de gemeten ondergrens van dag 0 en is daarbuiten
-        exact onze_kansen."""
-        kansen = S.kansen_van([{"lo": lo, "hi": hi}], beeld["eigen"],
-                              beeld["markt_eenheid"], beeld["app_eenheid"])
+        bracket_probs in de opdracht, onze_kansen hier.
+
+        Staat er een meting van vandaag bij, dan is die kans geconditioneerd: een
+        vak dat de dag al voorbij is gelopen krijgt nul. Juist hier telt dat, want
+        dit getal gaat als model_win_prob het stoplicht in."""
+        kansen = S.onze_kansen([{"lo": lo, "hi": hi}], beeld["eigen"],
+                               beeld["markt_eenheid"], beeld["app_eenheid"],
+                               beeld.get("waarneming"))
         return kansen[0] if kansen else None
 
 
@@ -743,22 +735,25 @@ def pieken_uit(j: dict) -> dict:
 
     per_dag: dict = {}
     for i, ts in enumerate(tijden):
-        waarden = [r[i] for r in reeksen
-                   if i < len(r) and r[i] is not None]
+        # Elk model houdt zijn eigen plek, met None waar het dit uur mist.
+        # Compacteren per uur schoof de modellen in elkaar: vals[m] was dan
+        # het ene uur ecmwf en het andere uur gfs, en de spreiding hieronder
+        # rekende een argmax uit over een reeks die geen enkel model is.
+        vals = [r[i] if i < len(r) else None for r in reeksen]
+        waarden = [v for v in vals if v is not None]
         if not waarden:
             continue
         per_dag.setdefault(ts[:10], []).append(
-            {"uur": int(ts[11:13]), "gem": sum(waarden) / len(waarden), "vals": waarden})
+            {"uur": int(ts[11:13]), "gem": sum(waarden) / len(waarden), "vals": vals})
 
     uit = {}
     for dag, rij in per_dag.items():
         if len(rij) < 6:              # te weinig uren, geen betrouwbare piek
             continue
         beste = max(rij, key=lambda x: x["gem"])
-        aantal = max(len(x["vals"]) for x in rij)
         arg = []
-        for m in range(aantal):
-            kandidaten = [x for x in rij if len(x["vals"]) > m]
+        for m in range(len(reeksen)):
+            kandidaten = [x for x in rij if x["vals"][m] is not None]
             if kandidaten:
                 arg.append(max(kandidaten, key=lambda x: x["vals"][m])["uur"])
         uit[dag] = {"uur": beste["uur"],
@@ -826,6 +821,9 @@ def beoordeel(pos: dict, cache: ModelCache, instap: dict) -> dict:
         "entry_known": False,
         "market_decided": False,
         "market_disagrees": False, "market_note": "",
+        # wat er vandaag al gemeten is op het afrekenstation, en de restfactor
+        # die daaruit volgde; leeg op lead 1 en 2 en bij een gemist station
+        "observed_today": None, "observed_hour": None, "restfactor": None,
         "high_uncertainty": key in HOGE_ONZEKERHEID,
         "unit": eenheid,
         "bracket_lo": lo, "bracket_hi": hi,
@@ -838,17 +836,21 @@ def beoordeel(pos: dict, cache: ModelCache, instap: dict) -> dict:
 
     # De klok die er voor de positie toe doet: tot het verwachte warmste moment,
     # niet tot middernacht. Zodra de piek geweest is ligt de uitslag er, ook al
-    # loopt de dag lokaal nog uren door.
-    p = cache.piek(key, datum)
-    if p:
-        rij["peak_hour"] = p["uur"]
-        rij["peak_hour_spread"] = [p["lo"], p["hi"]]
-        u = uren_tot_piek(key, datum, p["uur"])
-        rij["hours_to_peak"] = None if u is None else round(u, 2)
+    # loopt de dag lokaal nog uren door. In een functie, want de fetch erachter
+    # is niet gratis: een afgerekende positie gebruikt deze klok niet meer, dus
+    # daar blijft de aanroep achterwege.
+    def vul_piek():
+        p = cache.piek(key, datum)
+        if p:
+            rij["peak_hour"] = p["uur"]
+            rij["peak_hour_spread"] = [p["lo"], p["hi"]]
+            u = uren_tot_piek(key, datum, p["uur"])
+            rij["hours_to_peak"] = None if u is None else round(u, 2)
 
     # 1c: het modelbeeld van nu.
     beeld, fout = cache.beeld(key, datum, soort)
     if not beeld:
+        vul_piek()             # de klok blijft staan, alleen het licht ontbreekt
         rij["reason"] = fout or "modelbeeld ontbreekt"
         return rij
 
@@ -856,6 +858,13 @@ def beoordeel(pos: dict, cache: ModelCache, instap: dict) -> dict:
     kans = cache.vak_kans(beeld, lo, hi)
     rij["adj_mean_now"] = None if mu is None else round(mu, 2)
     rij["model_prob_now"] = None if kans is None else round(kans, 4)
+
+    wn = beeld.get("waarneming")
+    if wn:
+        rij["observed_today"] = round(
+            S.naar_eenheid(wn["m"], beeld["app_eenheid"], beeld["markt_eenheid"]), 2)
+        rij["observed_hour"] = wn["uur"]
+        rij["restfactor"] = round(W.restfactor(wn["uur"], soort), 4)
     # De correctie die de kalibratie op het kale ledengemiddelde legt. Expliciet
     # opslaan: die tabel wordt periodiek bijgesteld, en zonder dit veld lijkt
     # zo'n bijstelling later in de reeks op een weersverandering.
@@ -907,6 +916,8 @@ def beoordeel(pos: dict, cache: ModelCache, instap: dict) -> dict:
             f"verschil tussen de uitslag en wat het model dacht")
         return rij
 
+    vul_piek()
+
     if mu is None or kans is None:
         rij["reason"] = "modelbeeld onvolledig"
         return rij
@@ -914,20 +925,30 @@ def beoordeel(pos: dict, cache: ModelCache, instap: dict) -> dict:
                                             rij["delta_prob"], d == 0, is_ja)
     if rij["high_uncertainty"]:
         rij["reason"] += " · let op: geen betrouwbare biaskalibratie voor deze stad"
+    if rij["observed_today"] is not None:
+        # Waarom dit erbij hoort: een kans van nul leest heel anders als het vak
+        # de dag al voorbij gelopen is dan als het model het onwaarschijnlijk
+        # vindt. Zonder deze regel is de kleur niet na te rekenen.
+        rij["reason"] += (
+            f" · geconditioneerd op {rij['observed_today']}{eenheid} die vandaag "
+            f"tot {rij['observed_hour']:.0f} uur gemeten is")
 
     # De vlag telt naar de piek; ontbreekt die, dan blijft de sluiting over.
     markeer_markt(rij, rij["hours_to_peak"] if rij["hours_to_peak"] is not None
-                  else rij["hours_to_close"])
+                  else rij["hours_to_close"],
+                  piek_bekend=rij["hours_to_peak"] is not None)
     return rij
 
 
-def markeer_markt(rij: dict, uren) -> None:
+def markeer_markt(rij: dict, uren, piek_bekend: bool = True) -> None:
     """Zet de vlag als het model dicht op de piek sterk van de markt afwijkt.
 
     `uren` is de tijd tot het verwachte warmste moment, en mag negatief zijn:
     is de piek voorbij, dan is dat juist het sterkste geval — daar zit de markt
     85% dichter bij de uitkomst dan het model. Ontbreekt het piekuur, dan komt
-    hier de tijd tot sluiting binnen; die grens is grover maar dezelfde orde.
+    hier de tijd tot sluiting binnen met piek_bekend=False; die grens is grover
+    maar dezelfde orde. Negatief betekent op die klok geen piek-geweest maar
+    een al gesloten markt, en daarover valt niets meer te signaleren.
 
     Claimt het model in dit venster een edge die de markt niet ziet (edge_now
     positief), dan gaat het stoplicht ook omlaag: groen wordt oranje, en na de
@@ -939,6 +960,8 @@ def markeer_markt(rij: dict, uren) -> None:
     somber, en daar loopt niets gevaar."""
     edge = rij["edge_now"]
     if edge is None or uren is None or uren > MARKT_VENSTER_UREN:
+        return
+    if not piek_bekend and uren < 0:
         return
     if abs(edge) <= MARKT_VERSCHIL_PP:
         return
@@ -956,22 +979,33 @@ def markeer_markt(rij: dict, uren) -> None:
     # de prijs van jouw kant is de kans die de markt jouw positie geeft
     markt = rij["current_bid"]
     # Hoe dichter op de piek, hoe groter het gemeten voordeel van de markt; na
-    # de piek is er van voorspellen geen sprake meer.
-    if uren < 0:
+    # de piek is er van voorspellen geen sprake meer. Zonder piekuur telt de
+    # klok naar de sluiting en zegt de tekst dat ook: "tot de verwachte piek"
+    # schrijven terwijl er tijd tot middernacht gemeten is, is een klok die
+    # liegt. De 58% is de oudere meting op die grovere klok (binnen twaalf uur
+    # voor sluiting, 167 stad-dagen).
+    if not piek_bekend:
+        wanneer = f"nog {uren:.1f} uur tot sluiting (piekuur niet beschikbaar)"
+        hoeveel = "58%"
+        venster = "Zo dicht op de sluiting"
+    elif uren < 0:
         wanneer = f"de piek is {-uren:.1f} uur geleden verwacht"
         hoeveel = "85%"
+        venster = "Zo dicht op de piek"
     elif uren <= 6:
         wanneer = f"nog {uren:.1f} uur tot de verwachte piek"
         hoeveel = "42%"
+        venster = "Zo dicht op de piek"
     else:
         wanneer = f"nog {uren:.1f} uur tot de verwachte piek"
         hoeveel = "24%"
+        venster = "Zo dicht op de piek"
 
     if edge > 0:
         rij["market_note"] = (
             f"{wanneer} en het model zit {edge:+.1f}pp boven de markt "
             f"({rij['model_win_prob'] * 100:.0f}% tegen {markt * 100:.0f}%). "
-            f"Zo dicht op de piek zit de markt gemeten {hoeveel} dichter bij de "
+            f"{venster} zit de markt gemeten {hoeveel} dichter bij de "
             f"uitkomst dan het model, want die ziet de al gemeten temperatuur van "
             f"vandaag. Lees dit eerder als twijfel aan het model dan als een edge "
             f"om te pakken")
@@ -979,7 +1013,7 @@ def markeer_markt(rij: dict, uren) -> None:
         rij["market_note"] = (
             f"{wanneer} en de markt prijst deze positie {-edge:.1f}pp hoger dan het "
             f"model ({markt * 100:.0f}% tegen {rij['model_win_prob'] * 100:.0f}%). "
-            f"Zo dicht op de piek heeft de markt meestal gelijk ({hoeveel} dichter "
+            f"{venster} heeft de markt meestal gelijk ({hoeveel} dichter "
             f"bij de uitkomst), dus het model is hier waarschijnlijk te somber")
 
 
@@ -990,7 +1024,10 @@ VOLGORDE = {"red": 0, "amber": 1, "unknown": 2, "green": 3, "settled": 4}
 
 
 def bouw(posities_ruw: list, params: dict, instap: dict, wallet: str,
-         cache=None) -> dict:
+         cache=None, waarnemingen=None) -> dict:
+    """`waarnemingen` op None laat de metingen van vandaag ophalen; een dict
+    (ook een lege) wordt gebruikt zoals hij is. Dat tweede is wat de zelftest
+    doet: die hoort offline te draaien."""
     gekoppeld, unmapped = [], []
     for ruw in posities_ruw:
         size = _getal(_pak(ruw, "size")[0])
@@ -1015,7 +1052,23 @@ def bouw(posities_ruw: list, params: dict, instap: dict, wallet: str,
             continue
         open_posities.append(p)
 
-    cache = cache or ModelCache(params)
+    if cache is None:
+        # Wat er vandaag al gemeten is, alleen voor de steden waar wat open
+        # staat: dat scheelt tientallen verzoeken ten opzichte van alle 49. Valt
+        # het om, dan blijft alles onvoorwaardelijk doorrekenen — hetzelfde
+        # gedrag als voor de conditionering, dus een gemiste meting kost hooguit
+        # scherpte en nooit een licht.
+        wn = waarnemingen if waarnemingen is not None else {}
+        keys = {p["key"] for p in open_posities}
+        if waarnemingen is None and keys:
+            try:
+                wn = W.haal_vandaag([s for s in weer.STEDEN if s["key"] in keys])
+                print(f"  waarnemingen van vandaag: {len(wn)} van "
+                      f"{len(keys)} steden met posities")
+            except Exception as ex:                # noqa: BLE001
+                print(f"  waarnemingen mislukt ({ex}); "
+                      "kansen blijven onvoorwaardelijk")
+        cache = ModelCache(params, wn)
     rijen = [beoordeel(p, cache, instap) for p in open_posities]
     # Binnen een kleur op de klok die telt: tot de piek, en pas als die
     # ontbreekt tot de sluiting.

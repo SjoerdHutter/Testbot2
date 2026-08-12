@@ -916,8 +916,18 @@ const CONFIG = {"nws_gewicht": 0.25, "steden": [{"key": "NYC", "naam": "New York
         return new Promise(function (res) { setTimeout(res, 2500); }).then(function () { return poging(rest - 1); });
       });
     }
-    /* Geeft {max: {dag: waarde}, min: {dag: waarde}}. Het minimum komt uit
-       dezelfde waarnemingsreeks, dus het kost geen tweede aanroep. */
+    /* Geeft {max: {dag: waarde}, min: {dag: waarde}, lopend: {...}}. Het
+       minimum komt uit dezelfde waarnemingsreeks, dus het kost geen tweede
+       aanroep.
+
+       `max` en `min` bevatten alleen afgeronde dagen: te dun of afgekapt telt
+       niet mee, want daar wordt de voorspelling tegen afgerekend en een halve
+       dag geeft dan een fout die er niet is.
+
+       `lopend` is juist die weggegooide dag \u2014 de lokale dag van nu, hoe dun ook.
+       Voor de controle is dat waardeloos, voor de kansen per temperatuurvak is
+       het het belangrijkste getal dat er is: het dagmaximum kan niet lager
+       uitvallen dan wat er al gemeten is. Zie weerbot-modellen/polymarkt.js. */
     return poging(2).then(function (tekst) {
       const per = {};
       tekst.split("\n").forEach(function (regel) {
@@ -928,18 +938,26 @@ const CONFIG = {"nws_gewicht": 0.25, "steden": [{"key": "NYC", "naam": "New York
         if (isNaN(tv)) return;
         const dag = d[1].slice(0, 10);
         const uur = parseInt(d[1].slice(11, 13), 10) || 0;
-        const e = per[dag] = per[dag] || { maxf: -999, minf: 999, n: 0, uur: 0 };
+        const minuut = parseInt(d[1].slice(14, 16), 10) || 0;
+        const e = per[dag] = per[dag] || { maxf: -999, minf: 999, n: 0, uur: 0, tijd: 0 };
         e.n++; if (uur > e.uur) e.uur = uur;
+        if (uur + minuut / 60 > e.tijd) e.tijd = uur + minuut / 60;
         if (tv > e.maxf) e.maxf = tv;
         if (tv < e.minf) e.minf = tv;
       });
-      const uit = { max: {}, min: {} };
+      const uit = { max: {}, min: {}, lopend: null };
       const om = function (f) { return (s.eenheid === "\u00B0F") ? f : (f - 32) * 5 / 9; };
       for (const dag in per) {
         const e = per[dag];
         if (e.n < 8 || e.uur < 18) continue;   // te dunne of afgekapte dag
         uit.max[dag] = om(e.maxf);
         uit.min[dag] = om(e.minf);
+      }
+      const vandaag = isoInTz(s.tz, 0);
+      if (per[vandaag]) {
+        const e = per[vandaag];
+        uit.lopend = { datum: vandaag, max: om(e.maxf), min: om(e.minf),
+                       n: e.n, uur: e.tijd };
       }
       return uit;
     });
@@ -1429,16 +1447,21 @@ const CONFIG = {"nws_gewicht": 0.25, "steden": [{"key": "NYC", "naam": "New York
     if (!tijden.length || !reeksen.length) return {};
     const perDag = {};
     tijden.forEach(function (ts, idx) {
+      /* Elk model houdt zijn eigen plek in vals, met null waar het dit uur
+         mist. Compacteren per uur schoof de modellen in elkaar: vals[m] was
+         dan het ene uur ecmwf en het andere uur gfs, en de spreiding
+         hieronder rekende een argmax uit over een reeks die geen enkel
+         model is. */
       const vals = [];
+      let som = 0, n = 0;
       reeksen.forEach(function (r) {
         const x = r[idx];
-        if (x !== null && x !== undefined) vals.push(x);
+        if (x === null || x === undefined) { vals.push(null); }
+        else { vals.push(x); som += x; n++; }
       });
-      if (!vals.length) return;
-      let som = 0;
-      vals.forEach(function (x) { som += x; });
+      if (!n) return;
       (perDag[ts.slice(0, 10)] = perDag[ts.slice(0, 10)] || [])
-        .push({ uur: parseInt(ts.slice(11, 13), 10), gem: som / vals.length, vals: vals });
+        .push({ uur: parseInt(ts.slice(11, 13), 10), gem: som / n, vals: vals });
     });
     const uit = {};
     for (const dag in perDag) {
@@ -1446,18 +1469,17 @@ const CONFIG = {"nws_gewicht": 0.25, "steden": [{"key": "NYC", "naam": "New York
       if (rij.length < 6) continue;          // te weinig uren, geen betrouwbare piek
       let beste = rij[0];
       rij.forEach(function (x) { if (x.gem > beste.gem) beste = x; });
-      let aantal = 0;
-      rij.forEach(function (x) { aantal = Math.max(aantal, x.vals.length); });
       const arg = [];
-      for (let m = 0; m < aantal; m++) {
+      for (let m = 0; m < reeksen.length; m++) {
         let bu = null, bv = null;
         rij.forEach(function (x) {
-          if (x.vals.length > m && (bv === null || x.vals[m] > bv)) { bv = x.vals[m]; bu = x.uur; }
+          if (x.vals[m] !== null && (bv === null || x.vals[m] > bv)) { bv = x.vals[m]; bu = x.uur; }
         });
         if (bu !== null) arg.push(bu);
       }
       uit[dag] = { uur: beste.uur,
-                   lo: Math.min.apply(null, arg), hi: Math.max.apply(null, arg) };
+                   lo: arg.length ? Math.min.apply(null, arg) : beste.uur,
+                   hi: arg.length ? Math.max.apply(null, arg) : beste.uur };
     }
     return uit;
   }
@@ -1998,9 +2020,14 @@ const CONFIG = {"nws_gewicht": 0.25, "steden": [{"key": "NYC", "naam": "New York
       }).then(function (u) { return u.json; }).catch(function () { return null; });
 
     const st = metarVan(s);
+    /* De eindgrens loopt twee dagen door voorbij het verificatievenster in
+       plaats van één. Het venster zelf eindigt gisteren, want alleen afgeronde
+       dagen zijn te controleren; die extra dag haalt de waarnemingen van vandaag
+       mee binnen, waar de kansen per temperatuurvak op conditioneren. Het is
+       hetzelfde verzoek, alleen een dag ruimer. */
     const actP = (st
       ? haalMetarActuals(s, st, new Date(Date.parse(begin + "T12:00:00Z")),
-                                new Date(Date.parse(eind + "T12:00:00Z") + 86400000))
+                                new Date(Date.parse(eind + "T12:00:00Z") + 2 * 86400000))
           .then(function (a) { return { act: a, bron: "station " + st }; })
           .catch(function () {
             return haalEra5Actuals(s, new Date(Date.parse(begin + "T12:00:00Z")),
@@ -2012,6 +2039,11 @@ const CONFIG = {"nws_gewicht": 0.25, "steden": [{"key": "NYC", "naam": "New York
           .then(function (a) { return { act: a, bron: "ERA5" }; }));
 
     return Promise.all([prevP, histP, actP]).then(function (u) {
+      /* De lopende dag doorgeven aan het marktvenster. Dat de controle zelf hem
+         niet gebruikt is precies de reden dat hij hier apart staat. */
+      if (window.WeerbotMarkt && window.WeerbotMarkt.zetMeting) {
+        window.WeerbotMarkt.zetMeting(s.key, u[2].act.lopend);
+      }
       const act = u[2].act.max;
       const fc = { 0: histUit(u[1]), 1: prevUit(u[0], 1), 2: prevUit(u[0], 2) };
 
