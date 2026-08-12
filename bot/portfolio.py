@@ -142,8 +142,11 @@ BESLIST_HOOG = 0.98
 # op de drie vakken en zegt hij niets meer; bij 20pp is het ongeveer een op de
 # acht.
 #
-# Dit raakt het stoplicht niet: dat blijft in graden staan. Het is een vlag
-# naast edge_now, zodat die kolom in dit venster niet als winst leest.
+# Sinds Kaapstad 11 augustus 2026 waardeert de vlag het stoplicht ook af als
+# het model dicht op de piek een edge claimt die de markt niet ziet: groen
+# wordt oranje, en na de piek rood. Toen bleef een dag-0 positie groen staan
+# (en werd zelfs vergroot) terwijl de markt de al gemeten temperatuur zag en
+# het model er 3° naast zat. Zie markeer_markt.
 MARKT_VENSTER_UREN = 12.0
 MARKT_VERSCHIL_PP = 20.0
 
@@ -155,7 +158,11 @@ FETCH_PAUZE = 10.0       # seconden, oplopend per poging
 # Steden zonder betrouwbare biaskalibratie: het Open-Meteo raster zit er op de
 # post waarop Polymarket afwikkelt ongeveer 2 °C naast. Het stoplicht kan daar
 # een zekerheid suggereren die het niet waarmaakt, dus zetten we het erbij.
-HOGE_ONZEKERHEID = {"TYO", "SIN"}
+# CPT hoort er ook bij: het station op Kaapstad Internationaal loopt in het
+# winterhalfjaar dikstaartig weg van het raster (fouten van -6° tot +5° binnen
+# een maand, augustus 2026), en de modellen zien die lokale uitschieters samen
+# niet aankomen.
+HOGE_ONZEKERHEID = {"TYO", "SIN", "CPT"}
 
 # Zie het commentaarblok bovenaan: kandidaatnamen, nog niet tegen een echte
 # respons gelegd. Alleen deze tabel hoeft bij een afwijking aangepast te worden.
@@ -455,6 +462,7 @@ class ModelCache:
         self._per_stad: dict = {}     # key -> leden of Exception
         self._per_dag: dict = {}      # (key, datum, soort) -> beeld of None
         self._pieken: dict = {}       # key -> {datum: {uur, lo, hi}}
+        self._gemeten: dict = {}      # key -> al gemeten dagmax vandaag of None
 
     def _leden(self, key: str):
         """De ensembleleden van een stad, met herkansingen.
@@ -507,6 +515,20 @@ class ModelCache:
                             time.sleep(FETCH_PAUZE * (poging + 1))
         return (self._pieken[key] or {}).get(datum)
 
+    def gemeten_max(self, key: str):
+        """De al gemeten dagmax van vandaag op het resolutiestation, of None.
+        Eén fetch per stad; mislukt hij, dan rekent alles zonder grens door."""
+        if key not in self._gemeten:
+            stad = weer.STAD_OP_KEY.get(key)
+            waarde = None
+            if stad:
+                try:
+                    waarde = weer.gemeten_max_vandaag(stad)
+                except Exception:                  # noqa: BLE001
+                    waarde = None
+            self._gemeten[key] = waarde
+        return self._gemeten[key]
+
     def beeld(self, key: str, datum: str, soort: str):
         """De verwachting en de 80%-band van nu, in de eenheid van de markt.
         Geeft (beeld, fout): precies een van de twee is gevuld."""
@@ -535,6 +557,12 @@ class ModelCache:
         kort = S.kort_map(stat["model_gem"])
         if soort == "max":
             eigen = S.dag_max(kort, stat, hp)
+            if lead <= 0:
+                # De al gemeten dagmax is een harde ondergrens voor vandaag:
+                # zie pas_ondergrens_toe in signalen.py. Voor het stoplicht is
+                # dit precies het verschil tussen "het model denkt dat het bij
+                # 18° blijft" en "het station heeft al 20° gemeten".
+                S.pas_ondergrens_toe(eigen, self.gemeten_max(key))
         else:
             eigen = S.dag_min(kort, stat, hp, (pr.get("min") or {}).get(str(lead)))
 
@@ -551,9 +579,10 @@ class ModelCache:
 
     def vak_kans(self, beeld: dict, lo, hi):
         """De modelkans op een vak, met dezelfde functie als het signalenlog:
-        bracket_probs in de opdracht, onze_kansen hier."""
-        kansen = S.onze_kansen([{"lo": lo, "hi": hi}], beeld["eigen"],
-                               beeld["markt_eenheid"], beeld["app_eenheid"])
+        kansen_van verwerkt de gemeten ondergrens van dag 0 en is daarbuiten
+        exact onze_kansen."""
+        kansen = S.kansen_van([{"lo": lo, "hi": hi}], beeld["eigen"],
+                              beeld["markt_eenheid"], beeld["app_eenheid"])
         return kansen[0] if kansen else None
 
 
@@ -900,16 +929,30 @@ def markeer_markt(rij: dict, uren) -> None:
     85% dichter bij de uitkomst dan het model. Ontbreekt het piekuur, dan komt
     hier de tijd tot sluiting binnen; die grens is grover maar dezelfde orde.
 
-    Staat bewust los van het stoplicht en verandert de kleur niet: het alarm
-    blijft in graden. Dit gaat over de kolom edge, die zo'n verschil als kans
-    presenteert terwijl het in dit venster meestal het model is dat ernaast
-    zit."""
+    Claimt het model in dit venster een edge die de markt niet ziet (edge_now
+    positief), dan gaat het stoplicht ook omlaag: groen wordt oranje, en na de
+    piek rood. In dit venster kijkt de markt naar de al gemeten temperatuur en
+    is een grote claim van het model vaker een modelfout dan een kans; op 11
+    augustus 2026 bleef een dag-0 positie op Kaapstad groen staan terwijl het
+    model er 3° naast zat. Prijst de markt de positie juist hóger dan het model
+    (edge_now negatief), dan blijft de kleur staan: het model is dan hooguit te
+    somber, en daar loopt niets gevaar."""
     edge = rij["edge_now"]
     if edge is None or uren is None or uren > MARKT_VENSTER_UREN:
         return
     if abs(edge) <= MARKT_VERSCHIL_PP:
         return
     rij["market_disagrees"] = True
+    if edge > 0:
+        if uren < 0 and rij.get("light") in ("green", "amber"):
+            rij["light"] = "red"
+            rij["reason"] += (" · afgewaardeerd: de piek is voorbij en de markt "
+                              "ziet de uitkomst al, maar prijst de positie "
+                              f"{edge:.0f}pp onder het model")
+        elif rij.get("light") == "green":
+            rij["light"] = "amber"
+            rij["reason"] += (" · afgewaardeerd: dicht op de piek claimt het "
+                              f"model {edge:.0f}pp meer dan de markt betaalt")
     # de prijs van jouw kant is de kans die de markt jouw positie geeft
     markt = rij["current_bid"]
     # Hoe dichter op de piek, hoe groter het gemeten voordeel van de markt; na

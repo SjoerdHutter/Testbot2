@@ -486,12 +486,17 @@ class OnlineRidge:
     0,5^(dagen/halfwaarde) krimpen), dus de fit is O(1) per dag. Features worden
     intern gestandaardiseerd zodat alpha voor elke feature hetzelfde betekent:
     een coefficient wordt met factor Sw/(Sw+alpha) naar nul getrokken, precies
-    zoals de oude krimp van b richting 1."""
+    zoals de oude krimp van b richting 1.
 
-    def __init__(self, k: int, half: float, alpha: float):
+    klem_nul: feature-indexen waarvan de coefficient nooit negatief mag worden;
+    valt hij negatief uit, dan gaat hij naar nul en schuift het intercept mee.
+    Zelfde idee als de klem op g in g_fit."""
+
+    def __init__(self, k: int, half: float, alpha: float, klem_nul=()):
         self.k = k
         self.half = half
         self.alpha = alpha
+        self.klem_nul = tuple(klem_nul)
         self.M = [[0.0] * (k + 1) for _ in range(k + 1)]   # [1, x] x [1, x]
         self.v = [0.0] * (k + 1)                           # [1, x] * y
         self.n = 0
@@ -536,6 +541,9 @@ class OnlineRidge:
         if opl is None:
             return None
         coef = [opl[i] / sd[i] for i in range(k)]
+        for i in self.klem_nul:
+            if coef[i] < 0:
+                coef[i] = 0.0
         return ybar - sum(coef[i] * m[i] for i in range(k)), coef
 
     def voorspel(self, x) -> float:
@@ -685,6 +693,15 @@ def _banden(records: list, rez: list, spreid: list) -> dict:
         uit["qz10"] = round(gewogen_kwantiel(zp, 0.10), 3)
         uit["qz90"] = round(gewogen_kwantiel(zp, 0.90), 3)
         uit["s_gem"] = round(gewogen_gem(sps), 2) if sps else None
+        # De vloer onder de spreidingsband. Sigma volgt de spreiding tussen de
+        # modellen, maar modellen die het met elkaar eens zijn hebben daarmee
+        # nog geen gelijk: ze delen dezelfde blinde vlek voor lokale effecten
+        # op het station (Kaapstad, 11 augustus 2026: spreiding 0,45° en dus
+        # een band van ±0,85°, terwijl de dagfouten die maand een spreiding
+        # van bijna 3° hadden). De recente gewogen |restfout| is de maat die
+        # dat wel ziet; gedeeld door E|N(0,1)| = sqrt(2/pi) is het een sigma.
+        abs_p = [(ewma_gewicht(ref - o), abs(r)) for o, r, _ in klaar]
+        uit["sig_vloer"] = round(gewogen_gem(abs_p) / 0.7978845608028654, 2)
     return uit
 
 
@@ -709,7 +726,13 @@ def walk_forward(records: list, lag_dagen: int = LAG_DAGEN) -> dict:
     fouten_b, fouten_n, fouten_k = [], [], []
     yhat_per_dag = {}
     laatste = {"gew": None, "ab": (0.0, 1.0)}
-    kern = OnlineRidge(len(KERN_FEATURES), HALFWAARDE_KERN, ALPHA_KERN)
+    # De lagcoefficient mag niet negatief worden: een negatieve lag betekent
+    # "we zaten er recent te laag onder, dus voorspel nog lager" en dat is bij
+    # een aanhoudende stationsbias precies verkeerd om (Kaapstad had -0,21 op
+    # h0 en -1,15 op h1 staan toen de fout van 11 augustus 2026 viel). De oude
+    # g-term had die klem al; de kern hoort hem ook te hebben.
+    kern = OnlineRidge(len(KERN_FEATURES), HALFWAARDE_KERN, ALPHA_KERN,
+                       klem_nul=(KERN_FEATURES.index("lag"),))
     resid_kern: dict = {}   # ordinaal -> restfout van de kern
 
     def lag_index(t):
@@ -1046,7 +1069,8 @@ def run(dagen: int = 240):
         for r in resultaat.values():
             for h in ("0", "1", "2"):
                 if h in r:
-                    for veld in ("qz10", "qz90", "sig_c", "sig_d", "s_gem"):
+                    for veld in ("qz10", "qz90", "sig_c", "sig_d", "s_gem",
+                                 "sig_vloer"):
                         r[h].pop(veld, None)
 
     # ── Rapport ──

@@ -973,7 +973,9 @@ const CONFIG = {"nws_gewicht": 0.25, "steden": [{"key": "NYC", "naam": "New York
     const spreid = new Array(n), sigA = new Array(n);
     const fouten = [], foutenK = [], rest = [], dekk = [];
     let laatsteG = null, laatsteAB = [0, 1];
-    const kern = maakKern(KERN_FEATURES.length, KAL.halfKern, KAL.alphaKern);
+    // de lagcoefficient nooit negatief: zelfde klem als in kalibratie.py
+    const kern = maakKern(KERN_FEATURES.length, KAL.halfKern, KAL.alphaKern,
+                          [KERN_FEATURES.indexOf("lag")]);
     const residK = {};
 
     function lagIdx(t) {
@@ -1149,6 +1151,13 @@ const CONFIG = {"nws_gewicht": 0.25, "steden": [{"key": "NYC", "naam": "New York
           uit2.qz10 = Math.round(wKwant2(zp, 0.10) * facS * 1000) / 1000;
           uit2.qz90 = Math.round(wKwant2(zp, 0.90) * facS * 1000) / 1000;
           uit2.s_gem = sps.length ? Math.round(wGem2(sps) * 100) / 100 : 0;
+          /* De vloer onder de spreidingsband, zoals _banden in kalibratie.py:
+             de recente gewogen |restfout| gedeeld door E|N(0,1)| = sqrt(2/pi).
+             Eensgezinde modellen maken de spreiding klein, maar niet de fout. */
+          const absP = klaar.map(function (r2) {
+            return [ewmaW(vandaagO - r2[0]), Math.abs(r2[1])];
+          });
+          uit2.sig_vloer = Math.round(wGem2(absP) / 0.7978845608028654 * 100) / 100;
         }
       }
     }
@@ -1524,7 +1533,9 @@ const CONFIG = {"nws_gewicht": 0.25, "steden": [{"key": "NYC", "naam": "New York
           bLo = hp.res_q10; bHi = hp.res_q90;
           if (hp.qz10 !== undefined && hp.sig_c !== undefined) {
             const sp = (sLive !== null ? sLive : (hp.s_gem || 0));
-            const sig = Math.max(0.2, hp.sig_c + hp.sig_d * sp);
+            /* sig_vloer: ondergrens uit de recente |restfouten|. Eensgezinde
+               modellen maken de spreiding klein, maar niet de fout. */
+            const sig = Math.max(0.2, hp.sig_c + hp.sig_d * sp, hp.sig_vloer || 0);
             bLo = hp.qz10 * sig; bHi = hp.qz90 * sig;
           }
           /* Lokale bandfactor: de globale spreidingsband dekt gemiddeld goed af
@@ -1821,8 +1832,11 @@ const CONFIG = {"nws_gewicht": 0.25, "steden": [{"key": "NYC", "naam": "New York
   /* Gewogen kleinste kwadraten met EWMA-vergeten en ridge-straf. De sommen
      krimpen elke nieuwe dag met 0,5^(dagen/halfwaarde), dus de fit kost O(1)
      per dag. Features gaan gestandaardiseerd de straf in, zodat alpha voor
-     elke feature hetzelfde betekent. */
-  function maakKern(k, half, alpha) {
+     elke feature hetzelfde betekent. klemNul: feature-indexen waarvan de
+     coefficient nooit negatief mag worden (spiegel van klem_nul in
+     kalibratie.py); valt hij negatief uit, dan gaat hij naar nul en schuift
+     het intercept mee. */
+  function maakKern(k, half, alpha, klemNul) {
     const M = [], v = [];
     for (let i = 0; i <= k; i++) { M.push(new Array(k + 1).fill(0)); v.push(0); }
     let n = 0, dag = null;
@@ -1867,6 +1881,7 @@ const CONFIG = {"nws_gewicht": 0.25, "steden": [{"key": "NYC", "naam": "New York
         const opl = losOp(A, rhs);
         if (!opl) return null;
         const coef = opl.map(function (x, i) { return x / sd[i]; });
+        (klemNul || []).forEach(function (i) { if (coef[i] < 0) coef[i] = 0; });
         let a = ybar;
         for (let i = 0; i < k; i++) a -= coef[i] * m[i];
         return [a, coef];
@@ -2373,9 +2388,13 @@ const CONFIG = {"nws_gewicht": 0.25, "steden": [{"key": "NYC", "naam": "New York
       }
       let b10 = h1.res_q10, b90 = h1.res_q90, bandNoot = "";
       if (h1.qz10 !== undefined && h1.sig_c !== undefined) {
-        const sigT = Math.max(0.2, h1.sig_c + h1.sig_d * (h1.s_gem || 0));
+        const sigT = Math.max(0.2, h1.sig_c + h1.sig_d * (h1.s_gem || 0),
+                              h1.sig_vloer || 0);
         b10 = h1.qz10 * sigT; b90 = h1.qz90 * sigT;
         bandNoot = " \u00B7 beweegt mee met de modelspreiding";
+        if (h1.sig_vloer && h1.sig_vloer >= h1.sig_c + h1.sig_d * (h1.s_gem || 0)) {
+          bandNoot += " \u00B7 op de foutvloer " + nl(h1.sig_vloer, 2) + "\u00B0";
+        }
       }
       if (h1.band_lokaal) {
         b10 *= h1.band_lokaal; b90 *= h1.band_lokaal;

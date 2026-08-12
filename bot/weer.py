@@ -289,6 +289,26 @@ def fetch_station_maxen(station: str, tznaam: str, d1: date, d2: date) -> dict:
             e["minf"] = t
     return per_dag
 
+
+def gemeten_max_vandaag(stad: dict):
+    """De tot nu toe gemeten dagmax van vandaag (lokale kalenderdag) op het
+    resolutiestation, in de eenheid van de stad, of None zonder bruikbare data.
+
+    Het dagmaximum kan alleen nog stijgen, dus deze waarde is een harde
+    ondergrens voor de verdeling van dag 0. Op 11 augustus 2026 stond de
+    verwachting voor Kaapstad midden op de middag nog op 18,2° terwijl het
+    station al 20° had gemeten; deze grens had die kansen toen al naar de
+    werkelijkheid getrokken. Alleen voor steden die op het METAR-archief
+    afrekenen (bron "iem"): voor de andere bronnen is er geen live reeks."""
+    if stad.get("bron", "iem") != "iem":
+        return None
+    vandaag = vandaag_in(stad["tz"])
+    ruw = fetch_station_maxen(stad["station"], stad["tz"], vandaag, vandaag)
+    e = ruw.get(vandaag.isoformat())
+    if not e or e["n"] < 1:
+        return None
+    return e["maxf"] if stad["eenheid"] == "F" else c_van_f(e["maxf"])
+
 # ── CSV opslag ────────────────────────────────────────────────────────────────
 
 def laad_rijen() -> dict:

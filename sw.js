@@ -12,7 +12,7 @@ const VOORVOEGSEL = "weerbot2-";
    nummer; --zet werkt hem bij. Onthouden werkte niet: tussen v9 en v10 ging
    portefeuille.html vier keer de deur uit terwijl het nummer bleef staan, en
    bezoekers hielden de oude pagina zonder dat daar iets aan te zien was. */
-const VERSIE = VOORVOEGSEL + "v10-78a1baf2";
+const VERSIE = VOORVOEGSEL + "v10-b0ba9d18";
 const SCHIL = ["./", "./index.html", "./portefeuille.html", "./manifest.webmanifest", "./app_params.js", "./weerbot-modellen/polymarkt.js", "./weerbot-modellen/weerbot-ml.js", "./weerbot-modellen/weerbot-ml-koppel.js", "./weerbot-modellen/modellen/modellen.json", "./icon-192.png", "./icon-512.png", "./apple-touch-icon.png"];
 /* Gegevens, geen schil: hier hoort de verse versie te komen, niet de bewaarde.
    portfolio.json wordt vier keer per dag herschreven en is het enige dat het

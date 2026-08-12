@@ -185,6 +185,99 @@ def onze_kansen(vakken: list, dag: dict, markt_eenheid, app_eenheid):
     return uit
 
 
+# ── De al gemeten dagmax als ondergrens (dag 0) ───────────────────────────────
+# Het dagmaximum kan alleen nog stijgen, dus zodra het station iets gemeten
+# heeft is dat een harde ondergrens voor de verdeling. Zonder die grens blijft
+# het model kansen geven aan uitkomsten die al onmogelijk zijn: op 11 augustus
+# 2026 gaf het voor Kaapstad om 14:34 lokale tijd nog 53% aan 18° terwijl het
+# station al 20° had gemeten. De markt zag dat wel; het model hoort het ook te
+# zien. De afknotting staat naast onze_kansen in plaats van erin, zodat die
+# functie het exacte spiegelbeeld van onzeKansen in polymarkt.js blijft.
+
+_Z80 = 1.2815515655446004
+
+
+def _phi_dicht(z: float) -> float:
+    """Standaardnormale dichtheid, met dezelfde constante als phi hierboven."""
+    return 0.3989422804014327 * math.exp(-z * z / 2)
+
+
+def _phi_inv(p: float) -> float:
+    """Inverse van phi, via bisectie op phi zelf: zo blijven kwantielen en
+    kansen op exact dezelfde benadering van de normale verdeling rekenen."""
+    lo, hi = -8.0, 8.0
+    for _ in range(60):
+        mid = (lo + hi) / 2
+        if phi(mid) < p:
+            lo = mid
+        else:
+            hi = mid
+    return (lo + hi) / 2
+
+
+def pas_ondergrens_toe(dag: dict, waarde) -> None:
+    """Knot de verdeling van een dag-0 maximum af op de al gemeten dagmax
+    (zelfde eenheid als de dag zelf). De onderliggende normale verdeling blijft
+    in basis_mu/basis_sigma staan voor kansen_van; verwachting, p10 en p90
+    worden de afgeknotte varianten zodat logboek, stoplicht en strategie A
+    dezelfde verdeling zien als de kansen."""
+    if waarde is None or not dag:
+        return
+    mu, p10, p90 = dag.get("verwachting"), dag.get("p10"), dag.get("p90")
+    if mu is None or p10 is None or p90 is None:
+        return
+    sigma = max((p90 - p10) / (2 * _Z80), 0.05)
+    dag["ondergrens"] = waarde
+    dag["basis_mu"] = mu
+    dag["basis_sigma"] = sigma
+    alfa = (waarde - mu) / sigma
+    p_boven = 1 - phi(alfa)
+    if p_boven < 1e-6:
+        # De gemeten waarde ligt boven vrijwel de hele verdeling: alles wat er
+        # nog toe doet is de waarde zelf.
+        dag["verwachting"] = dag["p10"] = dag["p90"] = waarde
+        return
+    dag["verwachting"] = mu + sigma * _phi_dicht(alfa) / p_boven
+    dag["p10"] = mu + sigma * _phi_inv(phi(alfa) + 0.1 * p_boven)
+    dag["p90"] = mu + sigma * _phi_inv(phi(alfa) + 0.9 * p_boven)
+
+
+def kansen_van(vakken: list, dag: dict, markt_eenheid, app_eenheid):
+    """De kans per vak, met de ondergrens verwerkt zodra die er is; zonder
+    ondergrens exact onze_kansen. Alle massa onder de gemeten dagmax gaat naar
+    nul en de rest wordt herschaald: een voorwaardelijke kans, geen schuif."""
+    if not dag or dag.get("ondergrens") is None:
+        return onze_kansen(vakken, dag, markt_eenheid, app_eenheid)
+    if not vakken:
+        return None
+    mu = naar_eenheid(dag["basis_mu"], app_eenheid, markt_eenheid)
+    sigma = delta_naar(dag["basis_sigma"], app_eenheid, markt_eenheid)
+    grens = naar_eenheid(dag["ondergrens"], app_eenheid, markt_eenheid)
+    if mu is None or grens is None:
+        return None
+    if not (sigma > 0.05):
+        sigma = 0.05
+    p_boven = 1 - phi((grens - mu) / sigma)
+    uit = []
+    if p_boven < 1e-9:
+        # Puntmassa op de gemeten waarde: het vak waar die in valt krijgt alles.
+        for b in vakken:
+            onder = b["lo"] is None or grens >= b["lo"] - 0.5
+            boven = b["hi"] is None or grens <= b["hi"] + 0.5
+            uit.append(1.0 if onder and boven else 0.0)
+        return uit
+    for b in vakken:
+        top = math.inf if b["hi"] is None else b["hi"] + 0.5
+        if top <= grens:
+            uit.append(0.0)
+            continue
+        onder = grens if b["lo"] is None else max(b["lo"] - 0.5, grens)
+        boven = 1 if b["hi"] is None else phi((top - mu) / sigma)
+        p = (boven - phi((onder - mu) / sigma)) / p_boven
+        uit.append(max(0, min(1, p)))
+    return uit
+
+
 # ── Markt ophalen ─────────────────────────────────────────────────────────────
 
 def _getal(x):
@@ -326,7 +419,10 @@ def dag_max(kort: dict, stat: dict, hp) -> dict:
         b_lo, b_hi = hp.get("res_q10"), hp.get("res_q90")
         if hp.get("qz10") is not None and hp.get("sig_c") is not None:
             sp = s_live if s_live is not None else (hp.get("s_gem") or 0)
-            sig = max(0.2, hp["sig_c"] + hp["sig_d"] * sp)
+            # sig_vloer is de ondergrens uit de recente |restfouten|: eensgezinde
+            # modellen maken de spreiding klein, maar niet de fout (kalibratie.py).
+            sig = max(0.2, hp["sig_c"] + hp["sig_d"] * sp,
+                      hp.get("sig_vloer") or 0.0)
             b_lo, b_hi = hp["qz10"] * sig, hp["qz90"] * sig
         if b_lo is not None and b_hi is not None:
             if hp.get("band_lokaal"):
@@ -441,8 +537,9 @@ def _tekst(x, dec=None):
 
 
 def rijen_voor_stad(nu: str, stad: dict, leden: dict, markten: dict,
-                    params: dict, nws: dict) -> list:
-    """Alle regels van één stad: per reeks, per doeldag en per vak één."""
+                    params: dict, nws: dict, gemeten: dict = None) -> list:
+    """Alle regels van één stad: per reeks, per doeldag en per vak één.
+    `gemeten` is {datum: al gemeten dagmax in de app-eenheid} voor dag 0."""
     key = stad["key"]
     app_eenheid = "°F" if stad["eenheid"] == "F" else "°C"
     pr = (params.get("steden") or {}).get(key) or {}
@@ -471,12 +568,14 @@ def rijen_voor_stad(nu: str, stad: dict, leden: dict, markten: dict,
                 if soort == "max":
                     eigen = dag_max(kort, stat, hp)
                     meng_nws(eigen, (nws or {}).get(dag), lead)
+                    if lead == 0:
+                        pas_ondergrens_toe(eigen, (gemeten or {}).get(dag))
                 else:
                     mk = (pr.get("min") or {}).get(str(lead))
                     eigen = dag_min(kort, stat, hp, mk)
 
             markt_eenheid = d["eenheid"] or app_eenheid
-            onze = onze_kansen(d["vakken"], eigen, markt_eenheid, app_eenheid) if eigen else None
+            onze = kansen_van(d["vakken"], eigen, markt_eenheid, app_eenheid) if eigen else None
             merk = beoordeel_a(d, onze, eigen, markt_eenheid, app_eenheid)
 
             # Alles wat in de regel staat is in de eenheid van de markt, zodat
@@ -554,6 +653,34 @@ def run(steden=None, dagen: int = 3, pauze: float = 0.6) -> int:
                 slugs.append(slug_van(stad["key"], datum, soort))
     markten = haal_markten(slugs, pauze)
 
+    # 2b. de al gemeten dagmax van vandaag, per stad met een dag-0 maxmarkt:
+    #     de harde ondergrens voor de verdeling van dag 0. Mislukt het een paar
+    #     keer op rij, dan ligt het archief er vermoedelijk uit en slaan we de
+    #     rest over: zonder grens rekent alles gewoon zoals voorheen.
+    gemeten_per_stad: dict = {}
+    iem_mis = 0
+    for stad in lijst:
+        if stad["key"] not in leden_per_stad or iem_mis >= 3:
+            continue
+        if stad.get("bron", "iem") != "iem":
+            continue          # geen live METAR-reeks voor deze resolutiebron
+        vandaag = weer.vandaag_in(stad["tz"]).isoformat()
+        if slug_van(stad["key"], vandaag, "max") not in markten:
+            continue
+        try:
+            w = weer.gemeten_max_vandaag(stad)
+        except Exception as ex:
+            print(f"  {stad['key']}: gemeten dagmax mislukt ({ex})")
+            w = None
+        if w is None:
+            iem_mis += 1
+        else:
+            iem_mis = 0
+            gemeten_per_stad[stad["key"]] = {vandaag: w}
+        time.sleep(pauze)
+    if iem_mis >= 3:
+        print("  gemeten dagmax: drie missers op rij, de rest overgeslagen")
+
     # 3. de regels.
     rijen, zonder_markt = [], []
     for stad in lijst:
@@ -561,7 +688,8 @@ def run(steden=None, dagen: int = 3, pauze: float = 0.6) -> int:
         if leden is None:
             continue
         deel = rijen_voor_stad(nu, stad, leden, markten, params,
-                               nws_per_stad.get(stad["key"]))
+                               nws_per_stad.get(stad["key"]),
+                               gemeten_per_stad.get(stad["key"]))
         if not deel:
             zonder_markt.append(stad["key"])
         rijen.extend(deel)

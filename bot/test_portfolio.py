@@ -28,8 +28,9 @@ Controleert elf dingen:
             anders het hele modelbeeld van een stad. Blijft het misgaan, dan
             blijft de positie staan met unknown en de reden erbij.
   markt     Dicht op sluiting wordt een groot verschil met de markt gemarkeerd,
-            want daar is de markt gemeten nauwkeuriger dan het model. Het
-            stoplicht blijft daarbij ongemoeid: dat staat in graden.
+            want daar is de markt gemeten nauwkeuriger dan het model. Claimt
+            het model daar een edge die de markt niet ziet, dan gaat het
+            stoplicht ook omlaag: groen naar oranje, na de piek naar rood.
   piek      Het uur van de dagpiek uit de uurcurve, spiegel van piekenUit in
             index.html, en de klok die daaruit volgt. Uren tot sluiting telde
             door tot middernacht terwijl de uitslag er ligt zodra het
@@ -711,7 +712,40 @@ def test_markt_oneens() -> bool:
             print(f"  markt     MISLUKT: reden mist {woord!r}: {r['market_note']}")
             goed = False
 
-    # de vlag mag het stoplicht niet aanraken: dat blijft in graden
+    # De afwaardering (sinds Kaapstad 11 augustus 2026): claimt het model in
+    # het venster een edge die de markt niet ziet, dan gaat groen naar oranje
+    # en na de piek naar rood. Prijst de markt de positie juist hoger dan het
+    # model, dan blijft de kleur staan: daar loopt niets gevaar.
+    def proef_licht(uren, win, bied, licht):
+        rij = {"model_win_prob": win, "current_bid": bied, "fair_value": win,
+               "edge_now": round((win - bied) * 100, 2), "light": licht,
+               "reason": "basis", "market_disagrees": False, "market_note": ""}
+        P.markeer_markt(rij, uren)
+        return rij
+
+    afwaardering = [
+        # (uren tot de piek, modelwinkans, bied, licht voor, licht na)
+        (2.0,  0.84, 0.08, "green", "amber"),   # geclaimde edge, voor de piek
+        (2.0,  0.84, 0.08, "amber", "amber"),   # oranje wordt niet groener
+        (2.0,  0.84, 0.08, "red",   "red"),     # rood blijft rood
+        (-1.0, 0.84, 0.08, "green", "red"),     # piek voorbij: uitslag ligt er
+        (-1.0, 0.84, 0.08, "amber", "red"),
+        (2.0,  0.55, 0.90, "green", "green"),   # markt prijst hoger: blijft
+        (13.0, 0.84, 0.08, "green", "green"),   # buiten het venster
+        (2.0,  0.86, 0.72, "green", "green"),   # verschil onder de drempel
+    ]
+    for uren, win, bied, voor, na in afwaardering:
+        r = proef_licht(uren, win, bied, voor)
+        if r["light"] != na:
+            print(f"  markt     MISLUKT: {uren}u, {voor} -> {r['light']}, "
+                  f"verwacht {na}")
+            goed = False
+        elif na != voor and "afgewaardeerd" not in r["reason"]:
+            print(f"  markt     MISLUKT: de reden noemt de afwaardering niet: "
+                  f"{r['reason']}")
+            goed = False
+
+    # buiten het venster raakt de vlag het stoplicht niet aan
     dag = _dag("SHA", 1)
     ruw = [{"size": 38.3, "avgPrice": 0.70, "curPrice": 0.08, "outcome": "No",
             "slug": _slug("SHA", dag, "28c"), "title": "28°C"}]
@@ -719,7 +753,7 @@ def test_markt_oneens() -> bool:
     r = (uit["positions"] or [{}])[0]
     zonder = P.stoplicht(r.get("d"), r.get("b"), r.get("model_win_prob"),
                          r.get("delta_prob"), r.get("d") == 0, False)
-    if r.get("light") != zonder[0]:
+    if not r.get("market_disagrees") and r.get("light") != zonder[0]:
         print(f"  markt     MISLUKT: het stoplicht is verschoven naar {r.get('light')}")
         goed = False
     if "market_disagrees" not in r or "market_note" not in r:
@@ -731,7 +765,8 @@ def test_markt_oneens() -> bool:
 
     if goed:
         print(f"  markt     ok: {len(gevallen)} gevallen rond {P.MARKT_VENSTER_UREN:.0f}u "
-              f"en {P.MARKT_VERSCHIL_PP:.0f}pp, stoplicht blijft ongemoeid")
+              f"en {P.MARKT_VERSCHIL_PP:.0f}pp, {len(afwaardering)} rond de "
+              f"afwaardering van het stoplicht")
     return goed
 
 
