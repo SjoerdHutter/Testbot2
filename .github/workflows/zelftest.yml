@@ -44,3 +44,14 @@ jobs:
         # Draait offline: het modelbeeld is in de test verzonnen, zodat de
         # kleurregels los van Open-Meteo en Polymarket toetsbaar blijven.
         run: python bot/test_portfolio.py
+
+      - name: Intraday-conditionering testen
+        # Bewaakt vooral dat een reeks zonder waarneming exact rekent zoals
+        # daarvoor: de conditionering mag lead 1 en 2 met geen cijfer raken.
+        run: python bot/test_waarneming.py
+
+      - name: Inzetregel testen
+        run: python bot/test_inzet.py
+
+      - name: TAF-laag testen
+        run: python bot/test_taf.py

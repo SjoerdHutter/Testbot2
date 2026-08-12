@@ -39,6 +39,7 @@ sys.path.insert(0, str(Path(__file__).resolve().parent))
 
 import kalibratie as K   # noqa: E402
 import signalen as S     # noqa: E402
+import waarneming as W   # noqa: E402
 
 WORTEL = Path(__file__).resolve().parent.parent
 BUNDEL = WORTEL / "weerbot-modellen" / "features_alle.csv"
@@ -301,12 +302,22 @@ def verzin_vakken(rnd) -> dict:
     labels.append(f"{grens + 1}{eenheid} or higher")
     midden = onder + (grens - onder) * rnd.random()
     breedte = rnd.choice([0.05, 0.4, 1.6, 3.0, 7.5])      # ook de sigma-ondergrens raken
-    return {"labels": labels,
-            "dag": {"verwachting": round(midden + rnd.uniform(-3, 3), 3),
-                    "p10": None, "p90": None},
-            "marktEenheid": eenheid,
-            "appEenheid": eenheid if rnd.random() < 0.7 else ("°C" if fahrenheit else "°F"),
-            "breedte": breedte}
+    g = {"labels": labels,
+         "dag": {"verwachting": round(midden + rnd.uniform(-3, 3), 3),
+                 "p10": None, "p90": None},
+         "marktEenheid": eenheid,
+         "appEenheid": eenheid if rnd.random() < 0.7 else ("°C" if fahrenheit else "°F"),
+         "breedte": breedte,
+         "waarneming": None}
+    # In de helft van de gevallen de conditionering op de meting van vandaag
+    # erbij. De meting ligt met opzet soms ver onder en soms ver boven de
+    # verwachting: alleen dan komen de afkapping, de puntmassa en het geval
+    # "alles al onmogelijk" allemaal langs.
+    if rnd.random() < 0.5:
+        g["waarneming"] = {"m": round(midden + rnd.uniform(-8, 8), 3),
+                           "uur": round(rnd.uniform(0, 23.99), 2),
+                           "soort": "min" if rnd.random() < 0.4 else "max"}
+    return g
 
 
 def test_kans_pariteit() -> bool:
@@ -320,14 +331,20 @@ def test_kans_pariteit() -> bool:
 
     rnd = random.Random(29)
     gevallen = []
-    for _ in range(40):
+    for _ in range(120):
         g = verzin_vakken(rnd)
         half = g.pop("breedte") / 2
         # de band staat in de eenheid van de app, de vakken in die van de markt
         mu_app = g["dag"]["verwachting"]
-        if g["appEenheid"] != g["marktEenheid"]:
+        naar_app = g["appEenheid"] != g["marktEenheid"]
+        if naar_app:
             mu_app = (mu_app - 32) * 5 / 9 if g["appEenheid"] == "°C" else mu_app * 9 / 5 + 32
         g["dag"] = {"verwachting": mu_app, "p10": mu_app - half, "p90": mu_app + half}
+        # de meting staat, net als de band, in de eenheid van de app
+        if g["waarneming"] and naar_app:
+            m = g["waarneming"]["m"]
+            g["waarneming"]["m"] = (m - 32) * 5 / 9 if g["appEenheid"] == "°C" \
+                else m * 9 / 5 + 32
         gevallen.append(g)
 
     script = "\n".join([
@@ -339,7 +356,10 @@ def test_kans_pariteit() -> bool:
         'console.log(JSON.stringify(gevallen.map(function (g) {',
         '  const vakken = g.labels.map(function (l) { return M.vakUit(l); });',
         '  return { vakken: vakken,',
-        '           kansen: M.onzeKansen(vakken, g.dag, g.marktEenheid, g.appEenheid) };',
+        '           kansen: M.onzeKansen(vakken, g.dag, g.marktEenheid,',
+        '                                g.appEenheid, g.waarneming),',
+        '           w: g.waarneming ? M.restFactor(g.waarneming.uur,',
+        '                                          g.waarneming.soort) : null };',
         '})));',
     ])
     try:
@@ -348,23 +368,31 @@ def test_kans_pariteit() -> bool:
         print("  kansen    MISLUKT: node gaf een fout\n" + str(ex))
         return False
 
-    grootste, vakfouten, n = 0.0, 0, 0
+    grootste, vakfouten, n, gecond = 0.0, 0, 0, 0
     for g, uit in zip(gevallen, js):
         vakken = [S.vak_uit(l) for l in g["labels"]]
         for a, b in zip(vakken, uit["vakken"]):
             if (a["lo"], a["hi"], a["eenheid"]) != (b["lo"], b["hi"], b["eenheid"]):
                 vakfouten += 1
-        py = S.onze_kansen(vakken, g["dag"], g["marktEenheid"], g["appEenheid"])
+        py = S.onze_kansen(vakken, g["dag"], g["marktEenheid"], g["appEenheid"],
+                           g["waarneming"])
         if (py is None) != (uit["kansen"] is None):
             vakfouten += 1
             continue
+        if g["waarneming"]:
+            gecond += 1
+            # de restfactor apart, anders zou een fout erin zich in de kansen
+            # kunnen verstoppen achter een tweede fout
+            pw = W.restfactor(g["waarneming"]["uur"], g["waarneming"]["soort"])
+            grootste = max(grootste, abs(pw - uit["w"]))
         for a, b in zip(py or [], uit["kansen"] or []):
             grootste = max(grootste, abs(a - b))
             n += 1
 
     ok = vakfouten == 0 and grootste < 1e-12
     print(f"  kansen    {'ok' if ok else 'MISLUKT'}: grootste verschil "
-          f"python/javascript over {n} vakken is {grootste:.2e}"
+          f"python/javascript over {n} vakken is {grootste:.2e} "
+          f"({gecond} van de {len(gevallen)} met waarneming)"
           + (f", {vakfouten} vakken anders gelezen" if vakfouten else ""))
     return ok
 

@@ -226,16 +226,155 @@
      dat de afrekening in een vak valt. De band is gekalibreerd op de restfout,
      dus dit is de eerlijkste vertaling die de app kan maken; scheve verdelingen
      vangt ze niet. */
-  function onzeKansen(vakken, dag, marktEenheid, appEenheid) {
+  /* ── Wat er vandaag al gemeten is ──
+     Het dagmaximum kan niet lager uitvallen dan wat er om drie uur 's middags al
+     op de meter staat. De markt rekent daarmee en wij deden dat niet: vandaar
+     dat de Brier-score van de markt naar sluiting toe halveert terwijl die van
+     het model blijft staan (zie README.md).
+
+     Met `m` de hoogste meting van vandaag tot nu toe en `R` het maximum over de
+     uren die nog komen is het dagmaximum T = max(m, R), en dus
+
+       F(t) = 0 voor t < m,  anders Phi((t - mu_R) / sig_R)
+
+     Die knik zet elk vak onder `m` op nul en geeft het vak waar `m` in valt
+     vanzelf de puntmassa "de piek is al geweest". Bij de laagstereeks staat
+     alles op zijn kop: T = min(m, R), F(t) = 1 boven `m`.
+
+     De restfactor `w` beschrijft wat er van `R` over is:
+
+       mu_R = mu * w + m * (1 - w)      sig_R = max(sig * w, 0,05)
+
+     W_REST_MAX komt uit logs/signalen.csv: per lokaal uur de sigma die de
+     marktverdeling over de vakken impliceert, gedeeld door die van de ochtend.
+     bot/kalibreer_restfactor.py rekent hem opnieuw uit. W_REST_MIN is niet
+     gemeten maar geredeneerd — het dagminimum valt kort na zonsopgang, en er
+     zijn te weinig laagstereeksen in het logboek om dat te toetsen; de vloer
+     van 0,5 houdt ruimte voor een avond die alsnog onder de ochtend duikt.
+
+     W_DEMPING zet er ruimte omheen:
+
+       w = ruw * (1 + demping * (1 - ruw))
+
+     Waarom dat nodig is: de curve is de onzekerheid van de *markt*, en die is
+     scherper dan de onze om meer redenen dan de meting van vandaag — de markt is
+     in dat venster domweg een beter model. Bovendien zit de ondergrens `m` al in
+     de marktprijzen verwerkt. Wie de volle curve op sigma legt én daarna ook nog
+     afkapt, telt dat deel dubbel en komt scherper uit dan de markt zelf. Ruimer
+     zijn is hier de veilige kant, want inzet.py hangt er een weddenschap aan.
+
+     De vorm is met opzet geen vaste factor. De dubbeltelling zit in de
+     overgangsuren, waar de afkapping het meeste doet: daar is `ruw * (1 - ruw)`
+     op zijn grootst en wordt er het hardst gedempt (om vier uur 's middags van
+     0,26 naar 0,40, tegen 0,26 voor de markt). 's Avonds valt de demping vanzelf
+     weg — dan is de dag voorbij, is 0,06 geen gecensureerde marktmeting meer
+     maar natuurkunde, en zou ophogen naar 0,34 betekenen dat we een afgelopen
+     dag nog open verklaren.
+
+     Omdat ruw tussen 0 en 1 ligt is w >= ruw voor elke demping >= 0. Onze
+     spreiding over de resterende uren is dus per constructie nooit krapper dan
+     die van de markt over de hele dag. Dat is de toets die
+     bot/test_waarneming.py afdwingt, en meteen het argument dat de afkapping
+     geen dubbeltelling kan worden.
+
+     Vanaf een uur of zeventien is de gemeten curve niet meer te vertrouwen: een
+     Polymarket-prijs loopt niet verder dan 0,9995, dus de entropie van een
+     afgerekende reeks komt niet onder een bodem die niets met het weer te maken
+     heeft. Die uren zijn gecensureerd, niet gemeten. Ze zijn ingevuld door de
+     daling van 15 naar 16 (factor 0,7 per uur) door te trekken tot 0,06 — na
+     zonsondergang ligt het dagmaximum vast.
+
+     Deze drie tabellen worden door bot/waarneming.py ingelezen: dit bestand is
+     de bron. */
+  var W_REST_MAX = {
+    0: 1.00, 1: 1.00, 2: 1.00, 3: 1.00, 4: 1.00, 5: 1.00, 6: 1.00, 7: 1.00,
+    8: 1.00, 9: 1.00, 10: 1.00, 11: 0.81, 12: 0.72, 13: 0.68, 14: 0.59,
+    15: 0.38, 16: 0.26, 17: 0.18, 18: 0.12, 19: 0.08, 20: 0.06, 21: 0.06,
+    22: 0.06, 23: 0.06
+  };
+  var W_REST_MIN = {
+    0: 1.00, 1: 1.00, 2: 1.00, 3: 1.00, 4: 1.00, 5: 0.95, 6: 0.80, 7: 0.65,
+    8: 0.55, 9: 0.50, 10: 0.50, 11: 0.50, 12: 0.50, 13: 0.50, 14: 0.50,
+    15: 0.50, 16: 0.50, 17: 0.50, 18: 0.50, 19: 0.50, 20: 0.50, 21: 0.50,
+    22: 0.50, 23: 0.50
+  };
+  var W_DEMPING = 0.7;
+
+  function restFactor(uur, soort) {
+    if (uur === null || uur === undefined) return 1;
+    var tabel = soort === "min" ? W_REST_MIN : W_REST_MAX;
+    var u = Number(uur);
+    if (!(u > 0)) u = 0;
+    if (u > 23) u = 23;
+    var onder = Math.floor(u);
+    var boven = Math.min(23, onder + 1);
+    var deel = u - onder;
+    var ruw = tabel[onder] * (1 - deel) + tabel[boven] * deel;
+    return ruw * (1 + W_DEMPING * (1 - ruw));
+  }
+
+  /* Wat index.html uit de lopende dag van het afrekenstation heeft gehaald, per
+     stad. De app vult dit vanuit verifieerStad — dezelfde METAR-aanroep die de
+     dagelijkse controle toch al doet, alleen een dag ruimer, zodat het geen
+     extra verzoek kost. Blijft het leeg, dan rekent alles onvoorwaardelijk door
+     zoals daarvoor. */
+  var METINGEN = {};
+
+  function zetMeting(key, meting) {
+    if (meting && meting.max !== null && meting.max !== undefined) {
+      METINGEN[key] = meting;
+    } else {
+      delete METINGEN[key];
+    }
+  }
+
+  /* De meting die bij deze reeks hoort, of niets.
+
+     Alleen vandaag telt: voor morgen is er nog niets gemeten. De datum moet
+     kloppen, anders krijgt een dag na middernacht de meting van gisteren mee.
+     En de restfactor rekent met het laatste meetmoment en niet met de klok —
+     valt het station 's middags uit, dan blijft de spreiding staan op wat hij
+     toen was in plaats van dicht te knijpen op een dag die we niet gezien
+     hebben. De ondergrens zelf blijft gelden; die is gemeten, alleen ouder. */
+  function metingVoor(stad, datum, dagIndex, soort) {
+    if (dagIndex !== 0 || !stad) return null;
+    var w = METINGEN[stad.key];
+    if (!w || w.datum !== datum) return null;
+    var m = soort === "min" ? w.min : w.max;
+    if (m === null || m === undefined) return null;
+    return { m: m, uur: w.uur, soort: soort === "min" ? "min" : "max" };
+  }
+
+  /* De kans per vak. Zonder `waarneming` is dit letterlijk de oude functie: een
+     normale verdeling met sigma = (p90 - p10) / (2 × 1,2816), ondergrens 0,05,
+     en de halve-graad randcorrectie. Mét waarneming komt de afkapping erbij. */
+  function onzeKansen(vakken, dag, marktEenheid, appEenheid, waarneming) {
     if (!dag || !vakken.length) return null;
     var mu = naarEenheid(dag.verwachting, appEenheid, marktEenheid);
     var breedte = deltaNaar(dag.p90 - dag.p10, appEenheid, marktEenheid);
     if (mu === null || !(breedte > 0)) return null;
     var sigma = breedte / (2 * 1.2815515655446004);
     if (!(sigma > 0.05)) sigma = 0.05;
+
+    var m = null, soort = "max";
+    if (waarneming && waarneming.m !== null && waarneming.m !== undefined) {
+      m = naarEenheid(waarneming.m, appEenheid, marktEenheid);
+      soort = waarneming.soort === "min" ? "min" : "max";
+      var w = restFactor(waarneming.uur, soort);
+      mu = mu * w + m * (1 - w);
+      sigma = sigma * w;
+      if (!(sigma > 0.05)) sigma = 0.05;
+    }
+    function F(t) {
+      if (m !== null) {
+        if (soort === "min") { if (t > m) return 1; }
+        else if (t < m) return 0;
+      }
+      return Phi((t - mu) / sigma);
+    }
     return vakken.map(function (b) {
-      var boven = b.hi === null ? 1 : Phi((b.hi + 0.5 - mu) / sigma);
-      var onder = b.lo === null ? 0 : Phi((b.lo - 0.5 - mu) / sigma);
+      var boven = b.hi === null ? 1 : F(b.hi + 0.5);
+      var onder = b.lo === null ? 0 : F(b.lo - 0.5);
       return Math.max(0, Math.min(1, boven - onder));
     });
   }
@@ -413,7 +552,9 @@
               if (!d || !d.vakken.length) return;
               var eigen = w.dagen[w.dag.i];
               var marktEenheid = d.eenheid || w.stad.eenheid;
-              var onze = eigen ? onzeKansen(d.vakken, eigen, marktEenheid, w.stad.eenheid) : null;
+              var meting = metingVoor(w.stad, w.dag.datum, w.dag.i, "max");
+              var onze = eigen ? onzeKansen(d.vakken, eigen, marktEenheid,
+                                            w.stad.eenheid, meting) : null;
               var A = beoordeelA(d, onze, eigen, marktEenheid, w.stad.eenheid);
               uit[w.stad.key] = {
                 aantal: A.geschikt.length,
@@ -583,7 +724,10 @@
     var eigen = dag ? (t.soort === "min" ? dag.mn : dag) : null;
     var appEenheid = stad.eenheid;
     var marktEenheid = d.eenheid || appEenheid;
-    var onze = eigen ? onzeKansen(d.vakken, eigen, marktEenheid, appEenheid) : null;
+    var meting = metingVoor(stad, datumVan(stad, dagen, t.dagIndex), t.dagIndex,
+                            t.soort);
+    var onze = eigen ? onzeKansen(d.vakken, eigen, marktEenheid, appEenheid,
+                                  meting) : null;
     var onsMax = onze ? Math.max.apply(null, onze) : null;
     var A = beoordeelA(d, onze, eigen, marktEenheid, appEenheid);
 
@@ -676,6 +820,17 @@
           ? "onze kans komt uit de kale ledenspreiding, die is nog niet geijkt"
           : "onze kans komt uit de verwachting en de gekalibreerde 80%-band")
       : "voor deze dag heeft de app geen voorspelling, dus alleen de marktkansen staan er";
+    /* Of er op de meting van vandaag geconditioneerd is hoort erbij te staan.
+       Een vak op nul omdat het al onmogelijk is leest heel anders dan een vak op
+       nul omdat het model het onwaarschijnlijk vindt, en zonder deze regel is
+       dat verschil niet te zien. */
+    if (onze && meting) {
+      onsNoot += ", en is bijgesteld op de " + nlGetal(
+        naarEenheid(meting.m, appEenheid, marktEenheid)) + marktEenheid +
+        " die vandaag tot " + nlGetal(meting.uur, 0) + " uur op " +
+        veilig(stad.station || "het afrekenstation") + " gemeten is (vakken " +
+        (t.soort === "min" ? "boven" : "onder") + " die waarde kunnen niet meer vallen)";
+    }
 
     return '<div class="markt-sub" style="margin-top:8px">' + veilig(d.titel) +
              (d.gesloten ? " · gesloten" : (d.einde ? " · sluit " + tijdKort(d.einde) : "")) +
@@ -769,6 +924,9 @@
     slugVan: slugVan,
     vakUit: vakUit,
     onzeKansen: onzeKansen,
+    restFactor: restFactor,
+    zetMeting: zetMeting,
+    metingVoor: metingVoor,
     marktGemiddelde: marktGemiddelde,
     beoordeelA: beoordeelA,
     strategie: STRAT_A,

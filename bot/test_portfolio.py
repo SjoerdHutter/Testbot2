@@ -640,7 +640,9 @@ def test_herkansing() -> bool:
         dag = _dag("SHA", 1)
         ruw = [{"size": 19.4, "avgPrice": 0.84, "curPrice": 0.81, "outcome": "No",
                 "slug": _slug("SHA", dag, "28c"), "title": "28°C"}]
-        uit = P.bouw(ruw, {}, {}, "0xtest")
+        # waarnemingen expliciet leeg: deze zelftest hoort offline te draaien,
+        # en zonder dat argument gaat bouw de metingen van vandaag ophalen
+        uit = P.bouw(ruw, {}, {}, "0xtest", waarnemingen={})
         r = (uit["positions"] or [{}])[0]
         if r.get("light") != "unknown":
             print(f"  herkans   MISLUKT: blijvende storing geeft {r.get('light')}")
@@ -895,20 +897,35 @@ def test_reeks() -> bool:
     goed = True
     rij = {"city": "AMS", "date": "2026-08-11", "bracket": "20°C",
            "adj_mean_now": 19.9, "model_prob_now": 0.21, "current_bid": 0.79,
-           "city_bias_used": 0.4, "light": "red", "peak_hour": 15}
+           "city_bias_used": 0.4, "light": "red", "peak_hour": 15,
+           "observed_today": 18.4, "restfactor": 0.4}
     r = P.hist_rij(rij, "2026-08-11T09:00:00+00:00")
     if len(r) != len(P.HIST_KOP):
         print(f"  reeks     MISLUKT: regel telt {len(r)} velden, kop {len(P.HIST_KOP)}")
         goed = False
-    if P.HIST_KOP[-1] != "peak_hour" or r[-1] != 15:
-        print(f"  reeks     MISLUKT: peak_hour staat niet achteraan: "
-              f"{P.HIST_KOP[-1]} / {r[-1]}")
-        goed = False
+    else:
+        # Op naam en niet op positie: welke kolom achteraan staat verschuift bij
+        # elke uitbreiding, maar dat elke waarde onder de juiste naam terechtkomt
+        # moet blijven gelden. Precies dat gaat stuk als iemand een kolom in
+        # HIST_KOP ertussen zet zonder hist_rij mee te verhuizen.
+        op_naam = dict(zip(P.HIST_KOP, r))
+        for kolom, hoort in (("peak_hour", 15), ("observed_today", 18.4),
+                             ("restfactor", 0.4), ("light", "red"),
+                             ("adj_mean_now", 19.9)):
+            if op_naam.get(kolom) != hoort:
+                print(f"  reeks     MISLUKT: {kolom} staat op {op_naam.get(kolom)!r}, "
+                      f"verwacht {hoort!r}")
+                goed = False
 
     # lege waarden worden lege velden, niet de tekst None
-    leeg = P.hist_rij({**rij, "peak_hour": None, "adj_mean_now": None}, "x")
-    if leeg[4] != "" or leeg[-1] != "":
-        print(f"  reeks     MISLUKT: ontbrekende waarden geven {leeg[4]!r} / {leeg[-1]!r}")
+    leeg = dict(zip(P.HIST_KOP, P.hist_rij(
+        {**rij, "peak_hour": None, "adj_mean_now": None,
+         "observed_today": None, "restfactor": None}, "x")))
+    mis = [k for k in ("peak_hour", "adj_mean_now", "observed_today", "restfactor")
+           if leeg[k] != ""]
+    if mis:
+        print(f"  reeks     MISLUKT: ontbrekende waarden geven geen leeg veld: "
+              f"{ {k: leeg[k] for k in mis} }")
         goed = False
 
     # en het bestand in de repo is rechthoekig

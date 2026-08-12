@@ -59,6 +59,14 @@ jobs:
         # meldt het onderaan. Falen doet hij alleen als er geen enkele regel is.
         run: python bot/signalen.py
 
+      - name: TAF loggen
+        # Levert nog geen cijfer aan: TAF_GEWICHT staat op nul tot
+        # kalibratie.leer_taf veertig gematchte dagen heeft. Loggen begint wel
+        # meteen, want zonder reeks valt er later niets te leren. Een station
+        # zonder TAF is geen fout.
+        continue-on-error: true
+        run: python bot/taf.py
+
       # De portefeuille stond hier tussen en draait nu elk uur in een eigen
       # actie (.github/workflows/portefeuille.yml). Vier keer per dag klopt voor
       # het weerbeeld, want ECMWF en GFS draaien zelf elke zes uur, maar niet
@@ -70,9 +78,13 @@ jobs:
         run: |
           git config user.name "weerbot-actie"
           git config user.email "actions@users.noreply.github.com"
-          # Alleen de drie logboeken van deze actie. portfolio.json en
+          # Alleen de vier logboeken van deze actie. portfolio.json en
           # logs/portfolio_history.csv zijn van de actie Portefeuille.
-          git add logs/ensemble_log.csv logs/nws_log.csv logs/signalen.csv
+          # taf_log.csv hoort er expliciet bij: die reeks is het enige wat
+          # kalibratie.leer_taf later heeft om een gewicht op te leren, en
+          # een niet-gecommit logboek is een reeks die nooit begint.
+          git add logs/ensemble_log.csv logs/nws_log.csv logs/signalen.csv \
+                  logs/taf_log.csv
           if git diff --cached --quiet; then
             echo "  geen wijziging"
             exit 0
