@@ -612,18 +612,7 @@ def run(steden=None, dagen: int = 3, pauze: float = 0.6) -> int:
             print(f"  {key}: NWS mislukt ({ex})")
         time.sleep(pauze)
 
-    # 1b. wat er vandaag al gemeten is op het station waarop de markt afrekent.
-    #     Faalt dit, dan valt alles terug op de onvoorwaardelijke kans: dat is
-    #     het gedrag van voor de conditionering, en dus veilig.
-    waarnemingen = {}
-    try:
-        waarnemingen = W.haal_vandaag(
-            [s for s in lijst if s["key"] in leden_per_stad], pauze)
-        print(f"  waarnemingen van vandaag: {len(waarnemingen)} steden")
-    except Exception as ex:
-        print(f"  waarnemingen mislukt ({ex}); kansen blijven onvoorwaardelijk")
-
-    # 1c. de TAF-laag. Alleen nodig voor steden die er in app_params.js een
+    # 1b. de TAF-laag. Alleen nodig voor steden die er in app_params.js een
     #     gewicht voor hebben; zonder gewicht verandert hij niets en is het
     #     verzoek zonde. bot/taf.py logt hem los, elke ronde.
     tafs = {}
@@ -654,6 +643,28 @@ def run(steden=None, dagen: int = 3, pauze: float = 0.6) -> int:
             for soort in ("max", "min"):
                 slugs.append(slug_van(stad["key"], datum, soort))
     markten = haal_markten(slugs, pauze)
+
+    # 2b. wat er vandaag al gemeten is op het station waarop de markt afrekent.
+    #     Faalt dit, dan valt alles terug op de onvoorwaardelijke kans: dat is
+    #     het gedrag van voor de conditionering, en dus veilig.
+    #
+    #     Alleen voor steden met een dag-0 markt, en dus na het ophalen van de
+    #     markten: voor lead 1 en 2 gooit W.voor_stad de meting toch weg, dus
+    #     elders is het een verzoek voor niets. Dat scheelt tijdzones, en juist
+    #     die tellen — IEM bundelt per tijdzone en de meeste steden zitten daar
+    #     als enige in.
+    waarnemingen = {}
+    met_dag0 = [s for s in lijst if s["key"] in leden_per_stad
+                and slug_van(s["key"],
+                             datetime.now(ZoneInfo(s["tz"])).date().isoformat(),
+                             "max") in markten]
+    if met_dag0:
+        try:
+            waarnemingen = W.haal_vandaag(met_dag0, pauze)
+            print(f"  waarnemingen van vandaag: {len(waarnemingen)} van "
+                  f"{len(met_dag0)} steden met een dag-0 markt")
+        except Exception as ex:                    # noqa: BLE001
+            print(f"  waarnemingen mislukt ({ex}); kansen blijven onvoorwaardelijk")
 
     # 3. de regels.
     rijen, zonder_markt = [], []
