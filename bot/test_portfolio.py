@@ -679,11 +679,11 @@ def test_markt_oneens() -> bool:
     liep. Een test die van de klok afhangt bewaakt niets."""
     goed = True
 
-    def proef(uren, win, bied):
+    def proef(uren, win, bied, piek_bekend=True):
         rij = {"model_win_prob": win, "current_bid": bied, "fair_value": win,
                "edge_now": round((win - bied) * 100, 2),
                "market_disagrees": False, "market_note": ""}
-        P.markeer_markt(rij, uren)
+        P.markeer_markt(rij, uren, piek_bekend=piek_bekend)
         return rij
 
     gevallen = [
@@ -710,6 +710,27 @@ def test_markt_oneens() -> bool:
         elif moet and woord not in r["market_note"]:
             print(f"  markt     MISLUKT: reden mist {woord!r}: {r['market_note']}")
             goed = False
+
+    # De terugval zonder piekuur telt naar de sluiting, en dat hoort de tekst
+    # dan ook te zeggen: "tot de verwachte piek" schrijven terwijl er tijd tot
+    # middernacht gemeten is, is een klok die liegt.
+    r = proef(2.0, 0.84, 0.08, piek_bekend=False)
+    if not r["market_disagrees"] or "tot sluiting" not in r["market_note"]:
+        print(f"  markt     MISLUKT: terugval op de sluitingsklok markeert niet "
+              f"of noemt de sluiting niet: {r['market_note']}")
+        goed = False
+    elif "verwachte piek" in r["market_note"] or "geleden verwacht" in r["market_note"]:
+        print(f"  markt     MISLUKT: de terugvaltekst doet zich voor als "
+              f"piekklok: {r['market_note']}")
+        goed = False
+    # Negatief is op die klok geen piek-geweest maar een al gesloten markt:
+    # daarover valt niets meer te signaleren. De oude ondergrens van nul
+    # hoort in de terugval te blijven bestaan.
+    r = proef(-1.0, 0.84, 0.08, piek_bekend=False)
+    if r["market_disagrees"]:
+        print("  markt     MISLUKT: een al gesloten markt (negatieve "
+              "sluitingsklok zonder piekuur) krijgt de vlag")
+        goed = False
 
     # de vlag mag het stoplicht niet aanraken: dat blijft in graden
     dag = _dag("SHA", 1)
@@ -765,6 +786,24 @@ def test_piek() -> bool:
         print(f"  piek      MISLUKT: spreiding dag 2 -> {tweede}, verwacht 13-14")
         goed = False
 
+    # een gat in het ene model mag de spreiding niet uit het andere model
+    # laten putten: vals is per model uitgelijnd, niet per uur gecompacteerd.
+    # Model a piekt op 15u maar mist 04u; model b piekt op 04u. Gecompacteerd
+    # schoof b's 04u-waarde op de plek van a en werd b's eigen piekuur juist
+    # overgeslagen: spreiding 3-4 in plaats van 4-15.
+    tijden2, a2, b2 = [], [], []
+    for u in range(24):
+        tijden2.append(f"2026-08-14T{u:02d}:00")
+        a2.append(None if u == 4 else 20 - abs(u - 15))
+        b2.append(25 - 2 * abs(u - 4))
+    j2 = {"hourly": {"time": tijden2,
+                     "temperature_2m_ecmwf_ifs025": a2,
+                     "temperature_2m_gfs_seamless": b2}}
+    p2 = (P.pieken_uit(j2) or {}).get("2026-08-14") or {}
+    if p2.get("lo") != 4 or p2.get("hi") != 15:
+        print(f"  piek      MISLUKT: spreiding met een gat -> {p2}, verwacht 4-15")
+        goed = False
+
     # een dag met te weinig uren telt niet mee, net als in de app
     kort = {"hourly": {"time": [f"2026-08-13T{u:02d}:00" for u in range(4)],
                        "temperature_2m_ecmwf_ifs025": [10, 11, 12, 11]}}
@@ -814,6 +853,27 @@ def test_piek() -> bool:
     if r2.get("hours_to_peak") is not None or r2.get("hours_to_close") is None:
         print(f"  piek      MISLUKT: zonder uurcurve {r2.get('hours_to_peak')} / "
               f"{r2.get('hours_to_close')}")
+        goed = False
+
+    # een afgerekende positie gebruikt de piekklok niet meer, dus daar hoort
+    # ook geen uurcurve-fetch te gebeuren: die kost in het echt tot drie
+    # pogingen met een timeout van 45 seconden per stuk
+    class TelCache(NepCache):
+        def __init__(self, *a, **k):
+            super().__init__(*a, **k)
+            self.piek_aanroepen = 0
+
+        def piek(self, key, datum):
+            self.piek_aanroepen += 1
+            return None
+
+    tel = TelCache({("AMS", dag): 17.0})
+    beslist = [{"size": 10, "avgPrice": 0.6, "curPrice": 0.99, "outcome": "No",
+                "slug": _slug("AMS", dag, "20c"), "title": "20°C"}]
+    P.bouw(beslist, {}, {}, "0xtest", tel)
+    if tel.piek_aanroepen:
+        print(f"  piek      MISLUKT: een afgerekende positie haalt toch een "
+              f"uurcurve ({tel.piek_aanroepen}x)")
         goed = False
 
     if goed:
@@ -866,9 +926,40 @@ def test_reeks() -> bool:
             print(f"  reeks     MISLUKT: de kop op schijf wijkt af: {regels[0]}")
             goed = False
 
+    # De migratie verbreedt alleen een kop die letterlijk het begin van
+    # HIST_KOP is. Een even brede kop met verwisselde namen is geen oude
+    # versie maar iets anders; die herschrijven zou elke kolom stilzwijgend
+    # een verkeerd etiket geven.
+    import csv
+    import importlib
+    import tempfile
+    M = importlib.import_module("migratie_portfolio_history")
+    with tempfile.TemporaryDirectory() as td:
+        oud = Path(td) / "portfolio_history.csv"
+        oud.write_text(",".join(P.HIST_KOP[:-1]) + "\n" +
+                       ",".join(["x"] * (len(P.HIST_KOP) - 1)) + "\n")
+        if M.migreer(oud) != 0:
+            print("  reeks     MISLUKT: de migratie weigert een echte oude kop")
+            goed = False
+        else:
+            regels = list(csv.reader(open(oud, newline="")))
+            if regels[0] != P.HIST_KOP or len(regels[1]) != len(P.HIST_KOP):
+                print(f"  reeks     MISLUKT: migratie leverde {regels[:2]}")
+                goed = False
+
+        vreemd = Path(td) / "vreemd.csv"
+        kop = list(P.HIST_KOP)
+        kop[3], kop[4] = kop[4], kop[3]     # even breed, andere volgorde
+        inhoud = ",".join(kop) + "\n" + ",".join(["x"] * len(kop)) + "\n"
+        vreemd.write_text(inhoud)
+        if M.migreer(vreemd) == 0 or vreemd.read_text() != inhoud:
+            print("  reeks     MISLUKT: een even brede kop met andere namen "
+                  "wordt herschreven in plaats van geweigerd")
+            goed = False
+
     if goed:
         print(f"  reeks     ok: {len(P.HIST_KOP)} kolommen, kop en regel gelijk, "
-              f"bestand rechthoekig")
+              f"bestand rechthoekig, migratie weigert een vreemde kop")
     return goed
 
 

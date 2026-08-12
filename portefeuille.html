@@ -277,7 +277,11 @@
     var merk = terug ? "*" : "";
 
     if (v < 0) {
-      return '<span class="dim" title="' + ontsnap(titel) + '">piek geweest</span>';
+      /* Zonder uurcurve is een verstreken klok geen piek maar middernacht:
+         de markt is dicht. "piek geweest" zou piekkennis claimen die er niet
+         is — de tooltip ernaast geeft zelf al toe dat die ontbreekt. */
+      return '<span class="dim" title="' + ontsnap(titel) + '">' +
+             (terug ? "gesloten" : "piek geweest") + "</span>";
     }
     var tekst = nl(v, 1) + " u" + merk;
     if (v < 6) return '<span class="nee" title="' + ontsnap(titel) + '">' + tekst + "</span>";
@@ -358,10 +362,19 @@
     if (s.n_unknown) t.push('<span class="teller">onbekend <b>' + s.n_unknown + "</b></span>");
     if (s.n_settled) t.push('<span class="teller">afgerekend <b>' + s.n_settled + "</b></span>");
     if (s.n_market_disagrees)
-      t.push('<span class="teller oranje" title="dicht op sluiting wijkt het model hier sterk van de markt af">' +
+      t.push('<span class="teller oranje" title="dicht op de verwachte piek wijkt het model hier sterk van de markt af">' +
              "markt oneens <b>" + s.n_market_disagrees + "</b></span>");
     t.push('<span class="teller">blootstelling <b>$' + nl(s.total_exposure, 2) + "</b></span>");
     return t.join("");
+  }
+
+  /* Binnen een kleur op de klok die telt: eerst uren tot de piek, en pas als
+     die ontbreekt uren tot sluiting — dezelfde volgorde als bouw() in
+     bot/portfolio.py, zodat de tabel staat op wat de kolom ernaast toont. */
+  function klok(r) {
+    if (r.hours_to_peak !== null && r.hours_to_peak !== undefined) return r.hours_to_peak;
+    if (r.hours_to_close !== null && r.hours_to_close !== undefined) return r.hours_to_close;
+    return Infinity;
   }
 
   function toon(data) {
@@ -370,9 +383,8 @@
       var va = VOLGORDE[a.light] === undefined ? 9 : VOLGORDE[a.light];
       var vb = VOLGORDE[b.light] === undefined ? 9 : VOLGORDE[b.light];
       if (va !== vb) return va - vb;
-      var ua = a.hours_to_close === null || a.hours_to_close === undefined ? Infinity : a.hours_to_close;
-      var ub = b.hours_to_close === null || b.hours_to_close === undefined ? Infinity : b.hours_to_close;
-      return ua - ub;
+      var ka = klok(a), kb = klok(b);
+      return ka === kb ? 0 : ka - kb;
     });
 
     var wallet = data.wallet ? data.wallet.slice(0, 6) + "…" + data.wallet.slice(-4) : "?";
