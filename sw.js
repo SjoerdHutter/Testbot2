@@ -12,7 +12,7 @@ const VOORVOEGSEL = "weerbot2-";
    nummer; --zet werkt hem bij. Onthouden werkte niet: tussen v9 en v10 ging
    portefeuille.html vier keer de deur uit terwijl het nummer bleef staan, en
    bezoekers hielden de oude pagina zonder dat daar iets aan te zien was. */
-const VERSIE = VOORVOEGSEL + "v10-1c2b3dd8";
+const VERSIE = VOORVOEGSEL + "v10-b3e0e887";
 const SCHIL = ["./", "./index.html", "./portefeuille.html", "./manifest.webmanifest", "./app_params.js", "./weerbot-modellen/polymarkt.js", "./weerbot-modellen/weerbot-ml.js", "./weerbot-modellen/weerbot-ml-koppel.js", "./weerbot-modellen/modellen/modellen.json", "./icon-192.png", "./icon-512.png", "./apple-touch-icon.png"];
 /* Gegevens, geen schil: hier hoort de verse versie te komen, niet de bewaarde.
    portfolio.json wordt vier keer per dag herschreven en is het enige dat het
@@ -73,8 +73,20 @@ self.addEventListener("fetch", function (e) {
     e.respondWith(
       caches.open(VERSIE).then(function (c) {
         return fetch(e.request).then(function (antwoord) {
-          if (antwoord && antwoord.ok) c.put(e.request, antwoord.clone());
-          return antwoord;
+          if (antwoord && antwoord.ok) {
+            c.put(e.request, antwoord.clone());
+            return antwoord;
+          }
+          /* Wél een antwoord, maar een foutantwoord. Hiervoor ging dat
+             onveranderd door naar het scherm, ook al stond er een bruikbare
+             pagina in de cache. Toen Pages een keer uit stond gaf dit blad
+             daardoor "There isn't a GitHub Pages site here", terwijl de kaart
+             ernaast gewoon doordraaide: die is cache-first en kwam niet eens
+             langs het netwerk. Een oude portefeuille met een datum erboven is
+             beter dan de 404-pagina van GitHub. */
+          return c.match(e.request).then(function (bewaard) {
+            return bewaard || antwoord;       // niets bewaard: dan toch de fout
+          });
         }).catch(function () {
           return c.match(e.request);          // offline: de bewaarde versie
         });

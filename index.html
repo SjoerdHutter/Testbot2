@@ -1438,16 +1438,21 @@ const CONFIG = {"nws_gewicht": 0.25, "steden": [{"key": "NYC", "naam": "New York
     if (!tijden.length || !reeksen.length) return {};
     const perDag = {};
     tijden.forEach(function (ts, idx) {
+      /* Elk model houdt zijn eigen plek in vals, met null waar het dit uur
+         mist. Compacteren per uur schoof de modellen in elkaar: vals[m] was
+         dan het ene uur ecmwf en het andere uur gfs, en de spreiding
+         hieronder rekende een argmax uit over een reeks die geen enkel
+         model is. */
       const vals = [];
+      let som = 0, n = 0;
       reeksen.forEach(function (r) {
         const x = r[idx];
-        if (x !== null && x !== undefined) vals.push(x);
+        if (x === null || x === undefined) { vals.push(null); }
+        else { vals.push(x); som += x; n++; }
       });
-      if (!vals.length) return;
-      let som = 0;
-      vals.forEach(function (x) { som += x; });
+      if (!n) return;
       (perDag[ts.slice(0, 10)] = perDag[ts.slice(0, 10)] || [])
-        .push({ uur: parseInt(ts.slice(11, 13), 10), gem: som / vals.length, vals: vals });
+        .push({ uur: parseInt(ts.slice(11, 13), 10), gem: som / n, vals: vals });
     });
     const uit = {};
     for (const dag in perDag) {
@@ -1455,18 +1460,17 @@ const CONFIG = {"nws_gewicht": 0.25, "steden": [{"key": "NYC", "naam": "New York
       if (rij.length < 6) continue;          // te weinig uren, geen betrouwbare piek
       let beste = rij[0];
       rij.forEach(function (x) { if (x.gem > beste.gem) beste = x; });
-      let aantal = 0;
-      rij.forEach(function (x) { aantal = Math.max(aantal, x.vals.length); });
       const arg = [];
-      for (let m = 0; m < aantal; m++) {
+      for (let m = 0; m < reeksen.length; m++) {
         let bu = null, bv = null;
         rij.forEach(function (x) {
-          if (x.vals.length > m && (bv === null || x.vals[m] > bv)) { bv = x.vals[m]; bu = x.uur; }
+          if (x.vals[m] !== null && (bv === null || x.vals[m] > bv)) { bv = x.vals[m]; bu = x.uur; }
         });
         if (bu !== null) arg.push(bu);
       }
       uit[dag] = { uur: beste.uur,
-                   lo: Math.min.apply(null, arg), hi: Math.max.apply(null, arg) };
+                   lo: arg.length ? Math.min.apply(null, arg) : beste.uur,
+                   hi: arg.length ? Math.max.apply(null, arg) : beste.uur };
     }
     return uit;
   }

@@ -3,7 +3,7 @@
 
   python3 bot/test_portfolio.py
 
-Controleert negen dingen:
+Controleert elf dingen:
 
   slug      De slug van een markt valt terug uiteen in stad, doeldag, reeks en
             vak, precies andersom dan slug_van in signalen.py hem opbouwt.
@@ -30,6 +30,13 @@ Controleert negen dingen:
   markt     Dicht op sluiting wordt een groot verschil met de markt gemarkeerd,
             want daar is de markt gemeten nauwkeuriger dan het model. Het
             stoplicht blijft daarbij ongemoeid: dat staat in graden.
+  piek      Het uur van de dagpiek uit de uurcurve, spiegel van piekenUit in
+            index.html, en de klok die daaruit volgt. Uren tot sluiting telde
+            door tot middernacht terwijl de uitslag er ligt zodra het
+            dagmaximum gevallen is.
+  reeks     De kop en de regel van portfolio_history.csv zijn even breed, en
+            het bestand op schijf ook. Een kolom erbij zonder migratie schuift
+            alle waarden een plek op zonder dat er iets omvalt.
   uitvoer   De hele keten op datzelfde setje: de JSON heeft de afgesproken
             velden, is op kleur en uren tot sluiting gesorteerd, en een positie
             zonder instapregel houdt lege deltavelden met entry_known false.
@@ -71,6 +78,12 @@ class NepCache(P.ModelCache):
         super().__init__({})
         self.beelden = beelden        # (key, datum) -> adj_mean, of None = fout
         self.band = band
+
+    def piek(self, key, datum):
+        """Geen uurcurve, zonder het netwerk op te gaan. Zonder deze override
+        valt de test terug op de echte fetch en wacht hij per stad drie
+        pogingen met pauzes af — een test hoort nooit aan een API te hangen."""
+        return None
 
     def beeld(self, key, datum, soort):
         mu = self.beelden.get((key, datum))
@@ -657,86 +670,313 @@ def test_markt_oneens() -> bool:
     ernaast zit dan een edge om te pakken. Gemeten op 167 afgerekende stad-dagen
     is de markt in de laatste twaalf uur 58% nauwkeuriger.
 
-    De stand hieronder is die van Shanghai op 9 augustus: het model gaf de NO
-    84% terwijl de markt op 8% stond, en de markt kreeg gelijk. De kolom edge
-    zette daar +82pp neer alsof het gratis geld was.
+    De cijfers hieronder zijn die van Shanghai op 9 augustus: het model gaf de
+    NO 84% terwijl de markt op 8% stond, en de markt kreeg gelijk. De kolom edge
+    zette daar +76pp neer alsof het gratis geld was.
 
-    De uren tot sluiting worden hier vastgezet in plaats van uit de klok
-    gehaald. Dat was eerst niet zo, en daardoor viel deze test om zodra hij
-    draaide terwijl het in Shanghai net na middernacht was: `_dag("SHA", 0)`
-    geeft dan de nieuwe dag, sluiting ligt bijna 24 uur weg, en het venster van
-    twaalf uur wordt nooit geraakt. Dat maakte hem de halve dag rood in
-    .github/workflows/zelftest.yml, afhankelijk van het moment van pushen. Waar
-    het venster zelf over gaat wordt hieronder los getoetst."""
+    Het aantal uur wordt hier rechtstreeks meegegeven en niet uit een doeldag
+    afgeleid. Een eerdere versie gebruikte "vandaag in Shanghai", en of dat
+    binnen het venster van twaalf uur valt hangt af van het tijdstip waarop de
+    test draait: hij slaagde bij het schrijven en viel om zodra hij 's ochtends
+    liep. Een test die van de klok afhangt bewaakt niets."""
     goed = True
-    dag = _dag("SHA", 0)
-    ruw = [
-        # het geval zelf: laat, en 76pp uit elkaar
-        {"size": 38.3, "avgPrice": 0.70, "curPrice": 0.08, "outcome": "No",
-         "slug": _slug("SHA", dag, "28c"), "title": "28°C"},
-        # even laat, maar model en markt zijn het eens
-        {"size": 10, "avgPrice": 0.80, "curPrice": 0.86, "outcome": "No",
-         "slug": _slug("SHA", dag, "31c"), "title": "31°C"},
+
+    def proef(uren, win, bied, piek_bekend=True):
+        rij = {"model_win_prob": win, "current_bid": bied, "fair_value": win,
+               "edge_now": round((win - bied) * 100, 2),
+               "market_disagrees": False, "market_note": ""}
+        P.markeer_markt(rij, uren, piek_bekend=piek_bekend)
+        return rij
+
+    gevallen = [
+        # (uren tot de piek, modelwinkans, bied, moet gemarkeerd, kernwoord)
+        (2.0,   0.84, 0.08, True,  "twijfel aan het model"),  # Shanghai zelf
+        (11.9,  0.84, 0.08, True,  "twijfel aan het model"),  # net binnen
+        (12.1,  0.84, 0.08, False, ""),                       # net buiten
+        (36.0,  0.84, 0.08, False, ""),                       # ruim buiten
+        (2.0,   0.86, 0.72, False, ""),                       # laat, klein verschil
+        (2.0,   0.86, 0.65, True,  "twijfel aan het model"),  # laat, net boven 20pp
+        (2.0,   0.55, 0.90, True,  "te somber"),              # markt prijst hoger
+        # De piek voorbij is het sterkste geval en niet het zwakste: daar zit de
+        # markt 85% dichter bij de uitkomst. Op de oude klok viel dit buiten de
+        # vlag omdat er een ondergrens van nul stond.
+        (-1.0,  0.84, 0.08, True,  "piek is 1.0 uur geleden"),
+        (-6.0,  0.84, 0.08, True,  "85%"),
     ]
-    # 29,22 laat het vak 28 (27,5-28,5) net buiten bereik, zoals die dag
-    echte_uren = P.uren_tot_sluiting
-    P.uren_tot_sluiting = lambda key, datum: 6.0      # binnen het venster
-    try:
-        uit = P.bouw(ruw, {}, {}, "0xtest", NepCache({("SHA", dag): 29.22}))
-    finally:
-        P.uren_tot_sluiting = echte_uren
-    op_vak = {r["bracket"]: r for r in uit["positions"]}
-
-    laat = op_vak.get("28°C") or {}
-    if not laat.get("market_disagrees"):
-        print(f"  markt     MISLUKT: {laat.get('edge_now')}pp op "
-              f"{laat.get('hours_to_close')} uur is niet gemarkeerd")
-        goed = False
-    if "twijfel aan het model" not in laat.get("market_note", ""):
-        print(f"  markt     MISLUKT: de toelichting wijst niet op het model: "
-              f"{laat.get('market_note')}")
-        goed = False
-    # de vlag mag het stoplicht niet aanraken: dat blijft in graden
-    zonder = P.stoplicht(laat.get("d"), laat.get("b"), laat.get("model_win_prob"),
-                         laat.get("delta_prob"), laat.get("d") == 0, False)
-    if laat.get("light") != zonder[0]:
-        print(f"  markt     MISLUKT: het stoplicht is verschoven naar {laat.get('light')}")
-        goed = False
-
-    eens = op_vak.get("31°C") or {}
-    if eens.get("market_disagrees"):
-        print("  markt     MISLUKT: een klein verschil wordt gemarkeerd")
-        goed = False
-
-    # ver van sluiting telt hetzelfde verschil niet
-    ver = _dag("SHA", 2)
-    P.uren_tot_sluiting = lambda key, datum: 30.0     # buiten het venster
-    try:
-        uit2 = P.bouw([{"size": 38.3, "avgPrice": 0.70, "curPrice": 0.08, "outcome": "No",
-                        "slug": _slug("SHA", ver, "28c"), "title": "28°C"}],
-                      {}, {}, "0xtest", NepCache({("SHA", ver): 29.22}))
-    finally:
-        P.uren_tot_sluiting = echte_uren
-    if (uit2["positions"] or [{}])[0].get("market_disagrees"):
-        print("  markt     MISLUKT: buiten het venster wordt toch gemarkeerd")
-        goed = False
-
-    # en de urenberekening zelf, los van de vlag: middernacht aan het einde van
-    # de doeldag in de lokale tijdzone, dus altijd tussen 0 en 24 uur vooruit.
-    for key in ("SHA", "NYC", "LON"):
-        u = echte_uren(key, _dag(key, 0))
-        if u is None or not -0.1 <= u <= 24.1:
-            print(f"  markt     MISLUKT: uren_tot_sluiting({key}) geeft {u}")
+    for uren, win, bied, moet, woord in gevallen:
+        r = proef(uren, win, bied)
+        if r["market_disagrees"] != moet:
+            print(f"  markt     MISLUKT: {uren}u, {r['edge_now']:+.1f}pp -> "
+                  f"gemarkeerd={r['market_disagrees']}, verwacht {moet}")
+            goed = False
+        elif moet and woord not in r["market_note"]:
+            print(f"  markt     MISLUKT: reden mist {woord!r}: {r['market_note']}")
             goed = False
 
-    if uit["summary"].get("n_market_disagrees") != 1:
-        print(f"  markt     MISLUKT: teller is "
-              f"{uit['summary'].get('n_market_disagrees')}")
+    # De terugval zonder piekuur telt naar de sluiting, en dat hoort de tekst
+    # dan ook te zeggen: "tot de verwachte piek" schrijven terwijl er tijd tot
+    # middernacht gemeten is, is een klok die liegt.
+    r = proef(2.0, 0.84, 0.08, piek_bekend=False)
+    if not r["market_disagrees"] or "tot sluiting" not in r["market_note"]:
+        print(f"  markt     MISLUKT: terugval op de sluitingsklok markeert niet "
+              f"of noemt de sluiting niet: {r['market_note']}")
+        goed = False
+    elif "verwachte piek" in r["market_note"] or "geleden verwacht" in r["market_note"]:
+        print(f"  markt     MISLUKT: de terugvaltekst doet zich voor als "
+              f"piekklok: {r['market_note']}")
+        goed = False
+    # Negatief is op die klok geen piek-geweest maar een al gesloten markt:
+    # daarover valt niets meer te signaleren. De oude ondergrens van nul
+    # hoort in de terugval te blijven bestaan.
+    r = proef(-1.0, 0.84, 0.08, piek_bekend=False)
+    if r["market_disagrees"]:
+        print("  markt     MISLUKT: een al gesloten markt (negatieve "
+              "sluitingsklok zonder piekuur) krijgt de vlag")
+        goed = False
+
+    # de vlag mag het stoplicht niet aanraken: dat blijft in graden
+    dag = _dag("SHA", 1)
+    ruw = [{"size": 38.3, "avgPrice": 0.70, "curPrice": 0.08, "outcome": "No",
+            "slug": _slug("SHA", dag, "28c"), "title": "28°C"}]
+    uit = P.bouw(ruw, {}, {}, "0xtest", NepCache({("SHA", dag): 29.22}))
+    r = (uit["positions"] or [{}])[0]
+    zonder = P.stoplicht(r.get("d"), r.get("b"), r.get("model_win_prob"),
+                         r.get("delta_prob"), r.get("d") == 0, False)
+    if r.get("light") != zonder[0]:
+        print(f"  markt     MISLUKT: het stoplicht is verschoven naar {r.get('light')}")
+        goed = False
+    if "market_disagrees" not in r or "market_note" not in r:
+        print("  markt     MISLUKT: de velden ontbreken in de uitvoer")
+        goed = False
+    if uit["summary"].get("n_market_disagrees") is None:
+        print("  markt     MISLUKT: de teller ontbreekt in de samenvatting")
         goed = False
 
     if goed:
-        print(f"  markt     ok: gemarkeerd binnen {P.MARKT_VENSTER_UREN:.0f}u boven "
-              f"{P.MARKT_VERSCHIL_PP:.0f}pp, stoplicht blijft ongemoeid")
+        print(f"  markt     ok: {len(gevallen)} gevallen rond {P.MARKT_VENSTER_UREN:.0f}u "
+              f"en {P.MARKT_VERSCHIL_PP:.0f}pp, stoplicht blijft ongemoeid")
+    return goed
+
+
+# ── 10. het piektijdstip ─────────────────────────────────────────────────────
+
+def test_piek() -> bool:
+    """Het uur van de dagpiek uit de uurcurve, en de klok die daaruit volgt.
+
+    Uren tot sluiting telde door tot middernacht, terwijl de uitslag er ligt
+    zodra het dagmaximum gevallen is. Bij Busan rekende Polymarket af met nog
+    bijna drie uur op de klok."""
+    goed = True
+
+    # twee modellen, twee dagen: piek op 15u en op 13u, met de modellen een uur
+    # uit elkaar op de tweede dag
+    tijden, a, b = [], [], []
+    for dag, (piek_a, piek_b) in (("2026-08-11", (15, 15)), ("2026-08-12", (13, 14))):
+        for u in range(24):
+            tijden.append(f"{dag}T{u:02d}:00")
+            a.append(20 - abs(u - piek_a))
+            b.append(20 - abs(u - piek_b))
+    j = {"hourly": {"time": tijden,
+                    "temperature_2m_ecmwf_ifs025": a,
+                    "temperature_2m_gfs_seamless": b}}
+    p = P.pieken_uit(j)
+    if (p.get("2026-08-11") or {}).get("uur") != 15:
+        print(f"  piek      MISLUKT: dag 1 -> {p.get('2026-08-11')}, verwacht uur 15")
+        goed = False
+    tweede = p.get("2026-08-12") or {}
+    if tweede.get("lo") != 13 or tweede.get("hi") != 14:
+        print(f"  piek      MISLUKT: spreiding dag 2 -> {tweede}, verwacht 13-14")
+        goed = False
+
+    # een gat in het ene model mag de spreiding niet uit het andere model
+    # laten putten: vals is per model uitgelijnd, niet per uur gecompacteerd.
+    # Model a piekt op 15u maar mist 04u; model b piekt op 04u. Gecompacteerd
+    # schoof b's 04u-waarde op de plek van a en werd b's eigen piekuur juist
+    # overgeslagen: spreiding 3-4 in plaats van 4-15.
+    tijden2, a2, b2 = [], [], []
+    for u in range(24):
+        tijden2.append(f"2026-08-14T{u:02d}:00")
+        a2.append(None if u == 4 else 20 - abs(u - 15))
+        b2.append(25 - 2 * abs(u - 4))
+    j2 = {"hourly": {"time": tijden2,
+                     "temperature_2m_ecmwf_ifs025": a2,
+                     "temperature_2m_gfs_seamless": b2}}
+    p2 = (P.pieken_uit(j2) or {}).get("2026-08-14") or {}
+    if p2.get("lo") != 4 or p2.get("hi") != 15:
+        print(f"  piek      MISLUKT: spreiding met een gat -> {p2}, verwacht 4-15")
+        goed = False
+
+    # een dag met te weinig uren telt niet mee, net als in de app
+    kort = {"hourly": {"time": [f"2026-08-13T{u:02d}:00" for u in range(4)],
+                       "temperature_2m_ecmwf_ifs025": [10, 11, 12, 11]}}
+    if P.pieken_uit(kort):
+        print("  piek      MISLUKT: een dag met vier uurwaarden telt mee")
+        goed = False
+    if P.pieken_uit({}) != {} or P.pieken_uit({"hourly": {}}) != {}:
+        print("  piek      MISLUKT: lege invoer geeft geen lege uitkomst")
+        goed = False
+
+    # de klok: morgen om 15u ligt in de toekomst, gisteren om 15u erachter
+    morgen = _dag("AMS", 1)
+    u = P.uren_tot_piek("AMS", morgen, 15)
+    if u is None or not 0 < u < 48:
+        print(f"  piek      MISLUKT: uren tot piek morgen = {u}")
+        goed = False
+    gisteren = (date.fromisoformat(_dag("AMS", 0)) - timedelta(days=1)).isoformat()
+    if (P.uren_tot_piek("AMS", gisteren, 15) or 0) >= 0:
+        print("  piek      MISLUKT: een piek van gisteren telt niet als geweest")
+        goed = False
+
+    # en de hele keten: de piek komt in de rij terecht en stuurt de sortering
+    class PiekCache(NepCache):
+        def piek(self, key, datum):
+            return {"uur": 15, "lo": 14, "hi": 16}
+
+    dag = _dag("AMS", 1)
+    ruw = [{"size": 10, "avgPrice": 0.6, "curPrice": 0.55, "outcome": "No",
+            "slug": _slug("AMS", dag, "20c"), "title": "20°C"}]
+    uit = P.bouw(ruw, {}, {}, "0xtest", PiekCache({("AMS", dag): 17.0}))
+    r = (uit["positions"] or [{}])[0]
+    if r.get("peak_hour") != 15 or r.get("peak_hour_spread") != [14, 16]:
+        print(f"  piek      MISLUKT: piekvelden {r.get('peak_hour')}, "
+              f"{r.get('peak_hour_spread')}")
+        goed = False
+    if r.get("hours_to_peak") is None or r.get("hours_to_close") is None:
+        print("  piek      MISLUKT: een van beide klokken ontbreekt")
+        goed = False
+    elif not r["hours_to_peak"] < r["hours_to_close"]:
+        print(f"  piek      MISLUKT: piek ({r['hours_to_peak']}) ligt niet voor "
+              f"sluiting ({r['hours_to_close']})")
+        goed = False
+
+    # valt de uurcurve weg, dan blijft de sluiting over in plaats van niets
+    uit2 = P.bouw(ruw, {}, {}, "0xtest", NepCache({("AMS", dag): 17.0}))
+    r2 = (uit2["positions"] or [{}])[0]
+    if r2.get("hours_to_peak") is not None or r2.get("hours_to_close") is None:
+        print(f"  piek      MISLUKT: zonder uurcurve {r2.get('hours_to_peak')} / "
+              f"{r2.get('hours_to_close')}")
+        goed = False
+
+    # een afgerekende positie gebruikt de piekklok niet meer, dus daar hoort
+    # ook geen uurcurve-fetch te gebeuren: die kost in het echt tot drie
+    # pogingen met een timeout van 45 seconden per stuk
+    class TelCache(NepCache):
+        def __init__(self, *a, **k):
+            super().__init__(*a, **k)
+            self.piek_aanroepen = 0
+
+        def piek(self, key, datum):
+            self.piek_aanroepen += 1
+            return None
+
+    tel = TelCache({("AMS", dag): 17.0})
+    beslist = [{"size": 10, "avgPrice": 0.6, "curPrice": 0.99, "outcome": "No",
+                "slug": _slug("AMS", dag, "20c"), "title": "20°C"}]
+    P.bouw(beslist, {}, {}, "0xtest", tel)
+    if tel.piek_aanroepen:
+        print(f"  piek      MISLUKT: een afgerekende positie haalt toch een "
+              f"uurcurve ({tel.piek_aanroepen}x)")
+        goed = False
+
+    if goed:
+        print("  piek      ok: uur en spreiding uit de curve, klok telt naar de piek, "
+              "sluiting als terugval")
+    return goed
+
+
+# ── 11. de reeks ─────────────────────────────────────────────────────────────
+
+def test_reeks() -> bool:
+    """De kop en de regel van portfolio_history.csv moeten even breed zijn, en
+    het bestand op schijf ook.
+
+    logger.schrijf zet de kop alleen als het bestand nieuw is. Een kolom erbij
+    zonder migratie levert dus regels van tien velden onder een kop van negen,
+    en dat valt nergens om: het schuift alleen alle waarden een plek op zodra
+    iemand er met een DictReader op leest."""
+    goed = True
+    rij = {"city": "AMS", "date": "2026-08-11", "bracket": "20°C",
+           "adj_mean_now": 19.9, "model_prob_now": 0.21, "current_bid": 0.79,
+           "city_bias_used": 0.4, "light": "red", "peak_hour": 15,
+           "observed_today": 18.4, "restfactor": 0.4}
+    r = P.hist_rij(rij, "2026-08-11T09:00:00+00:00")
+    if len(r) != len(P.HIST_KOP):
+        print(f"  reeks     MISLUKT: regel telt {len(r)} velden, kop {len(P.HIST_KOP)}")
+        goed = False
+    else:
+        # Op naam en niet op positie: welke kolom achteraan staat verschuift bij
+        # elke uitbreiding, maar dat elke waarde onder de juiste naam terechtkomt
+        # moet blijven gelden. Precies dat gaat stuk als iemand een kolom in
+        # HIST_KOP ertussen zet zonder hist_rij mee te verhuizen.
+        op_naam = dict(zip(P.HIST_KOP, r))
+        for kolom, hoort in (("peak_hour", 15), ("observed_today", 18.4),
+                             ("restfactor", 0.4), ("light", "red"),
+                             ("adj_mean_now", 19.9)):
+            if op_naam.get(kolom) != hoort:
+                print(f"  reeks     MISLUKT: {kolom} staat op {op_naam.get(kolom)!r}, "
+                      f"verwacht {hoort!r}")
+                goed = False
+
+    # lege waarden worden lege velden, niet de tekst None
+    leeg = dict(zip(P.HIST_KOP, P.hist_rij(
+        {**rij, "peak_hour": None, "adj_mean_now": None,
+         "observed_today": None, "restfactor": None}, "x")))
+    mis = [k for k in ("peak_hour", "adj_mean_now", "observed_today", "restfactor")
+           if leeg[k] != ""]
+    if mis:
+        print(f"  reeks     MISLUKT: ontbrekende waarden geven geen leeg veld: "
+              f"{ {k: leeg[k] for k in mis} }")
+        goed = False
+
+    # en het bestand in de repo is rechthoekig
+    pad = Path(__file__).resolve().parent.parent / "logs" / "portfolio_history.csv"
+    if pad.exists():
+        import csv
+        regels = list(csv.reader(open(pad, newline="")))
+        breedtes = {len(x) for x in regels}
+        if breedtes != {len(P.HIST_KOP)}:
+            print(f"  reeks     MISLUKT: portfolio_history.csv heeft regels van "
+                  f"{sorted(breedtes)} velden, kop telt {len(P.HIST_KOP)}. "
+                  f"Draai bot/migratie_portfolio_history.py")
+            goed = False
+        elif regels and regels[0] != P.HIST_KOP:
+            print(f"  reeks     MISLUKT: de kop op schijf wijkt af: {regels[0]}")
+            goed = False
+
+    # De migratie verbreedt alleen een kop die letterlijk het begin van
+    # HIST_KOP is. Een even brede kop met verwisselde namen is geen oude
+    # versie maar iets anders; die herschrijven zou elke kolom stilzwijgend
+    # een verkeerd etiket geven.
+    import csv
+    import importlib
+    import tempfile
+    M = importlib.import_module("migratie_portfolio_history")
+    with tempfile.TemporaryDirectory() as td:
+        oud = Path(td) / "portfolio_history.csv"
+        oud.write_text(",".join(P.HIST_KOP[:-1]) + "\n" +
+                       ",".join(["x"] * (len(P.HIST_KOP) - 1)) + "\n")
+        if M.migreer(oud) != 0:
+            print("  reeks     MISLUKT: de migratie weigert een echte oude kop")
+            goed = False
+        else:
+            regels = list(csv.reader(open(oud, newline="")))
+            if regels[0] != P.HIST_KOP or len(regels[1]) != len(P.HIST_KOP):
+                print(f"  reeks     MISLUKT: migratie leverde {regels[:2]}")
+                goed = False
+
+        vreemd = Path(td) / "vreemd.csv"
+        kop = list(P.HIST_KOP)
+        kop[3], kop[4] = kop[4], kop[3]     # even breed, andere volgorde
+        inhoud = ",".join(kop) + "\n" + ",".join(["x"] * len(kop)) + "\n"
+        vreemd.write_text(inhoud)
+        if M.migreer(vreemd) == 0 or vreemd.read_text() != inhoud:
+            print("  reeks     MISLUKT: een even brede kop met andere namen "
+                  "wordt herschreven in plaats van geweigerd")
+            goed = False
+
+    if goed:
+        print(f"  reeks     ok: {len(P.HIST_KOP)} kolommen, kop en regel gelijk, "
+              f"bestand rechthoekig, migratie weigert een vreemde kop")
     return goed
 
 
@@ -744,7 +984,8 @@ def main() -> int:
     print("\n  Zelftest portefeuille\n")
     goed = all([test_slug(), test_afstand(), test_netto(), test_stoplicht(),
                 test_vak(), test_beslist(), test_herkansing(),
-                test_markt_oneens(), test_uitvoer()])
+                test_markt_oneens(), test_piek(), test_reeks(),
+                test_uitvoer()])
     print("\n  " + ("Alles in orde.\n" if goed else "ER GING IETS MIS.\n"))
     return 0 if goed else 1
 

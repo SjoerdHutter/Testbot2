@@ -156,25 +156,38 @@ Naast het stoplicht staat `edge_now`: de eerlijke waarde min de huidige bied, in
 procentpunten. Dat is bewust een aparte kolom. Rood betekent "mijn aanname
 wankelt", de verkoopbeslissing is een andere som.
 
-Die kolom leest niet altijd als winst. Binnen `MARKT_VENSTER_UREN` van sluiting
-en boven `MARKT_VERSCHIL_PP` verschil komt er `market_disagrees` bij te staan, en
-het tabblad zet de edge dan oranje met een ⚠ en de reden als tooltip. Reden: op
-167 afgerekende stad-dagen uit `signalen.csv` verslaat de markt het model, en dat
-verschil loopt op naarmate de sluiting nadert (Brier-score per vak, lager is
-beter):
+Die kolom leest niet altijd als winst. Binnen `MARKT_VENSTER_UREN` van de
+**verwachte piek** en boven `MARKT_VERSCHIL_PP` verschil komt er
+`market_disagrees` bij te staan, en het tabblad zet de edge dan oranje met een ⚠
+en de reden als tooltip. Beide drempels zijn gemeten op 230 afgerekende
+stad-dagen uit `signalen.csv` (Brier-score per vak, lager is beter):
 
-| venster voor sluiting | model | markt | |
+| venster voor de piek | model | markt | |
 | --- | --- | --- | --- |
-| meer dan 24u | 0,0662 | 0,0612 | markt 7% beter |
-| 12 tot 24u | 0,0670 | 0,0523 | markt 22% beter |
-| minder dan 12u | 0,0648 | 0,0270 | markt 58% beter |
+| meer dan 24u | 0,0655 | 0,0599 | markt 9% beter |
+| 12 tot 24u | 0,0673 | 0,0592 | markt 12% beter |
+| 6 tot 12u | 0,0666 | 0,0505 | markt 24% beter |
+| 0 tot 6u | 0,0640 | 0,0370 | markt 42% beter |
+| piek voorbij | 0,0670 | 0,0098 | markt 85% beter |
 
 Kijk vooral naar de modelkolom: die verbetert nauwelijks als de dag vordert,
-terwijl de markt zijn fout ruimschoots halveert. Logisch, want binnen twaalf uur
-ziet de markt de al gemeten temperatuur van die dag en voorspelt het model nog
-steeds. Een groot verschil in dat venster is dus veel vaker het model dat
+terwijl de markt er een orde van grootte op vooruitgaat. Logisch, want de markt
+ziet de al gemeten temperatuur van die dag en het model voorspelt nog steeds.
+Bij twaalf uur voor de piek verdubbelt het voordeel van de markt, en daar ligt
+de grens. Een groot verschil in dat venster is dus veel vaker het model dat
 ernaast zit dan een edge die te pakken valt: bij Shanghai op 9 augustus stond er
 +82pp edge terwijl de markt op 92% zat en gelijk kreeg.
+
+Het piekuur staat niet in `signalen.csv`, dus voor de meting is 15:00 lokaal
+aangenomen. De uitkomst hangt daar niet aan: over aangenomen piekuren van 13:00
+tot 17:00 blijft het patroon 8-9% / 11-14% / 20-28% / 31-62% / 73-100%.
+
+Ook de 20pp is gemeten en niet gekozen. Binnen twaalf uur voor de piek, naar de
+grootte van het meningsverschil: bij alle vakken zit de markt 44% dichter bij de
+uitkomst, boven 10pp 57%, boven 20pp 67%, boven 40pp 85%. Hoe groter het
+verschil, hoe vaker de markt gelijk had. Lager dan 20pp zou verdedigbaar zijn,
+maar dan markeert de vlag een op de drie vakken en zegt hij niets meer; bij 20pp
+is het ongeveer een op de acht.
 
 De vlag raakt het stoplicht niet aan. Dat blijft in graden staan, zoals bedoeld.
 
@@ -194,9 +207,24 @@ het misgaan, dan blijft de positie staan met `light: "unknown"` en de reden
 erbij — een stad stilletjes laten verdwijnen is erger dan een gat dat zichzelf
 meldt.
 
-Uren tot sluiting worden gerekend als middernacht aan het einde van de doeldag
-in de lokale tijdzone van de stad, met `zoneinfo` — niet met een vaste
-UTC-offset, want die klopt maar in een deel van het jaar.
+De klok in het tabblad telt af naar het **verwachte warmste moment**
+(`hours_to_peak`), niet naar de sluiting. De markt sluit formeel om middernacht,
+maar de uitslag ligt er zodra het dagmaximum gevallen is: bij Busan rekende
+Polymarket af terwijl er lokaal nog bijna drie uur op de klok stonden, en die
+uren telden mee alsof er nog iets kon veranderen. Is de piek voorbij, dan staat
+er "piek geweest" in plaats van een aftellend getal.
+
+Het piekuur komt uit de uurcurve van dezelfde vijf modelsystemen als de app:
+`pieken_uit()` in `portfolio.py` is het spiegelbeeld van `piekenUit` in
+`index.html`, inclusief de eis van minstens zes uurwaarden per dag. Dat kost één
+extra verzoek per stad, dat meteen drie dagen dekt. Ontbreekt die curve, dan valt
+het tabblad terug op de sluiting en zet er een sterretje bij.
+
+`hours_to_close` blijft in de JSON staan en wordt nog steeds gerekend als
+middernacht aan het einde van de doeldag in de lokale tijdzone van de stad, met
+`zoneinfo` — niet met een vaste UTC-offset, want die klopt maar in een deel van
+het jaar. De markt-oneens-vlag telt inmiddels ook naar de piek en niet meer naar
+die sluiting; de drempel is opnieuw gemeten met het piekmoment als nulpunt.
 
 Draaien, en de bestanden die eruit komen:
 
@@ -529,9 +557,24 @@ helemaal wil dichtzetten, past in TestBot `sw.js` dezelfde filter toe.
 
 ## Logboeken
 
-In `logs/` staan vijf bestanden. Ze worden vier keer per dag bijgewerkt door
-`.github/workflows/signalen-log.yml`, die `bot/logger.py`, `bot/signalen.py`,
-`bot/taf.py` en `bot/signalen.py --portfolio` draait en de map commit. Ze horen in de repo thuis: op deze reeksen wordt later
+In `logs/` staan vijf bestanden, bijgewerkt door twee acties met elk hun eigen
+bestanden:
+
+* `.github/workflows/signalen-log.yml` draait `bot/logger.py`,
+  `bot/signalen.py` en `bot/taf.py` **vier keer per dag** en commit
+  `ensemble_log.csv`, `nws_log.csv`, `signalen.csv` en `taf_log.csv`. Vier keer
+  is genoeg omdat ECMWF en GFS zelf elke zes uur draaien.
+* `.github/workflows/portefeuille.yml` draait `bot/signalen.py --portfolio`
+  **elk uur** en commit `portfolio.json` en `logs/portfolio_history.csv`. Die
+  redenering over modelrondes geldt daar niet: open posities veranderen wanneer
+  er gehandeld wordt en de biedprijzen bewegen de hele dag. Op vier keer per dag
+  bleef een verse transactie tot bijna acht uur onzichtbaar. Het kan ook
+  goedkoop — die stap kost 70 seconden tegenover zeven en negen minuten voor de
+  twee logboeken hierboven.
+
+De twee bestandsverzamelingen overlappen niet. Dat is geen toeval maar de reden
+dat ze los staan: zo kan een `git pull --rebase` tussen de twee acties nooit op
+hetzelfde bestand botsen. Ze horen in de repo thuis: op deze reeksen wordt later
 gemeten of de gerealiseerde hitrate boven de betaalde prijs ligt.
 
 ### `logs/ensemble_log.csv`
@@ -560,10 +603,11 @@ niet in. Dat is bewust: de kop heeft geen kolom `soort` en `kalibratie.py` leest
 elke regel als een maximum. Het dagminimum staat wel in `signalen.csv`, dat
 `signalen.py` in dezelfde aanroep meevraagt.
 
-De regels van vóór de spreidingskolommen zijn met `bot/migratie_ensemble_log.py`
+De regels van vóór de spreidingskolommen zijn met `bot/migratie_logkoppen.py`
 aangevuld met lege velden, zodat het bestand rechthoekig is en `csv.DictReader`
-in `kalibratie.py` geen ontbrekende sleutels tegenkomt. Die migratie mag opnieuw
-gedraaid worden; staat de nieuwe kop er al, dan gebeurt er niets.
+in `kalibratie.py` geen ontbrekende sleutels tegenkomt. Datzelfde script vult
+`logs/signalen.csv` aan als daar kolommen bij komen. Het mag opnieuw gedraaid
+worden; staat de nieuwe kop er al, dan gebeurt er niets.
 
 ### `logs/nws_log.csv`
 
@@ -597,17 +641,48 @@ meet je alleen de eigen selectie en niets over het model.
 | `volume_24u` | het 24-uursvolume van de hele reeks, voor het toetsen van de liquiditeitspoort |
 | `event_slug`, `markt_slug` | de slug van de reeks en van dit ene vak op Polymarket |
 | `strat_a_signaal` | 1 als strategie A dit vakje op het moment van loggen aanmerkt: alle regels van A gehaald, beide poorten open én binnen het koopvenster; anders 0 |
+| `uren_tot_sluiting` | uren tot middernacht ná `doel_datum` in de tijdzone van de stad, twee decimalen; dit is de klok waarop het koopvenster van strategie A loopt |
+| `einde_api` | het onbewerkte `endDate` uit de Gamma-API, zodat later te toetsen is of Polymarket de handel daar werkelijk stopt |
+
+Over die laatste twee: `endDate` staat voor élke stad op 12:00 UTC van de
+doeldag. Dat is alleen voor Wellington het einde van de lokale dag; voor
+Amsterdam scheelt het 10 uur, voor New York 16 en voor San Francisco 19. Op die
+klok zou de tijdpoort van strategie A per stad op een ander werkelijk moment
+staan, en zou het logboek niet te vergelijken zijn met handmatig afgewikkelde
+posities, die op het einde van de lokale dag zijn gemeten. `uren_tot_sluiting`
+rekent daarom tot middernacht lokaal, met de tijdzone die al in `bot/weer.py`
+`STEDEN` staat. `einde_api` gaat mee zodat de aanname zelf toetsbaar blijft.
+
+Beide kolommen zijn achteraan bijgeplakt en staan leeg voor de regels van vóór
+deze wijziging; die zijn niet nageschat. Van die oudere regels is `strat_a_signaal`
+op de `endDate`-klok gerekend en dus alleen bruikbaar voor Wellington.
+
+Het koopvenster liep van 36 tot 12 uur voor sluiting en loopt sinds 10 augustus
+tot 24 uur. De strategie leunt erop dat het model de markt verslaat, en de
+Brier-cijfers hierboven laten zien dat dat binnen een etmaal ophoudt: op meer
+dan 24 uur zit het model er 7% naast, tussen 12 en 24 uur al 22%. De gemarkeerde
+signalen wijzen dezelfde kant op — 87 signalen boven de 24 uur gaven +3,2%
+rendement, de 28 daaronder −6,0% — maar op 28 waarnemingen is dat binnen de
+ruis. De keuze rust op de Brier-cijfers, niet op die 28 trades. Regels van vóór
+10 augustus in dit logboek zijn dus met het oude venster gemarkeerd.
+
+Daarachter staan de vijf kolommen van de conditionering op de meting van
+vandaag:
+
+| kolom | wat |
+| --- | --- |
 | `waarneming` | de hoogste (of laagste) temperatuur die op het moment van loggen die dag al gemeten was, in de eenheid van de markt; leeg op lead 1 en 2 en bij een gemist station |
 | `waarneming_uur` | het lokale tijdstip van de laatste meting waar de restfactor mee gerekend heeft — niet de klok, zie punt 7 |
 | `waarneming_n` | het aantal metingen waarop die waarde rust |
 | `restfactor` | de `w` die daaruit volgde |
 | `model_kans_kaal` | de kans zonder conditionering. Blijft erin staan omdat er zonder die kolom achteraf niet te meten valt of de conditionering iets opleverde: dan is er maar één getal en geen vergelijking |
 
-De vijf kolommen achteraan zijn erbij gekomen met de conditionering. Oudere
-regels zijn met `bot/migratie_signalen_log.py` aangevuld met lege velden, zodat
-het bestand rechthoekig blijft. `model_kans_kaal` is daar met opzet leeg
-gelaten en niet uit `model_kans` overgeschreven: leeg betekent "van vóór de
-conditionering", en dat onderscheid moet blijven staan.
+Ook deze vijf zijn achteraan bijgeplakt, ná `uren_tot_sluiting` en `einde_api`
+omdat die twee al in het logboek op schijf stonden. Oudere regels zijn met
+`bot/migratie_logkoppen.py` aangevuld met lege velden, zodat het bestand
+rechthoekig blijft. `model_kans_kaal` is daar met opzet leeg gelaten en niet uit
+`model_kans` overgeschreven: leeg betekent "van vóór de conditionering", en dat
+onderscheid moet blijven staan.
 
 `model_kans` en `leden_fractie` zijn twee onafhankelijke schattingen van
 dezelfde kans. Door ze allebei te loggen is achteraf te zien welke van de twee
@@ -646,9 +721,10 @@ kijken of bewolking op het piekuur iets zegt.
 
 ### `logs/portfolio_history.csv`
 
-Eén regel per open positie per portefeuillerun. Dat is het hele punt van de
-reeks: daarmee is later te zien of een verwachting geleidelijk kantelde, en of
-rood daadwerkelijk verlies voorspelde.
+Eén regel per open positie per portefeuillerun, sinds 10 augustus elk uur. Dat
+is het hele punt van de reeks: daarmee is later te zien of een verwachting
+geleidelijk kantelde, en of rood daadwerkelijk verlies voorspelde. De eerste
+dagen staan er met tussenpozen van zes uur in, daarna uurlijks.
 
 | kolom | wat |
 | --- | --- |
@@ -660,7 +736,8 @@ rood daadwerkelijk verlies voorspelde.
 | `model_prob_now` | de modelkans op dat vak |
 | `current_bid` | de bied uit de data-API |
 | `city_bias_used` | de correctie die de kalibratie op het kale ledengemiddelde legde |
-| `light` | `red`, `amber`, `green` of `unknown` |
+| `light` | `red`, `amber`, `green`, `settled` of `unknown` |
+| `peak_hour` | het verwachte uur van de dagpiek, lokale tijd; leeg als de uurcurve ontbrak |
 | `observed_today` | wat er die dag al gemeten was, in de eenheid van de markt |
 | `restfactor` | de `w` waarmee geconditioneerd is |
 
@@ -671,6 +748,15 @@ weersverandering.
 `city_bias_used` staat er expliciet in omdat `app_params.js` periodiek opnieuw
 gekalibreerd wordt. Zonder die kolom lijkt zo'n bijstelling later in de grafiek
 op een weersverandering.
+
+`peak_hour` staat er sinds 11 augustus bij, achteraan zodat de bestaande
+kolommen hun plek houden. De drempels van de markt-oneens-vlag zijn gemeten
+tegen een aangenomen piekuur van 15:00 lokaal, omdat het echte piekuur nergens
+bewaard werd; met deze kolom is die meting over een paar weken over te doen met
+de werkelijke uren. De regels van vóór die datum zijn met
+`bot/migratie_portfolio_history.py` aangevuld met een leeg veld, zodat het
+bestand rechthoekig is. Die migratie mag opnieuw gedraaid worden; staat de
+nieuwe kop er al, dan gebeurt er niets.
 
 De stand van nu staat in `portfolio.json` in de hoofdmap; dat bestand leest het
 tabblad. Alleen open posities: een positie waarvan de doeldag voorbij is valt
@@ -715,5 +801,5 @@ Deze draaien ook in `.github/workflows/zelftest.yml` bij elke push.
 | `bot/taf.py` | de luchthavenverwachting, voorlopig alleen loggend |
 | `bot/jslezer.py` | tabellen uit polymarkt.js lezen; één parser voor allebei |
 | `logs/` | ensemblelog, NWS-log, signalenlog en portefeuillereeks; zie hierboven |
-| `.github/workflows/` | dagelijkse en wekelijkse herberekeningen |
+| `.github/workflows/` | dagelijkse en wekelijkse herberekeningen, plus de uurlijkse portefeuille |
 | `REVIEW.md` | externe codereview en het narekenen van de aanbevelingen |

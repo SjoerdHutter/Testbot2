@@ -65,10 +65,16 @@ KOP = ["gelogd_utc", "key", "doel_datum", "lead", "soort", "eenheid",
        "bracket_label", "bracket_lo", "bracket_hi", "verwachting", "p10", "p90",
        "model_kans", "leden_fractie", "markt_prijs", "edge_pp", "volume_24u",
        "event_slug", "markt_slug", "strat_a_signaal",
+       # Achteraan bijgeplakt, zodat de regels van voor deze kolommen geldig
+       # blijven. Die krijgen hier lege velden en worden niet nageschat.
+       "uren_tot_sluiting", "einde_api",
        # vanaf de intraday-conditionering: wat er op het moment van loggen al
        # gemeten was, en wat de conditionering daarmee deed. model_kans_kaal is
        # de oude kans zonder waarneming en blijft erin staan, want zonder die
        # kolom is achteraf niet te meten of de conditionering iets opleverde.
+       # Ze staan ná uren_tot_sluiting en einde_api omdat die twee al in het
+       # logboek op schijf staan; volgorde omdraaien zou 30613 regels
+       # mislabelen.
        "waarneming", "waarneming_uur", "waarneming_n", "restfactor",
        "model_kans_kaal"]
 
@@ -391,23 +397,33 @@ def vak_van_mu(vakken: list, mu: float) -> int:
     return 0 if mu < 0 else len(vakken) - 1
 
 
-def uren_tot(einde):
-    if not einde:
-        return None
+def uren_tot(doel_datum: str, tz: str):
+    """Uren tot het einde van de doeldag in de stad zelf: middernacht na
+    doel_datum in de tijdzone van die stad.
+
+    Niet het veld endDate uit de Gamma-API. Dat staat voor elke stad op 12:00
+    UTC van de doeldag, en dat is alleen voor Wellington het einde van de lokale
+    dag. Voor New York scheelt het 16 uur, voor San Francisco 19 uur en voor
+    Amsterdam 10 uur. Met endDate zou de tijdpoort van strategie A per stad op
+    een ander werkelijk moment staan, en zou het logboek niet te vergelijken
+    zijn met de handmatig afgewikkelde posities, die op het einde van de lokale
+    dag zijn gemeten. De tijdzone komt uit weer.STEDEN; er is geen tweede
+    tabel."""
     try:
-        t = datetime.fromisoformat(str(einde).replace("Z", "+00:00"))
+        eind = date.fromisoformat(doel_datum) + timedelta(days=1)
     except ValueError:
         return None
-    return (t - datetime.now(timezone.utc)).total_seconds() / 3600
+    sluit = datetime(eind.year, eind.month, eind.day, tzinfo=ZoneInfo(tz))
+    return (sluit - datetime.now(timezone.utc)).total_seconds() / 3600
 
 
-def beoordeel_a(d: dict, onze, eigen, markt_eenheid, app_eenheid) -> list:
+def beoordeel_a(d: dict, onze, eigen, markt_eenheid, app_eenheid, uren) -> list:
     """Per vak of strategie A het op dit moment zou aanmerken: alle regels van A
     gehaald, beide poorten open en binnen het koopvenster. Dezelfde regels en
     dezelfde drempels als beoordeelA in polymarkt.js; de drempels komen daar
-    letterlijk vandaan (STRAT_A), ze staan hier niet nog eens."""
+    letterlijk vandaan (STRAT_A), ze staan hier niet nog eens. `uren` telt tot
+    middernacht lokaal, zie uren_tot."""
     leeg = [False] * len(d["vakken"])
-    uren = uren_tot(d["einde"])
     venster = uren is not None and uren <= STRAT_A["uurVroeg"] and uren >= STRAT_A["uurLaat"]
     liquide_genoeg = (STRAT_A["liquiditeit"] <= 0 or d["liquiditeit"] is None
                       or d["liquiditeit"] >= STRAT_A["liquiditeit"])
@@ -499,7 +515,10 @@ def rijen_voor_stad(nu: str, stad: dict, leden: dict, markten: dict,
                 kaal = onze_kansen(d["vakken"], eigen, markt_eenheid, app_eenheid)
                 onze = onze_kansen(d["vakken"], eigen, markt_eenheid,
                                    app_eenheid, wn) if wn else kaal
-            merk = beoordeel_a(d, onze, eigen, markt_eenheid, app_eenheid)
+            # De klok van strategie A loopt op middernacht lokaal, niet op het
+            # endDate van de Gamma-API; zie de kop van uren_tot.
+            uren = uren_tot(dag, stad["tz"])
+            merk = beoordeel_a(d, onze, eigen, markt_eenheid, app_eenheid, uren)
 
             # Alles wat in de regel staat is in de eenheid van de markt, zodat
             # de kans uit de regel zelf na te rekenen is.
@@ -531,6 +550,7 @@ def rijen_voor_stad(nu: str, stad: dict, leden: dict, markten: dict,
                     _tekst(kans, 4), _tekst(fractie, 4), _tekst(b["ja"], 4),
                     _tekst(edge, 2), _tekst(d["volume24"], 2),
                     d["slug"], b["slug"], 1 if merk[i] else 0,
+                    _tekst(uren, 2), d["einde"] or "",
                     _tekst(wn_m, 2), _tekst(wn["uur"], 2) if wn else "",
                     _tekst(wn["n"]) if wn else "", _tekst(wn_w, 4),
                     _tekst(kaal[i] if kaal else None, 4),
@@ -556,7 +576,8 @@ def run(steden=None, dagen: int = 3, pauze: float = 0.6) -> int:
             zonder_slug.append(stad["key"])
             continue
         try:
-            leden_per_stad[stad["key"]] = logger.haal_leden(stad, ENS_VELDEN)
+            leden_per_stad[stad["key"]] = logger.met_herkansing(
+                logger.haal_leden, stad, ENS_VELDEN, timeout=logger.FETCH_TIMEOUT)
         except Exception as ex:
             print(f"  {stad['key']}: ensemble mislukt ({ex})")
             fouten += 1
@@ -565,7 +586,8 @@ def run(steden=None, dagen: int = 3, pauze: float = 0.6) -> int:
         if key not in leden_per_stad:
             continue
         try:
-            nws_per_stad[key] = logger.haal_nws(url)
+            nws_per_stad[key] = logger.met_herkansing(
+                logger.haal_nws, url, timeout=logger.FETCH_TIMEOUT)
         except Exception as ex:
             print(f"  {key}: NWS mislukt ({ex})")
         time.sleep(pauze)

@@ -69,10 +69,9 @@ import json
 import math
 import re
 import sys
-import time
 import urllib.parse
 import urllib.request
-# datetime.time heet hier dtime, zodat de module time hierboven bereikbaar blijft
+# datetime.time heet hier dtime: de naam time leest anders als de module
 from datetime import datetime, date, time as dtime, timedelta, timezone
 from pathlib import Path
 from zoneinfo import ZoneInfo
@@ -108,18 +107,40 @@ BESLIST_LAAG = 0.02
 BESLIST_HOOG = 0.98
 
 # Wanneer een meningsverschil met de markt tegen het model pleit in plaats van
-# voor een koopje. Gemeten op 167 afgerekende stad-dagen uit signalen.csv, met
-# de Brier-score van model en markt per vak (lager is beter):
+# voor een koopje. Beide drempels zijn gemeten op 230 afgerekende stad-dagen uit
+# signalen.csv, met de Brier-score van model en markt per vak (lager is beter).
 #
-#     meer dan 24u voor sluiting   model 0,0662   markt 0,0612    markt  7% beter
-#     12 tot 24u voor sluiting     model 0,0670   markt 0,0523    markt 22% beter
-#     minder dan 12u               model 0,0648   markt 0,0270    markt 58% beter
+# De klok telt af naar het verwachte piekmoment en niet naar de sluiting, want
+# dat is de klok die telt: de markt loopt voor omdat hij de al gemeten
+# temperatuur van die dag ziet, en dat voordeel hangt aan het moment waarop het
+# dagmaximum valt, niet aan middernacht.
 #
-# Het model verbetert nauwelijks naarmate de dag vordert; de markt halveert zijn
-# fout ruimschoots, want die ziet de al gemeten temperatuur van die dag terwijl
-# het model nog voorspelt. In dat laatste venster is een groot verschil dus veel
-# vaker het model dat ernaast zit dan een edge die te pakken valt. Bij Shanghai
-# stond er +82pp edge terwijl de markt op 92% zat en gelijk kreeg.
+#     meer dan 24u voor de piek   model 0,0655   markt 0,0599    markt  9% beter
+#     12 tot 24u voor de piek     model 0,0673   markt 0,0592    markt 12% beter
+#     6 tot 12u voor de piek      model 0,0666   markt 0,0505    markt 24% beter
+#     0 tot 6u voor de piek       model 0,0640   markt 0,0370    markt 42% beter
+#     piek voorbij                model 0,0670   markt 0,0098    markt 85% beter
+#
+# Het model verbetert nauwelijks naarmate de dag vordert; de markt gaat er een
+# orde van grootte op vooruit. Bij twaalf uur voor de piek verdubbelt zijn
+# voordeel, en daar ligt de grens.
+#
+# Het piekuur staat niet in signalen.csv, dus voor de meting is 15:00 lokaal
+# aangenomen. De uitkomst hangt daar niet aan: over aangenomen piekuren van
+# 13:00 tot 17:00 blijft het patroon 8-9% / 11-14% / 20-28% / 31-62% / 73-100%.
+#
+# De 20pp is net zo gemeten. Binnen twaalf uur voor de piek, uitgesplitst naar
+# de grootte van het meningsverschil:
+#
+#     alle vakken     model 0,0661   markt 0,0367    markt 44% beter
+#     meer dan 10pp   model 0,1869   markt 0,0809    markt 57% beter
+#     meer dan 20pp   model 0,2983   markt 0,0991    markt 67% beter
+#     meer dan 40pp   model 0,4962   markt 0,0736    markt 85% beter
+#
+# Hoe groter het verschil, hoe vaker de markt gelijk had. Lager dan 20pp zou
+# verdedigbaar zijn, want ook daar wint de markt, maar dan markeert de vlag een
+# op de drie vakken en zegt hij niets meer; bij 20pp is het ongeveer een op de
+# acht.
 #
 # Dit raakt het stoplicht niet: dat blijft in graden staan. Het is een vlag
 # naast edge_now, zodat die kolom in dit venster niet als winst leest.
@@ -151,12 +172,28 @@ VELD_ALIAS = {
     "redeemable":    ["redeemable"],
 }
 
+# peak_hour staat achteraan en niet ertussen: de bestaande kolommen houden hun
+# plek, zodat wie op index leest niets merkt. Oude regels zijn met
+# bot/migratie_portfolio_history.py aangevuld met een leeg veld.
 HIST_KOP = ["gelogd_utc", "key", "doel_datum", "bracket_label", "adj_mean_now",
             "model_prob_now", "current_bid", "city_bias_used", "light",
+            "peak_hour",
             # vanaf de intraday-conditionering: zonder deze twee lijkt een kans
             # die verspringt doordat de meting binnenkwam later op een
-            # weersverandering, net als bij city_bias_used.
+            # weersverandering, net als bij city_bias_used. Ze staan ná
+            # peak_hour omdat die al in het logboek op schijf staat.
             "observed_today", "restfactor"]
+
+
+def hist_rij(r: dict, nu: str) -> list:
+    """Een regel voor portfolio_history.csv, in de volgorde van HIST_KOP."""
+    def leeg(x):
+        return "" if x is None else x
+    return [nu, r["city"], r["date"], r["bracket"],
+            leeg(r["adj_mean_now"]), leeg(r["model_prob_now"]),
+            leeg(r["current_bid"]), leeg(r["city_bias_used"]),
+            r["light"], leeg(r["peak_hour"]),
+            leeg(r["observed_today"]), leeg(r["restfactor"])]
 
 # stadssleutel per slugdeel: precies de tabel uit polymarkt.js, omgedraaid.
 KEY_VAN_SLUG = {v: k for k, v in S.SLUG.items()}
@@ -426,6 +463,7 @@ class ModelCache:
         self.waarnemingen = waarnemingen or {}
         self._per_stad: dict = {}     # key -> leden of Exception
         self._per_dag: dict = {}      # (key, datum, soort) -> beeld of None
+        self._pieken: dict = {}       # key -> {datum: {uur, lo, hi}}
 
     def _leden(self, key: str):
         """De ensembleleden van een stad, met herkansingen.
@@ -444,19 +482,36 @@ class ModelCache:
             self._per_stad[key] = ValueError(f"{key} staat niet in weer.STEDEN")
             return self._per_stad[key]
 
-        laatste = None
-        for poging in range(FETCH_POGINGEN):
-            try:
-                self._per_stad[key] = logger.haal_leden(stad, S.ENS_VELDEN)
-                return self._per_stad[key]
-            except Exception as ex:                # noqa: BLE001 - reden gaat mee
-                laatste = ex
-                if poging + 1 < FETCH_POGINGEN:
-                    time.sleep(FETCH_PAUZE * (poging + 1))
-        # Op is op: de reden gaat mee de JSON in, zodat in het tabblad staat
-        # waarom er geen licht is in plaats van dat de positie eruit valt.
-        self._per_stad[key] = RuntimeError(f"{laatste} (na {FETCH_POGINGEN} pogingen)")
+        try:
+            self._per_stad[key] = logger.met_herkansing(
+                logger.haal_leden, stad, S.ENS_VELDEN,
+                pogingen=FETCH_POGINGEN, pauze=FETCH_PAUZE)
+        except RuntimeError as ex:
+            # Op is op: de reden gaat mee de JSON in, zodat in het tabblad staat
+            # waarom er geen licht is in plaats van dat de positie eruit valt.
+            self._per_stad[key] = ex
         return self._per_stad[key]
+
+    def piek(self, key: str, datum: str):
+        """Het verwachte piekuur van een doeldag, of None. Eén uurcurve per
+        stad, niet per positie: die dekt drie dagen tegelijk.
+
+        Lukt de fetch ook met herkansingen niet, dan blijft het leeg en valt
+        beoordeel() terug op de sluiting. Dat is een slechtere klok, maar wel
+        een klok — en de reden staat in de run-uitvoer, want een stad die
+        stilletjes op de grovere klok terugvalt is niet na te trekken."""
+        if key not in self._pieken:
+            stad = weer.STAD_OP_KEY.get(key)
+            self._pieken[key] = {}
+            if stad:
+                try:
+                    self._pieken[key] = pieken_uit(logger.met_herkansing(
+                        weer._get_json, uur_url(stad),
+                        pogingen=FETCH_POGINGEN, pauze=FETCH_PAUZE, timeout=45))
+                except RuntimeError as ex:
+                    print(f"  {key}: uurcurve mislukt ({ex}); "
+                          f"de sluiting blijft over als klok")
+        return (self._pieken[key] or {}).get(datum)
 
     def beeld(self, key: str, datum: str, soort: str):
         """De verwachting en de 80%-band van nu, in de eenheid van de markt.
@@ -642,6 +697,83 @@ def stoplicht(d, b, model_win_prob, delta_prob, mu_in_vak: bool, is_ja=False):
                      if d is not None else "geen aanleiding")
 
 
+# De uurcurve waaruit het piektijdstip komt, dezelfde vijf systemen als
+# UUR_MODELLEN in index.html.
+UUR_MODELLEN = ["ecmwf_ifs025", "ecmwf_aifs025", "gfs_seamless",
+                "icon_seamless", "gem_seamless"]
+
+
+def uur_url(stad: dict) -> str:
+    """Zelfde aanroep als bundelUren in index.html: de gewone forecast-API met
+    uurwaarden, niet de ensemble-API. timezone=auto, dus de tijdstempels staan
+    al in de lokale tijd van de stad."""
+    unit = "fahrenheit" if stad["eenheid"] == "F" else "celsius"
+    return ("https://api.open-meteo.com/v1/forecast"
+            f"?latitude={stad['lat']}&longitude={stad['lon']}"
+            f"&hourly=temperature_2m&models={','.join(UUR_MODELLEN)}"
+            f"&temperature_unit={unit}&forecast_days=3&timezone=auto")
+
+
+def pieken_uit(j: dict) -> dict:
+    """{datum: {uur, lo, hi}} — het uur van de dagpiek in het modelgemiddelde,
+    met lo/hi als spreiding van dat tijdstip tussen de modellen. Spiegelbeeld
+    van piekenUit in index.html, inclusief de eis van minstens zes uurwaarden
+    voordat een dag meetelt."""
+    H = (j or {}).get("hourly") or {}
+    tijden = H.get("time") or []
+    reeksen = [v for k, v in H.items()
+               if k.startswith("temperature_2m") and isinstance(v, list)]
+    if not tijden or not reeksen:
+        return {}
+
+    per_dag: dict = {}
+    for i, ts in enumerate(tijden):
+        # Elk model houdt zijn eigen plek, met None waar het dit uur mist.
+        # Compacteren per uur schoof de modellen in elkaar: vals[m] was dan
+        # het ene uur ecmwf en het andere uur gfs, en de spreiding hieronder
+        # rekende een argmax uit over een reeks die geen enkel model is.
+        vals = [r[i] if i < len(r) else None for r in reeksen]
+        waarden = [v for v in vals if v is not None]
+        if not waarden:
+            continue
+        per_dag.setdefault(ts[:10], []).append(
+            {"uur": int(ts[11:13]), "gem": sum(waarden) / len(waarden), "vals": vals})
+
+    uit = {}
+    for dag, rij in per_dag.items():
+        if len(rij) < 6:              # te weinig uren, geen betrouwbare piek
+            continue
+        beste = max(rij, key=lambda x: x["gem"])
+        arg = []
+        for m in range(len(reeksen)):
+            kandidaten = [x for x in rij if x["vals"][m] is not None]
+            if kandidaten:
+                arg.append(max(kandidaten, key=lambda x: x["vals"][m])["uur"])
+        uit[dag] = {"uur": beste["uur"],
+                    "lo": min(arg) if arg else beste["uur"],
+                    "hi": max(arg) if arg else beste["uur"]}
+    return uit
+
+
+def uren_tot_piek(key: str, datum: str, uur: int):
+    """Uren tot het verwachte warmste moment van de doeldag, in de lokale tijd
+    van de stad. Negatief zodra de piek geweest is.
+
+    Dit is de klok die er voor een positie toe doet. De markt sluit formeel om
+    middernacht, maar de uitslag ligt er zodra het dagmaximum gevallen is: bij
+    Busan rekende Polymarket af terwijl er lokaal nog uren op de klok stonden.
+    Uren tot sluiting telde die uren mee alsof er nog iets kon veranderen."""
+    stad = weer.STAD_OP_KEY.get(key)
+    if not stad or uur is None:
+        return None
+    try:
+        dag = date.fromisoformat(datum)
+    except ValueError:
+        return None
+    piek = datetime.combine(dag, dtime(int(uur), 0), tzinfo=ZoneInfo(stad["tz"]))
+    return (piek - datetime.now(timezone.utc)).total_seconds() / 3600
+
+
 def uren_tot_sluiting(key: str, datum: str):
     """Middernacht aan het einde van de doeldag in de lokale tijdzone van de
     stad. Niet met een vaste UTC-offset: die klopt maar in een deel van het jaar
@@ -676,7 +808,9 @@ def beoordeel(pos: dict, cache: ModelCache, instap: dict) -> dict:
         "model_prob_now": None, "model_prob_entry": None, "model_win_prob": None,
         "d": None, "b": round(b, 2), "delta_prob": None, "delta_mean": None,
         "fair_value": None, "edge_now": None,
-        "hours_to_close": None, "light": "unknown", "reason": "",
+        "hours_to_close": None, "hours_to_peak": None,
+        "peak_hour": None, "peak_hour_spread": None,
+        "light": "unknown", "reason": "",
         "entry_known": False,
         "market_decided": False,
         "market_disagrees": False, "market_note": "",
@@ -693,9 +827,23 @@ def beoordeel(pos: dict, cache: ModelCache, instap: dict) -> dict:
     uren = uren_tot_sluiting(key, datum)
     rij["hours_to_close"] = None if uren is None else round(uren, 2)
 
+    # De klok die er voor de positie toe doet: tot het verwachte warmste moment,
+    # niet tot middernacht. Zodra de piek geweest is ligt de uitslag er, ook al
+    # loopt de dag lokaal nog uren door. In een functie, want de fetch erachter
+    # is niet gratis: een afgerekende positie gebruikt deze klok niet meer, dus
+    # daar blijft de aanroep achterwege.
+    def vul_piek():
+        p = cache.piek(key, datum)
+        if p:
+            rij["peak_hour"] = p["uur"]
+            rij["peak_hour_spread"] = [p["lo"], p["hi"]]
+            u = uren_tot_piek(key, datum, p["uur"])
+            rij["hours_to_peak"] = None if u is None else round(u, 2)
+
     # 1c: het modelbeeld van nu.
     beeld, fout = cache.beeld(key, datum, soort)
     if not beeld:
+        vul_piek()             # de klok blijft staan, alleen het licht ontbreekt
         rij["reason"] = fout or "modelbeeld ontbreekt"
         return rij
 
@@ -761,6 +909,8 @@ def beoordeel(pos: dict, cache: ModelCache, instap: dict) -> dict:
             f"verschil tussen de uitslag en wat het model dacht")
         return rij
 
+    vul_piek()
+
     if mu is None or kans is None:
         rij["reason"] = "modelbeeld onvolledig"
         return rij
@@ -776,38 +926,74 @@ def beoordeel(pos: dict, cache: ModelCache, instap: dict) -> dict:
             f" · geconditioneerd op {rij['observed_today']}{eenheid} die vandaag "
             f"tot {rij['observed_hour']:.0f} uur gemeten is")
 
-    markeer_markt(rij, uren)
+    # De vlag telt naar de piek; ontbreekt die, dan blijft de sluiting over.
+    markeer_markt(rij, rij["hours_to_peak"] if rij["hours_to_peak"] is not None
+                  else rij["hours_to_close"],
+                  piek_bekend=rij["hours_to_peak"] is not None)
     return rij
 
 
-def markeer_markt(rij: dict, uren) -> None:
-    """Zet de vlag als het model dicht op sluiting sterk van de markt afwijkt.
+def markeer_markt(rij: dict, uren, piek_bekend: bool = True) -> None:
+    """Zet de vlag als het model dicht op de piek sterk van de markt afwijkt.
+
+    `uren` is de tijd tot het verwachte warmste moment, en mag negatief zijn:
+    is de piek voorbij, dan is dat juist het sterkste geval — daar zit de markt
+    85% dichter bij de uitkomst dan het model. Ontbreekt het piekuur, dan komt
+    hier de tijd tot sluiting binnen met piek_bekend=False; die grens is grover
+    maar dezelfde orde. Negatief betekent op die klok geen piek-geweest maar
+    een al gesloten markt, en daarover valt niets meer te signaleren.
 
     Staat bewust los van het stoplicht en verandert de kleur niet: het alarm
     blijft in graden. Dit gaat over de kolom edge, die zo'n verschil als kans
     presenteert terwijl het in dit venster meestal het model is dat ernaast
     zit."""
     edge = rij["edge_now"]
-    if edge is None or uren is None or not 0 <= uren <= MARKT_VENSTER_UREN:
+    if edge is None or uren is None or uren > MARKT_VENSTER_UREN:
+        return
+    if not piek_bekend and uren < 0:
         return
     if abs(edge) <= MARKT_VERSCHIL_PP:
         return
     rij["market_disagrees"] = True
     # de prijs van jouw kant is de kans die de markt jouw positie geeft
     markt = rij["current_bid"]
+    # Hoe dichter op de piek, hoe groter het gemeten voordeel van de markt; na
+    # de piek is er van voorspellen geen sprake meer. Zonder piekuur telt de
+    # klok naar de sluiting en zegt de tekst dat ook: "tot de verwachte piek"
+    # schrijven terwijl er tijd tot middernacht gemeten is, is een klok die
+    # liegt. De 58% is de oudere meting op die grovere klok (binnen twaalf uur
+    # voor sluiting, 167 stad-dagen).
+    if not piek_bekend:
+        wanneer = f"nog {uren:.1f} uur tot sluiting (piekuur niet beschikbaar)"
+        hoeveel = "58%"
+        venster = "Zo dicht op de sluiting"
+    elif uren < 0:
+        wanneer = f"de piek is {-uren:.1f} uur geleden verwacht"
+        hoeveel = "85%"
+        venster = "Zo dicht op de piek"
+    elif uren <= 6:
+        wanneer = f"nog {uren:.1f} uur tot de verwachte piek"
+        hoeveel = "42%"
+        venster = "Zo dicht op de piek"
+    else:
+        wanneer = f"nog {uren:.1f} uur tot de verwachte piek"
+        hoeveel = "24%"
+        venster = "Zo dicht op de piek"
+
     if edge > 0:
         rij["market_note"] = (
-            f"nog {uren:.1f} uur te gaan en het model zit {edge:+.1f}pp boven de "
-            f"markt ({rij['model_win_prob'] * 100:.0f}% tegen {markt * 100:.0f}%). "
-            f"In dit venster is de markt gemeten 58% nauwkeuriger dan het model, "
-            f"want die ziet de al gemeten temperatuur van vandaag. Lees dit eerder "
-            f"als twijfel aan het model dan als een edge om te pakken")
+            f"{wanneer} en het model zit {edge:+.1f}pp boven de markt "
+            f"({rij['model_win_prob'] * 100:.0f}% tegen {markt * 100:.0f}%). "
+            f"{venster} zit de markt gemeten {hoeveel} dichter bij de "
+            f"uitkomst dan het model, want die ziet de al gemeten temperatuur van "
+            f"vandaag. Lees dit eerder als twijfel aan het model dan als een edge "
+            f"om te pakken")
     else:
         rij["market_note"] = (
-            f"nog {uren:.1f} uur te gaan en de markt prijst deze positie {-edge:.1f}pp "
-            f"hoger dan het model ({markt * 100:.0f}% tegen "
-            f"{rij['model_win_prob'] * 100:.0f}%). In dit venster heeft de markt "
-            f"meestal gelijk, dus het model is hier waarschijnlijk te somber")
+            f"{wanneer} en de markt prijst deze positie {-edge:.1f}pp hoger dan het "
+            f"model ({markt * 100:.0f}% tegen {rij['model_win_prob'] * 100:.0f}%). "
+            f"{venster} heeft de markt meestal gelijk ({hoeveel} dichter "
+            f"bij de uitkomst), dus het model is hier waarschijnlijk te somber")
 
 
 # ── Stap 1i: de uitvoer ───────────────────────────────────────────────────────
@@ -863,9 +1049,15 @@ def bouw(posities_ruw: list, params: dict, instap: dict, wallet: str,
                       "kansen blijven onvoorwaardelijk")
         cache = ModelCache(params, wn)
     rijen = [beoordeel(p, cache, instap) for p in open_posities]
-    rijen.sort(key=lambda r: (VOLGORDE.get(r["light"], 9),
-                              r["hours_to_close"] if r["hours_to_close"] is not None
-                              else math.inf))
+    # Binnen een kleur op de klok die telt: tot de piek, en pas als die
+    # ontbreekt tot de sluiting.
+    def wanneer(r):
+        for veld in ("hours_to_peak", "hours_to_close"):
+            if r[veld] is not None:
+                return r[veld]
+        return math.inf
+
+    rijen.sort(key=lambda r: (VOLGORDE.get(r["light"], 9), wanneer(r)))
 
     blootstelling = sum((r["size"] or 0) * (r["current_bid"] if r["current_bid"]
                                             is not None else (r["avg_price"] or 0))
@@ -892,15 +1084,7 @@ def bouw(posities_ruw: list, params: dict, instap: dict, wallet: str,
 def schrijf_uit(payload: dict) -> None:
     UIT_JSON.write_text(json.dumps(payload, indent=1, ensure_ascii=False) + "\n")
     nu = payload["generated_at"]
-    rijen = [[nu, r["city"], r["date"], r["bracket"],
-              "" if r["adj_mean_now"] is None else r["adj_mean_now"],
-              "" if r["model_prob_now"] is None else r["model_prob_now"],
-              "" if r["current_bid"] is None else r["current_bid"],
-              "" if r["city_bias_used"] is None else r["city_bias_used"],
-              r["light"],
-              "" if r["observed_today"] is None else r["observed_today"],
-              "" if r["restfactor"] is None else r["restfactor"],
-              ] for r in payload["positions"]]
+    rijen = [hist_rij(r, nu) for r in payload["positions"]]
     if rijen:
         logger.schrijf(logger.logmap() / "portfolio_history.csv", HIST_KOP, rijen)
 

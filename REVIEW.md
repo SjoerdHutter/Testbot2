@@ -226,3 +226,33 @@ doeldagen staat elk vakje op meerdere afstanden tot sluiting in het logboek, dus
 het venster is uit dezelfde reeks te schatten in plaats van eruit te veronder-
 stellen. Richtlijn: pas beoordelen bij een paar honderd afgewikkelde doeldagen
 per bucket, anders vervangt de ene te kleine steekproef de andere.
+
+## Nagekomen bij die vraag: welke uren tellen mee
+
+Toegevoegd op 2026-08-07. De eerste versie van het signalenlog rekende de uren
+tot sluiting uit het veld `endDate` van de Gamma-API. Dat veld staat voor élke
+stad op 12:00 UTC van de doeldag, en dat is alleen voor Wellington het einde van
+de lokale dag. Gemeten op de markten van 8 augustus:
+
+| stad | `endDate` | middernacht lokaal (UTC) | verschil |
+| --- | --- | --- | --- |
+| Wellington | 08-08 12:00Z | 08-08 12:00Z | 0 uur |
+| Tokio | 08-08 12:00Z | 08-08 15:00Z | 3 uur |
+| Amsterdam | 08-08 12:00Z | 08-08 22:00Z | 10 uur |
+| Londen | 08-08 12:00Z | 08-08 23:00Z | 11 uur |
+| New York | 08-08 12:00Z | 08-09 04:00Z | 16 uur |
+| San Francisco | 08-08 12:00Z | 08-09 07:00Z | 19 uur |
+
+Daarmee stond de tijdpoort van strategie A per stad op een ander werkelijk
+moment. `uren_tot` in `bot/signalen.py` rekent nu tot middernacht na de doeldag
+in de tijdzone van de stad, en het logboek heeft er twee kolommen bij:
+`uren_tot_sluiting` en `einde_api`, dat laatste zodat de aanname toetsbaar
+blijft.
+
+Gevolg voor de venstervraag hierboven: die is pas te beantwoorden met regels die
+`uren_tot_sluiting` gevuld hebben. De 2057 regels van vóór deze correctie
+hebben die kolom leeg en zijn niet nageschat; hun `strat_a_signaal` is op de
+`endDate`-klok gerekend en klopt alleen voor Wellington. Ze tellen dus niet mee
+in de vergelijking met de 174 handmatig afgewikkelde posities, die op het einde
+van de lokale dag zijn gemeten. Het aantal bruikbare regels begint bij nul op
+7 augustus 2026.
