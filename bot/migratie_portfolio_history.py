@@ -48,9 +48,13 @@ def migreer(pad: Path) -> int:
         return 0
 
     breed = len(P.HIST_KOP)
-    if len(kop) > breed:
-        print(f"  {pad.name}: de kop telt {len(kop)} kolommen, meer dan de "
-              f"{breed} die portfolio.py schrijft. Niets aangeraakt.")
+    # Alleen een kop die letterlijk het begin van HIST_KOP is mag verbreed
+    # worden. Een even brede of bredere kop met andere namen of een andere
+    # volgorde is geen oude versie van dit bestand maar iets anders; de kop
+    # vervangen zou dan elke kolom stilzwijgend een verkeerd etiket geven.
+    if kop != P.HIST_KOP[:len(kop)]:
+        print(f"  {pad.name}: de kop ({len(kop)} kolommen) is geen begin van de "
+              f"{breed} kolommen die portfolio.py schrijft. Niets aangeraakt.")
         return 1
 
     aangevuld = 0
