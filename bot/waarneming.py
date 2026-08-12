@@ -133,6 +133,24 @@ DEMPING = jslezer.letterlijk("W_DEMPING", _POLY)
 SIGMA_MIN = 0.05         # zelfde ondergrens als onzeKansen in polymarkt.js
 IEM_BUNDEL = 12          # stations per verzoek; IEM accepteert er meerdere
 IEM_POGINGEN = 3
+# Korter dan de 90 s die hier eerst stond, om dezelfde reden als FETCH_TIMEOUT
+# in logger.py: een geslaagde archiefaanroep is in enkele seconden terug, dus
+# wie na 30 s nog niets heeft krijgt het ook op poging drie niet. Met 90 s kostte
+# één onbereikbare tijdzone 270 seconden voordat de volgende aan de beurt was.
+IEM_TIMEOUT = 30
+
+# Een harde wandklokgrens over het hele ophalen heen. IEM bundelt per tijdzone,
+# en 26 van de 48 steden zitten in een tijdzone waar ze alleen in staan: dat zijn
+# 32 verzoeken die bij een trage bron elk hun volle herkansingen opmaken. Op
+# 12 augustus 2026 liep de actie Signalenlog daardoor tegen zijn timeout van
+# 60 minuten aan en werd afgebroken vóór de commitstap, waarmee ook het al
+# opgehaalde ensemblelog van die ronde verloren ging.
+#
+# Deze grens kiest de veilige kant. Wat op is, is op: de steden die nog niet
+# opgehaald zijn krijgen geen ondergrens en rekenen onvoorwaardelijk door,
+# precies zoals voor de conditionering. Een ronde zonder conditionering kost
+# scherpte; een afgebroken ronde kost de reeks zelf, en die komt niet terug.
+BUDGET_S = 240.0
 
 
 # ── De restfactor ─────────────────────────────────────────────────────────────
@@ -246,43 +264,51 @@ def ontleed_iem(tekst: str, stations) -> dict:
 
 
 def haal_stations(stations, tznaam: str, d1, d2, pauze: float = 0.5,
-                  soorten=("3",)) -> dict:
+                  soorten=("3",), tot=None) -> dict:
     """Eén verzoek per bundel stations in plaats van één per station.
 
     IEM accepteert meerdere `station=`-parameters. Blijft er een station leeg,
     dan volgt er alsnog een los verzoek voor dat station: een bundel die
     stilletjes half terugkomt zou anders steden zonder ondergrens laten, en dat
-    is precies het geval waarin je denkt gedekt te zijn en het niet bent."""
+    is precies het geval waarin je denkt gedekt te zijn en het niet bent.
+
+    `tot` is een monotone deadline (time.monotonic). Is die verstreken, dan
+    stopt het ophalen en komt terug wat er tot dan toe binnen was. Zonder die
+    grens vermenigvuldigde één trage bron zich: een bundel die helemaal faalt
+    zet elk station erin op de losse lijst, en die doen hun herkansingen nog
+    eens over."""
+    def op_tijd():
+        return tot is None or time.monotonic() < tot
+
+    def haal_een(deel):
+        for poging in range(IEM_POGINGEN):
+            try:
+                return weer._get(_iem_url(deel, tznaam, d1, d2, soorten),
+                                 timeout=IEM_TIMEOUT)
+            except Exception:                      # noqa: BLE001
+                if poging + 1 < IEM_POGINGEN and op_tijd():
+                    time.sleep(2 + poging * 3)
+                else:
+                    return ""
+        return ""
+
     uit: dict = {}
     lijst = sorted(set(stations))
     for i in range(0, len(lijst), IEM_BUNDEL):
+        if not op_tijd():
+            return uit
         deel = lijst[i:i + IEM_BUNDEL]
-        tekst = ""
-        for poging in range(IEM_POGINGEN):
-            try:
-                tekst = weer._get(_iem_url(deel, tznaam, d1, d2, soorten),
-                                  timeout=90)
-                break
-            except Exception:
-                time.sleep(2 + poging * 3)
-        uit.update(ontleed_iem(tekst, deel))
+        uit.update(ontleed_iem(haal_een(deel), deel))
         time.sleep(pauze)
-    ontbreekt = [s for s in lijst if s not in uit]
-    for st in ontbreekt:
-        tekst = ""
-        for poging in range(IEM_POGINGEN):
-            try:
-                tekst = weer._get(_iem_url([st], tznaam, d1, d2, soorten),
-                                  timeout=90)
-                break
-            except Exception:
-                time.sleep(2 + poging * 3)
-        uit.update(ontleed_iem(tekst, [st]))
+    for st in [s for s in lijst if s not in uit]:
+        if not op_tijd():
+            return uit
+        uit.update(ontleed_iem(haal_een([st]), [st]))
         time.sleep(pauze)
     return uit
 
 
-def haal_vandaag(steden: list, pauze: float = 0.5) -> dict:
+def haal_vandaag(steden: list, pauze: float = 0.5, budget: float = BUDGET_S) -> dict:
     """Wat er vandaag tot nu toe gemeten is, per stad, in de eenheid van die stad.
 
     Per stad: {"max": .., "min": .., "n": .., "laatste_uur": .., "uur": ..,
@@ -296,22 +322,29 @@ def haal_vandaag(steden: list, pauze: float = 0.5) -> dict:
 
     Omdat IEM per verzoek één tijdzone kent, gaan de steden per tijdzone in
     bundels. Dat is ook meteen de goede indeling, want de lokale kalenderdag
-    verschilt per tijdzone."""
+    verschilt per tijdzone. Het is wél een magere bundeling: 26 van de 48 steden
+    zitten als enige in hun tijdzone, dus het zijn vooral losse verzoeken.
+    Daarom hangt er een wandklokgrens omheen; zie BUDGET_S."""
     per_tz: dict = {}
     for s in steden:
         if s.get("bron") != "iem" or not s.get("station"):
             continue
         per_tz.setdefault(s["tz"], []).append(s)
 
+    tot = time.monotonic() + budget if budget else None
     uit: dict = {}
+    overgeslagen = 0
     for tznaam, groep in per_tz.items():
+        if tot is not None and time.monotonic() >= tot:
+            overgeslagen += len(groep)
+            continue
         nu = datetime.now(ZoneInfo(tznaam))
         vandaag = nu.date()
         stations = [s["station"] for s in groep]
         # gisteren meepakken: rond middernacht staan er nog nauwelijks metingen
         # van vandaag, en de eindgrens van IEM is exclusief.
         rauw = haal_stations(stations, tznaam, vandaag - timedelta(days=1),
-                             vandaag, pauze)
+                             vandaag, pauze, tot=tot)
         for s in groep:
             e = (rauw.get(s["station"]) or {}).get(vandaag.isoformat())
             if not e or e["maxf"] is None:
@@ -326,11 +359,16 @@ def haal_vandaag(steden: list, pauze: float = 0.5) -> dict:
                 "datum": vandaag.isoformat(),
                 "station": s["station"],
             }
-        verfijn_vandaag(groep, uit, vandaag)
+        verfijn_vandaag(groep, uit, vandaag, tot=tot)
+    if overgeslagen:
+        # Hoort hardop: een stad zonder ondergrens rekent onvoorwaardelijk door
+        # en dat is aan de uitvoer niet te zien.
+        print(f"  waarneming: tijdbudget van {budget:.0f}s op, "
+              f"{overgeslagen} steden zonder ondergrens deze ronde")
     return uit
 
 
-def verfijn_vandaag(steden: list, uit: dict, vandaag) -> None:
+def verfijn_vandaag(steden: list, uit: dict, vandaag, tot=None) -> None:
     """De ondergrens bijstellen met een fijnmaziger reeks, waar die er is.
 
     Hier telt de verfijning harder dan bij de dagelijkse controle. `m` kapt de
@@ -347,6 +385,8 @@ def verfijn_vandaag(steden: list, uit: dict, vandaag) -> None:
         return
     import fijnmeting
     for s in doel:
+        if tot is not None and time.monotonic() >= tot:
+            return          # het budget is op; de METAR-waarde blijft staan
         w = uit[s["key"]]
         for soort in ("max", "min"):
             los = {vandaag.isoformat(): w[soort]}

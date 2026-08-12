@@ -36,6 +36,7 @@ Alles draait offline; er gaat geen verzoek uit.
 """
 import math
 import sys
+import time
 from datetime import date
 from pathlib import Path
 
@@ -44,6 +45,7 @@ sys.path.insert(0, str(Path(__file__).resolve().parent))
 import signalen as S     # noqa: E402
 import waarneming as W   # noqa: E402
 import jslezer           # noqa: E402
+import weer              # noqa: E402
 
 VAKKEN_F = [{"lo": None, "hi": 81, "eenheid": "°F"},
             {"lo": 82, "hi": 83, "eenheid": "°F"},
@@ -490,11 +492,62 @@ def test_bronnen() -> bool:
     return ok
 
 
+def test_budget() -> bool:
+    """Het ophalen mag nooit langer duren dan zijn tijdbudget.
+
+    Dit bestaat omdat het een keer misging. Op 12 augustus 2026 liep de actie
+    Signalenlog tegen zijn timeout van 60 minuten en werd afgebroken vóór de
+    commitstap; daarmee ging ook het al opgehaalde ensemblelog van die ronde
+    verloren, en zo'n ronde komt niet terug. De oorzaak was dit ophalen:
+    IEM bundelt per tijdzone, 26 van de 48 steden zitten daar als enige in, en
+    een trage bron maakte per tijdzone eerst de bundelherkansingen op en daarna
+    nog eens de losse. Zonder grens vermenigvuldigt dat zich.
+
+    De grens kiest de veilige kant: wat niet opgehaald is, rekent
+    onvoorwaardelijk door, precies zoals voor de conditionering."""
+    goed = True
+    echte_get, echte_slaap = weer._get, W.time.sleep
+    try:
+        # elk verzoek kost een halve seconde en levert niets bruikbaars op:
+        # zonder grens zou dit alle tijdzones langsgaan, twee keer
+        def traag(*a, **k):
+            echte_slaap(0.5)
+            raise OSError("verzonnen trage bron")
+
+        weer._get = traag
+        W.time.sleep = lambda s: None      # de pauzes tussen verzoeken niet
+        steden = [s for s in weer.STEDEN if s.get("bron") == "iem"]
+        t0 = time.monotonic()
+        uit = W.haal_vandaag(steden, pauze=0.0, budget=2.0)
+        duur = time.monotonic() - t0
+    finally:
+        weer._get, W.time.sleep = echte_get, echte_slaap
+
+    if uit:
+        print(f"  budget    MISLUKT: een bron die niets teruggeeft levert "
+              f"{len(uit)} steden op")
+        goed = False
+    # ruim boven het budget mag niet; één lopend verzoek erbij is normaal
+    if duur > 6.0:
+        print(f"  budget    MISLUKT: {duur:.1f}s bij een budget van 2s — "
+              f"de grens wordt niet afgedwongen")
+        goed = False
+    # en zonder budget blijft alles zoals het was: geen grens, geen overslaan
+    if W.BUDGET_S <= 0:
+        print("  budget    MISLUKT: BUDGET_S staat uit")
+        goed = False
+
+    if goed:
+        print(f"  budget    ok: grens afgedwongen ({duur:.1f}s bij 2s budget), "
+              f"standaard {W.BUDGET_S:.0f}s")
+    return goed
+
+
 def main() -> int:
     print("\n  Zelftest intraday-conditionering\n")
     goed = all([test_onveranderd(), test_behoudend(), test_verloop(),
                 test_onmogelijk(), test_puntmassa(), test_spiegel(), test_iem(),
-                test_fijn(), test_hfmetar(), test_bronnen()])
+                test_fijn(), test_hfmetar(), test_bronnen(), test_budget()])
     print("\n  " + ("Alles in orde.\n" if goed else "ER GING IETS MIS.\n"))
     return 0 if goed else 1
 
