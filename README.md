@@ -348,10 +348,11 @@ niet in. Dat is bewust: de kop heeft geen kolom `soort` en `kalibratie.py` leest
 elke regel als een maximum. Het dagminimum staat wel in `signalen.csv`, dat
 `signalen.py` in dezelfde aanroep meevraagt.
 
-De regels van vóór de spreidingskolommen zijn met `bot/migratie_ensemble_log.py`
+De regels van vóór de spreidingskolommen zijn met `bot/migratie_logkoppen.py`
 aangevuld met lege velden, zodat het bestand rechthoekig is en `csv.DictReader`
-in `kalibratie.py` geen ontbrekende sleutels tegenkomt. Die migratie mag opnieuw
-gedraaid worden; staat de nieuwe kop er al, dan gebeurt er niets.
+in `kalibratie.py` geen ontbrekende sleutels tegenkomt. Datzelfde script vult
+`logs/signalen.csv` aan als daar kolommen bij komen. Het mag opnieuw gedraaid
+worden; staat de nieuwe kop er al, dan gebeurt er niets.
 
 ### `logs/nws_log.csv`
 
@@ -385,6 +386,21 @@ meet je alleen de eigen selectie en niets over het model.
 | `volume_24u` | het 24-uursvolume van de hele reeks, voor het toetsen van de liquiditeitspoort |
 | `event_slug`, `markt_slug` | de slug van de reeks en van dit ene vak op Polymarket |
 | `strat_a_signaal` | 1 als strategie A dit vakje op het moment van loggen aanmerkt: alle regels van A gehaald, beide poorten open én binnen het koopvenster; anders 0 |
+| `uren_tot_sluiting` | uren tot middernacht ná `doel_datum` in de tijdzone van de stad, twee decimalen; dit is de klok waarop het koopvenster van strategie A loopt |
+| `einde_api` | het onbewerkte `endDate` uit de Gamma-API, zodat later te toetsen is of Polymarket de handel daar werkelijk stopt |
+
+Over die laatste twee: `endDate` staat voor élke stad op 12:00 UTC van de
+doeldag. Dat is alleen voor Wellington het einde van de lokale dag; voor
+Amsterdam scheelt het 10 uur, voor New York 16 en voor San Francisco 19. Op die
+klok zou de tijdpoort van strategie A per stad op een ander werkelijk moment
+staan, en zou het logboek niet te vergelijken zijn met handmatig afgewikkelde
+posities, die op het einde van de lokale dag zijn gemeten. `uren_tot_sluiting`
+rekent daarom tot middernacht lokaal, met de tijdzone die al in `bot/weer.py`
+`STEDEN` staat. `einde_api` gaat mee zodat de aanname zelf toetsbaar blijft.
+
+Beide kolommen zijn achteraan bijgeplakt en staan leeg voor de regels van vóór
+deze wijziging; die zijn niet nageschat. Van die oudere regels is `strat_a_signaal`
+op de `endDate`-klok gerekend en dus alleen bruikbaar voor Wellington.
 
 Het koopvenster liep van 36 tot 12 uur voor sluiting en loopt sinds 10 augustus
 tot 24 uur. De strategie leunt erop dat het model de markt verslaat, en de

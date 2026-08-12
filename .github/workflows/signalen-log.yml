@@ -10,10 +10,22 @@ name: Signalenlog
 #     geen van die starttijden binnen een kwartier, en de commitstap doet
 #     git pull --rebase, zodat een langlopende maandagactie die later pusht
 #     alsnog geen botsing geeft.
-#   - de markten sluiten om 12:00 UTC op hun eigen datum. 11:41 pakt de laatste
-#     prijzen voor sluiting mee, de andere drie liggen er ongeveer zes uur uit
-#     elkaar omheen, zodat elk vakje op meerdere momenten voor sluiting in het
-#     logboek staat en het koopvenster achteraf te toetsen is.
+#   - een markt loopt tot het einde van de dag in de stad zelf, en dat moment
+#     verschilt per stad. Het veld endDate in de Gamma-API staat weliswaar voor
+#     iedereen op 12:00 UTC, maar dat is alleen voor Wellington het einde van de
+#     lokale dag; zie uren_tot in bot/signalen.py. In UTC lopen de sluitingen
+#     van 12:00 (Wellington) via 15:00 en 16:00 (Oost-Azie) en 22:00 en 23:00
+#     (Europa) door tot 03:00 en 07:00 de volgende ochtend (Amerika). Er bestaat
+#     dus geen moment dat voor alle steden vlak voor sluiting ligt, en de oude
+#     reden om er een run op 11:41 tegenaan te leggen vervalt daarmee.
+#   - vier runs op 24 uur betekenen dat elk vakje precies vier keer in het
+#     venster van 36 tot 12 uur voor de eigen sluiting valt, welke sluitingstijd
+#     die stad ook heeft; elk vakje staat er via lead 2, 1 en 0 zo'n tien tot
+#     twaalf keer in op steeds andere afstanden tot sluiting. Met de gelijke
+#     tussenpozen van zes uur (in plaats van 5, 6, 7 en 6) is de laatste meting
+#     voor de sluiting van een stad nooit ouder dan zes uur, en zijn de
+#     afstanden voor elke stad even dicht opeen. Dat is wat de venstervraag in
+#     REVIEW.md nodig heeft.
 #   - niet op het hele uur: daar staat de wachtrij van GitHub het langst en
 #     lopen geplande acties het meest uit.
 # Draait alleen op de default branch: GitHub plant schema's uitsluitend
@@ -21,7 +33,7 @@ name: Signalenlog
 # hij een keer op die branch is gedraaid of ernaartoe is gepusht.
 on:
   schedule:
-    - cron: "41 0,6,11,18 * * *"
+    - cron: "41 0,6,12,18 * * *"
   workflow_dispatch:
 permissions:
   contents: write
