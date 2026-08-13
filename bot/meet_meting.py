@@ -250,20 +250,19 @@ def zelftest():
     toets("de band wordt er breder van, niet smaller",
           u0 is not None and tts[u0]["breedte_na"] > tts[u0]["breedte_nu"])
 
-    # Een uur waarvan de dekking binnen de marge zit krijgt geen factor, ook
-    # niet als hij net onder de 80 procent staat. Zonder die drempel fit je
-    # ruis; zie de kop van kalibreer().
-    net_goed = {u: [] for u in UREN}
-    for i in range(1500):
-        datum = f"2026-{1 + i % 12:02d}-{1 + i % 28:02d}"
-        for u in UREN:
-            y = 20.0 + rnd2.gauss(0, 1.05)
-            m = y - abs(rnd2.gauss(0, 3.0)) - 0.5
-            net_goed[u].append((datum, m, 20.0, 1.0, y))
-    fac3, tts3 = kalibreer(net_goed, vloer=0.50)   # vloer zo laag dat niets bijt
-    toets("onder de vloer wordt er niet gecorrigeerd",
-          bool(fac3) and all(v == 1.0 for v in fac3.values()),
-          str(sorted(set(fac3.values()))[:4]))
+    # De drempel als invariant, niet als geconstrueerd geval: een uur krijgt
+    # alleen een factor als zijn dekking op de trainingsdatums onder de vloer
+    # zat. Zo geformuleerd geldt hij op elke reeks, en dat is nodig -- een
+    # synthetisch geval dat op álle uren netjes dekt bestaat niet, want zodra
+    # w klein wordt trekt de conditionering mu_R naar m toe.
+    slecht = [(u, e) for u, e in tts.items()
+              if e["factor"] > 1.0 and e["voor_trein_nu"] >= 0.72]
+    toets("een factor komt er alleen als de vloer gebroken is",
+          not slecht, str(slecht[:2]))
+    hoog = kalibreer(krap, vloer=0.0)[0]           # niets breekt een vloer van 0
+    toets("met een vloer van nul wordt er nergens gecorrigeerd",
+          bool(hoog) and all(v == 1.0 for v in hoog.values()),
+          str(sorted(set(hoog.values()))[:4]))
 
     # De klem los getoetst. Een variant hiervan via kalibreer() met een reeks
     # die overal al boven de 80 procent dekt is niet te bouwen, en dat is geen
