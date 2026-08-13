@@ -250,6 +250,21 @@ def zelftest():
     toets("de band wordt er breder van, niet smaller",
           u0 is not None and tts[u0]["breedte_na"] > tts[u0]["breedte_nu"])
 
+    # Een uur waarvan de dekking binnen de marge zit krijgt geen factor, ook
+    # niet als hij net onder de 80 procent staat. Zonder die drempel fit je
+    # ruis; zie de kop van kalibreer().
+    net_goed = {u: [] for u in UREN}
+    for i in range(1500):
+        datum = f"2026-{1 + i % 12:02d}-{1 + i % 28:02d}"
+        for u in UREN:
+            y = 20.0 + rnd2.gauss(0, 1.05)
+            m = y - abs(rnd2.gauss(0, 3.0)) - 0.5
+            net_goed[u].append((datum, m, 20.0, 1.0, y))
+    fac3, tts3 = kalibreer(net_goed, vloer=0.50)   # vloer zo laag dat niets bijt
+    toets("onder de vloer wordt er niet gecorrigeerd",
+          bool(fac3) and all(v == 1.0 for v in fac3.values()),
+          str(sorted(set(fac3.values()))[:4]))
+
     # De klem los getoetst. Een variant hiervan via kalibreer() met een reeks
     # die overal al boven de 80 procent dekt is niet te bouwen, en dat is geen
     # tekortkoming van de toets maar het verschijnsel zelf: zodra `w` klein
@@ -430,7 +445,7 @@ def zoek_factor(rijen, uur, doel=0.80, boven=4.0):
     return round(hi, 3)
 
 
-def kalibreer(rauw, doel=0.80, deel=0.70):
+def kalibreer(rauw, doel=0.80, vloer=0.72, deel=0.70):
     """Per uur een verbredingsfactor op de gekrompen sigma.
 
     Gefit op de eerste `deel` van de datums en getoetst op de rest. Die
@@ -442,6 +457,15 @@ def kalibreer(rauw, doel=0.80, deel=0.70):
     dagen dat hij al gevallen was doet de afkapping het werk; daar is de vraag
     niet of de band breed genoeg is maar of hij niet boven `m` is blijven
     hangen, en een bredere band helpt daar vanzelf mee.
+
+    Er wordt alleen gecorrigeerd waar de dekking op de trainingsdatums onder
+    `vloer` zakt. Die 0,72 is niet verzonnen: het is de ondergrens die
+    weerbot-modellen/ml_activatie.json al hanteert voor een aanvaardbare
+    80%-band. Zonder die drempel krijgt elk uur een factor, ook de uren waar de
+    dekking binnen de marge zit, en dan fit je ruis. Dat is geen theorie: in de
+    eerste ronde zonder drempel kregen de avonduren een factor van 1,05 tot
+    1,25 terwijl hun dekking op de toetsdatums al op 83 tot 86 procent stond,
+    en die werd er dus 87 tot 92 -- breder zonder dat er iets mee opgelost was.
     """
     datums = sorted({r[0] for rijen in rauw.values() for r in rijen})
     if len(datums) < 60:
@@ -454,11 +478,13 @@ def kalibreer(rauw, doel=0.80, deel=0.70):
         test = [r for r in voor if r[0] >= grens]
         if len(trein) < 200 or len(test) < 100:
             continue
-        f = zoek_factor(trein, u, doel)
+        nu_trein = dekking(trein, u, 1.0)
+        f = zoek_factor(trein, u, doel) if nu_trein < vloer else 1.0
         uit[u] = f
         alle_test = [r for r in rauw[u] if r[0] >= grens]
         toets[u] = {
             "factor": f, "n_trein": len(trein), "n_test": len(test),
+            "voor_trein_nu": nu_trein,
             "voor_nu": dekking(test, u, 1.0), "voor_na": dekking(test, u, f),
             "alles_nu": dekking(alle_test, u, 1.0),
             "alles_na": dekking(alle_test, u, f),
