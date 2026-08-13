@@ -57,6 +57,10 @@ app voorspelt op drie horizonnen — vandaag, morgen, overmorgen — en op de ee
 en de derde staat het model buiten de afstand waarop het is gefit. Dat is de
 reden dat `ml_activatie.json` per stad **en** per horizon gaat.
 
+Op horizon 2 is dat een meetbare vraag en het antwoord is voor vijf steden
+gunstig. Op horizon 0 is het geen vraag maar een verlies: daar heeft de
+rekenkern een verse run die het model niet kent. Zie hieronder.
+
 ## Wat het nu doet
 
 Vijf steden krijgen de ML-uitkomst getoond, de rest niet. Singapore en Shanghai
@@ -64,11 +68,16 @@ op horizon 1 en 2, Chongqing, Hongkong en New York alleen op horizon 2. Voor
 alle overige steden en horizonnen toont de app zijn eigen rekenkern en wordt de
 ML-voorspelling er alleen naast gelogd.
 
-Horizon 0 staat permanent uit. De rekenkern krijgt daar de run van vandaag
-(historical-forecast) terwijl dit model op `previous_day1` is getraind, dus de
-run van gisteren; aanzetten zou een verse voorspelling door een oudere
-vervangen. Horizon 1 krijgt `previous_day1` en is precies waarop getraind is,
-horizon 2 krijgt `previous_day2`.
+Horizon 0 staat uit, en dat is nagerekend. De rekenkern krijgt daar de run van
+vandaag (historical-forecast) terwijl dit model op `previous_day1` is getraind,
+de run van gisteren. De ML-voorspelling is op h0 en h1 hetzelfde getal, dus het
+verschil zit volledig in wat de kern erbij krijgt: gemeten over `app_params.js`
+is die verse run +0,223 °C waard, tegen een ML-winst van +0,018 °C. Geen enkele
+van de 33 steden zou op h0 winnen; het beste geval verliest nog 0,046 °C. Een
+model dat wél op lead 0 getraind zou zijn komt naar schatting op +0,014 °C uit,
+ruim onder de drempel van +0,050. Zie REVIEW.md. Horizon 1 krijgt
+`previous_day1` en is precies waarop getraind is, horizon 2 krijgt
+`previous_day2`.
 
 De lijst staat in `ml_activatie.json` en `bot/test_ml.py` toetst elke ingang
 tegen `monitoring/backtest_lead<horizon>.json`, zodat er niets aan kan staan wat

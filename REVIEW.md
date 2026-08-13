@@ -670,3 +670,99 @@ blijft de rekenkern staan, ook voor een stad die aanstaat. Het risico is dus
 niet een verkeerd getal maar een activering die stilzwijgend niets doet. Eerste
 controle daarop is het schaduwlogboek: staat er na een dag voor de vijf steden
 een regel, en op welke horizonnen.
+
+---
+
+# Uitgezocht: kan horizon 0 wel?
+
+Toegevoegd op 2026-08-13. In de vorige sectie stond dat horizon 0 permanent
+uitstaat omdat aanzetten "een verse voorspelling door een oudere zou
+vervangen". Dat was een redenering en geen meting. Hier de meting.
+
+## De vraag scherp
+
+Op horizon 0 voedt `kalibratie.py` de rekenkern uit de historical-forecast: de
+run van de dag zelf. De ML-modellen zijn op `previous_day1` getraind, de run van
+de dag ervoor. De ML-voorspelling is op h0 en h1 daarom precies hetzelfde getal
+— zelfde invoer, zelfde model — en het verschil zit volledig in wat de rekenkern
+er extra bij krijgt.
+
+ML wint op h0 dus alleen als zijn winst op h1 groter is dan wat die verse run de
+rekenkern oplevert. Noem dat de versheidspremie. Die is te meten zonder nieuwe
+gegevens: `app_params.js` heeft per stad de walk-forward MAE van de rekenkern op
+alle drie de horizonnen, uit dezelfde kalibratieronde, dus het verschil h1 − h0
+is een zuiver binnen-run-verschil zonder venstereffect.
+
+## De uitkomst
+
+| | °C |
+| --- | --- |
+| MAE rekenkern h0 (vandaag) | 0,634 |
+| MAE rekenkern h1 (morgen) | 0,856 |
+| versheidspremie h1 − h0 | **+0,223** |
+| ML-winst op h1 (backtest) | +0,018 |
+
+De premie is positief in alle 47 steden, van +0,040 (Wellington) tot +0,450
+(Toronto). De verse run is dus overal winst, en gemiddeld ruim twaalf keer zo
+veel waard als wat het ML-model erbovenop legt.
+
+Per stad afgezet tegen de ML-winst: **0 van de 33 steden** zou op horizon 0 van
+de rekenkern winnen. Het beste geval is Wellington, en dat verliest nog steeds
+met 0,046 °C; gemiddeld is het verlies 0,216 °C. Singapore en Shanghai, die op
+h1 en h2 wel aanstaan, verliezen op h0 met 0,082 en 0,120.
+
+IJking van de twee bronnen: de MAE van de rekenkern in mijn backtest wijkt
+gemiddeld −0,037 °C (sd 0,103) af van `app_params.js` op h1, over 34 steden en
+ondanks vensters van 737 tegen 181 dagen. Dat is klein genoeg om de premie van
+de ene bron naar de andere over te dragen.
+
+De intraday-conditionering telt hier niet mee, en dat is met opzet. Die zit in
+`polymarkt.js`, werkt op de kansen per vak en niet op `mu`, en wordt op beide
+kanten gelijk toegepast. Ze maakt h0 als geheel beter maar verandert niets aan
+de vergelijking tussen kern en ML.
+
+## Zou een model dat wél op lead 0 getraind is het winnen?
+
+Dat is de constructieve versie van de vraag, en de eerlijke schatting is: nee,
+niet genoeg om de drempel te halen.
+
+De ML-winst schaalt mee met de foutgrootte — er valt meer te corrigeren waar de
+fout groter is. Over de twee gemeten leads:
+
+| | MAE rekenkern | ML-winst | aandeel |
+| --- | --- | --- | --- |
+| lead 1 | 0,846 | +0,018 | 2,1% |
+| lead 2 | 0,945 | +0,025 | 2,6% |
+
+Het aandeel loopt op met de fout. Op h0 is de fout 0,634, een kwart kleiner dan
+op h1. Twee manieren om door te trekken: een regressie van de winst op de
+kern-MAE over alle 68 stad-leads geeft −0,007 °C (R² is met 0,18 zwak, dus dat
+cijfer is grof), en een constant aandeel van 2,2 procent geeft +0,014 °C. De
+drempel om aan te mogen is +0,050. Beide schattingen komen daar ver onder, en
+omdat het aandeel juist dáált bij een kleinere fout is +0,014 nog aan de ruime
+kant.
+
+Daar staat een reële prijs tegenover. Een h0-model vraagt `p0_*`-kolommen uit de
+historical-forecast-API, en dat betekent een backfill over ongeveer duizend
+dagen maal 49 steden voordat er ook maar één model op te trainen valt.
+`kalibratie.py` heeft de aanroep al (`haal_hist_forecast`), maar
+`features_alle.csv` bewaart hem niet. Op deze schatting is dat niet de moeite.
+
+Eén ding zou het antwoord wél kunnen kantelen, en dat is een andere feature dan
+een verse run: de temperatuur die vandaag al gemeten is. `bot/waarneming.py`
+gebruikt die nu alleen om de kansen af te kappen, niet in de puntvoorspelling.
+Een h0-model met die meting erin heeft informatie die de rekenkern in zijn
+puntvoorspelling niet heeft. Dat is een ander voorstel dan "train hetzelfde
+model op lead 0" en het is niet met de gegevens in deze repository te schatten.
+
+## Wat er in code is vastgelegd
+
+`schaduw_backtest.py` heeft er `versheidspremie()` bij, en de lead 1-run drukt
+het horizon 0-oordeel voortaan af. `bot/test_ml.py` toetst twee dingen: dat de
+premie in elke stad positief is, en dat geen enkele stad op h0 van de rekenkern
+zou winnen. Zou de wekelijkse kalibratie dat ooit omdraaien — een stad waar de
+verse run niets meer oplevert — dan valt de zelftest om in plaats van dat
+`nooit_horizons` stilzwijgend achterhaald raakt.
+
+De conclusie blijft dus dezelfde als in de vorige sectie, maar staat nu op
+cijfers en beweegt mee.

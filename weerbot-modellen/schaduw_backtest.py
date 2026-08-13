@@ -295,6 +295,42 @@ def stad_backtest(stad, rijen, model, klim, lead):
             "laatste": date.fromordinal(max(set(yhat_basis) & set(ml_per_dag) & set(echt))).isoformat()}
 
 
+def versheidspremie():
+    """Wat de run van vandaag waard is: MAE van de rekenkern op h1 min die op h0.
+
+    Horizon 0 is de enige horizon waar de rekenkern uit een andere bron wordt
+    gevoed dan waarop de ML-modellen zijn getraind — de historical-forecast van
+    de dag zelf tegenover previous_day1 van de dag ervoor. Het verschil tussen
+    h1 en h0 in app_params.js meet precies dat, binnen één kalibratieronde en
+    dus zonder venstereffect.
+
+    Geeft {mlKey: premie in °C}. app_params rekent per stad in de eigen eenheid,
+    dus voor de Amerikaanse steden moet er nog een factor 5/9 overheen.
+    """
+    tekst = (WORTEL / "app_params.js").read_text()
+    P = json.loads(tekst[tekst.index("=") + 1:].strip().rstrip(";"))
+    index = (WORTEL / "index.html").read_text()
+    i = index.index("const CONFIG = ")
+    cfg = json.loads(index[i + len("const CONFIG = "):index.index(";\n", i)])
+    eenheid = {s["key"]: s["eenheid"] for s in cfg["steden"]}
+    koppel = (WORTEL / "weerbot-modellen" / "weerbot-ml-koppel.js").read_text()
+    import re
+    keymap = dict(re.findall(r'(\w+):"(\w+)"',
+                  re.search(r"var KEYMAP = \{(.*?)\};", koppel, re.S).group(1)))
+    uit = {}
+    for app_key, ml_key in keymap.items():
+        st = P["steden"].get(app_key) or {}
+        h0, h1 = st.get("0"), st.get("1")
+        if not h0 or not h1:
+            continue
+        a, b = h0.get("mae_nieuw"), h1.get("mae_nieuw")
+        if a is None or b is None:
+            continue
+        d = b - a
+        uit[ml_key] = d * 5 / 9 if eenheid.get(app_key) == "°F" else d
+    return uit
+
+
 def oordeel(u, drempels):
     """Haalt deze stad-horizon de drempels uit ml_activatie.json?"""
     lo, hi = drempels["dekking80_tussen"]
@@ -377,6 +413,31 @@ def main():
         print(f"  haalt de drempels: {len(haalt)}"
               + (" · " + ", ".join(haalt) if haalt else ""))
         print(f"  haalt ze niet   : {len(valt)}")
+
+    if a.lead == 1 and uit:
+        # Zou ML op horizon 0 kunnen winnen? Daar krijgt de rekenkern de run van
+        # vandaag en zou het model het met previous_day1 moeten doen, dus met de
+        # run van gisteren. De ML-voorspelling is op h0 en h1 hetzelfde getal --
+        # zelfde invoer, zelfde model -- dus het verschil zit volledig in wat de
+        # rekenkern erbij krijgt. ML wint op h0 alleen als zijn winst op h1
+        # groter is dan die versheidspremie.
+        prem = versheidspremie()
+        paren = [(s, uit[s]["winst"], prem[s], uit[s]["winst"] - prem[s])
+                 for s in uit if s in prem]
+        if paren:
+            paren.sort(key=lambda x: -x[3])
+            wint = [p for p in paren if p[3] > 0]
+            print(f"\n── horizon 0 ──")
+            print(f"  versheidspremie h1 - h0: gemiddeld {gem([p[2] for p in paren]):+.3f} °C "
+                  f"over {len(paren)} steden")
+            print(f"  ML-winst op h1         : gemiddeld {gem([p[1] for p in paren]):+.3f} °C")
+            print(f"  ML zou op h0 winnen bij: {len(wint)} van {len(paren)} steden")
+            b = paren[0]
+            print(f"  beste geval: {b[0]} {b[3]:+.3f} °C "
+                  f"(winst {b[1]:+.3f} tegen premie {b[2]:+.3f})")
+            if wint:
+                print("  LET OP: horizon 0 staat op nooit_horizons maar de cijfers "
+                      "dragen dat niet meer.")
 
     if a.controleer:
         # Wat de tweewekelijkse controle moet opleveren is niet de tabel maar de

@@ -358,6 +358,29 @@ def toets_activatie():
     toets("LINEAIR staat op de nooit-lijst", "LINEAIR" in cfg.get("nooit_labels", []))
     toets("horizon 0 staat op de nooit-lijst", "0" in cfg.get("nooit_horizons", []))
 
+    # En dat is geen smaak maar een meting die mee moet blijven bewegen. Op
+    # horizon 0 voedt kalibratie.py de rekenkern uit de historical-forecast van
+    # de dag zelf, terwijl de ML-modellen op previous_day1 zijn getraind -- de
+    # run van gisteren. De ML-voorspelling is op h0 en h1 hetzelfde getal, dus
+    # ML wint op h0 alleen als zijn winst op h1 groter is dan wat die verse run
+    # de rekenkern oplevert. Gemeten op 2026-08-13: premie +0,223 °C tegen een
+    # ML-winst van +0,018 °C, en geen enkele stad in de buurt. Zou de wekelijkse
+    # kalibratie dat ooit omdraaien, dan hoort deze toets om te vallen in plaats
+    # van dat de nooit-lijst stilzwijgend achterhaald raakt.
+    sys.path.insert(0, str(WORTEL / "weerbot-modellen"))
+    import schaduw_backtest as SB
+    prem = SB.versheidspremie()
+    pad = WORTEL / "weerbot-modellen" / "monitoring" / "backtest_lead1.json"
+    if pad.exists() and prem:
+        bt = json.loads(pad.read_text())["steden"]
+        wint = [s for s, r in bt.items()
+                if s in prem and r["winst"] - prem[s] > 0]
+        toets("geen enkele stad zou op horizon 0 van de rekenkern winnen",
+              not wint, "wel: " + ", ".join(wint))
+        toets("de versheidspremie is overal positief",
+              all(v > 0 for v in prem.values()),
+              "niet bij: " + ", ".join(s for s, v in prem.items() if v <= 0))
+
     # Elke ingang in `aan` moet door de backtest gedekt zijn. Zonder deze toets
     # kan er een stad aangezet worden op een onderbuikgevoel, of blijft er een
     # aanstaan waarvan de cijfers inmiddels zijn omgeslagen. De backtest van
