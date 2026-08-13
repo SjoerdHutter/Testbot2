@@ -1,0 +1,30 @@
+{
+  "_lees_dit": [
+    "Welke stad-horizonnen de ML-voorspelling getoond krijgen in plaats van de",
+    "eigen rekenkern. Alles staat uit: de app rekent zoals hij altijd rekende en",
+    "logt de ML-uitkomst er alleen naast.",
+    "",
+    "Een stad aanzetten mag pas als de schaduwmeting het draagt. De drempels",
+    "hieronder zijn de afspraak, niet de code: weerbot-ml-koppel.js leest alleen",
+    "aan en nooit_labels. Toetsen gebeurt met WeerbotKoppel.rapport() in de",
+    "console, dat n, MAE, bias, CRPS en 80%-dekking per stad en per horizon",
+    "geeft.",
+    "",
+    "Horizon 0 is vandaag, 1 morgen, 2 overmorgen. De modellen zijn op p1",
+    "getraind, de run van de vorige dag, en dat is horizon 1. Op 0 en 2 staan ze",
+    "buiten hun trainingsafstand; dat is de reden dat dit bestand per horizon",
+    "gaat en niet per stad."
+  ],
+  "versie": 1,
+  "drempels": {
+    "min_schaduwdagen": 60,
+    "min_n": 45,
+    "min_mae_winst_c": 0.05,
+    "max_abs_bias_c": 0.35,
+    "dekking80_tussen": [0.72, 0.88],
+    "crps_moet_beter": true
+  },
+  "nooit_labels": ["LINEAIR"],
+  "extra_toets": ["atlanta", "chengdu"],
+  "aan": {}
+}

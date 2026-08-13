@@ -33,8 +33,15 @@
     p1_icon: (i, mm) => eersteGeldig(i.p1 && i.p1.icon, mm),
     p1_gem: (i, mm) => eersteGeldig(i.p1 && i.p1.gem, mm),
     mm_spreiding: (i) => i.spreiding,
-    run2run: (i) => eersteGeldig(i.run2run, 0),
-    lag2_err: (i) => eersteGeldig(i.lagFout, 0),
+    /* Ontbreekt run2run of de lagfout, dan geeft NAAMMAP null terug en vult
+       bouwVector de mediaan uit de training in (params.med). Hiervoor stond
+       hier een harde nul. Dat is niet hetzelfde: de mediaan van run2run loopt
+       per stad van -0,66 tot +0,24 en die van lag2_err is nergens nul, dus een
+       nul verschoof de voorspelling met een bedrag dat per stad verschilde. Nu
+       valt een ontbrekende invoer terug op precies wat de training als
+       middenwaarde zag, net als elke andere feature. */
+    run2run: (i) => i.run2run,
+    lag2_err: (i) => i.lagFout,
     rh_gem: (i) => i.aux && i.aux.rh,
     bewolking_gem: (i) => i.aux && i.aux.bewolking,
     wind_max: (i) => i.aux && i.aux.wind,
@@ -172,42 +179,103 @@
       });
     },
 
-    schaduw: function (stadKey, datumISO, oudC, nieuwC) {
+    /* Schaduwlogboek. v2 legt twee dingen vast die v1 miste.
+     *
+     * De horizon. v1 schreef per stad per doeldag één regel, dus de
+     * voorspelling van overmorgen werd de volgende dag overschreven door die
+     * van morgen en een dag later door die van vandaag. Wat er overbleef was
+     * altijd lead 0, terwijl de app op drie horizonnen voorspelt en de
+     * ML-modellen op lead 1 zijn getraind. Een vergelijking per horizon was
+     * daarmee onmogelijk, en juist die is nodig: activeren gebeurt per stad en
+     * horizon, niet in één keer voor alles.
+     *
+     * De sigma en de eenheid. Zonder sigma valt er alleen MAE te rekenen en
+     * blijft de band ongetoetst; zonder eenheid telt een graad Fahrenheit even
+     * zwaar mee als een graad Celsius in het gemiddelde over alle steden.
+     * Beide staan er nu bij, en het rapport rekent alles naar °C.
+     *
+     * Nieuwe sleutel, want de vorm verschilt. Het oude logboek blijft staan
+     * maar wordt niet gelezen: die regels zijn gemaakt met de p1-invoer uit de
+     * ensemble-API en dus met andere features dan de modellen kennen. Als
+     * vergelijkingsmateriaal zijn ze onbruikbaar. */
+    schaduw: function (stadKey, datumISO, horizon, oud, nieuw, sigma, eenheid) {
       try {
-        const K = SLEUTEL("weerbot-ml-schaduw-v1");
+        const K = SLEUTEL("weerbot-ml-schaduw-v2");
         const d = JSON.parse(localStorage.getItem(K) || "{}");
-        d[stadKey] = d[stadKey] || {};
-        d[stadKey][datumISO] = { oud: oudC, nieuw: nieuwC };
-        const dagen = Object.keys(d[stadKey]).sort();
-        while (dagen.length > 120) delete d[stadKey][dagen.shift()];
+        const s = d[stadKey] = d[stadKey] || { e: eenheid || "°C", d: {} };
+        s.e = eenheid || s.e;
+        const dag = s.d[datumISO] = s.d[datumISO] || {};
+        dag[String(horizon)] = { o: oud, n: nieuw,
+                                 s: isGetal(sigma) ? sigma : null };
+        const dagen = Object.keys(s.d).sort();
+        while (dagen.length > 120) delete s.d[dagen.shift()];
         localStorage.setItem(K, JSON.stringify(d));
       } catch (e) { /* opslag vol of uit: schaduw is optioneel */ }
     },
 
+    /* CRPS van een normale verdeling, in dezelfde eenheid als sigma. Kleiner is
+       beter, en anders dan de MAE straft hij ook een band die te ruim of te
+       krap staat. Bij sigma naar nul loopt hij naar de absolute fout. */
+    crpsNormaal: function (mu, sigma, y) {
+      if (!isGetal(mu) || !isGetal(y)) return null;
+      if (!isGetal(sigma) || sigma <= 0) return Math.abs(mu - y);
+      const z = (y - mu) / sigma;
+      const phi = Math.exp(-0.5 * z * z) / Math.sqrt(2 * Math.PI);
+      return sigma * (z * (2 * Phi(z) - 1) + 2 * phi - 1 / Math.sqrt(Math.PI));
+    },
+
+    /* actuals: {stadKey: {datum: waarneming}} in de eenheid van de stad, zoals
+       de verificatietabel ze bewaart. Retour: totaal, per stad en per horizon,
+       alles in °C. */
     schaduwRapport: function (actuals) {
       let d = {};
-      try { d = JSON.parse(localStorage.getItem(SLEUTEL("weerbot-ml-schaduw-v1")) || "{}"); }
+      try { d = JSON.parse(localStorage.getItem(SLEUTEL("weerbot-ml-schaduw-v2")) || "{}"); }
       catch (e) {}
-      const per = {}; let no = [], nn = [];
+      const naarC = (v, e) => (e === "°F" ? v * 5 / 9 : v);   // verschillen, geen niveaus
+      const leeg = () => ({ fo: [], fn: [], e: [], crps: [], dek: [] });
+      const vul = (b, oud, nieuw, sig, echt, een) => {
+        b.fo.push(Math.abs(naarC(oud - echt, een)));
+        b.fn.push(Math.abs(naarC(nieuw - echt, een)));
+        b.e.push(naarC(nieuw - echt, een));
+        if (isGetal(sig)) {
+          const sC = naarC(sig, een);
+          b.crps.push(WeerbotML.crpsNormaal(naarC(nieuw - echt, een), sC, 0));
+          b.dek.push(Math.abs(naarC(nieuw - echt, een)) <= 1.2816 * sC ? 1 : 0);
+        }
+      };
+      const gem = (a) => (a.length ? a.reduce((x, y) => x + y, 0) / a.length : null);
+      const uit = (b) => ({ n: b.fo.length, maeOud: gem(b.fo), maeNieuw: gem(b.fn),
+                            bias: gem(b.e), crps: gem(b.crps), dekking80: gem(b.dek) });
+
+      const totaal = leeg(), perHorizon = {}, perStad = {};
       Object.keys(d).forEach(function (stad) {
-        const fo = [], fn = [];
-        Object.keys(d[stad]).forEach(function (dag) {
+        const een = d[stad].e || "°C";
+        const bs = leeg(), bsh = {};
+        Object.keys(d[stad].d || {}).forEach(function (dag) {
           const a = actuals && actuals[stad] && actuals[stad][dag];
-          const r = d[stad][dag];
-          if (isGetal(a) && isGetal(r.oud) && isGetal(r.nieuw)) {
-            fo.push(Math.abs(r.oud - a)); fn.push(Math.abs(r.nieuw - a));
-          }
+          if (!isGetal(a)) return;
+          const perH = d[stad].d[dag];
+          Object.keys(perH).forEach(function (h) {
+            const r = perH[h];
+            if (!r || !isGetal(r.o) || !isGetal(r.n)) return;
+            [totaal, bs, perHorizon[h] = perHorizon[h] || leeg(),
+             bsh[h] = bsh[h] || leeg()].forEach(function (b) {
+              vul(b, r.o, r.n, r.s, a, een);
+            });
+          });
         });
-        if (fo.length) {
-          per[stad] = { n: fo.length,
-                        maeOud: fo.reduce((x, y) => x + y, 0) / fo.length,
-                        maeNieuw: fn.reduce((x, y) => x + y, 0) / fn.length };
-          no = no.concat(fo); nn = nn.concat(fn);
+        if (bs.fo.length) {
+          perStad[stad] = uit(bs);
+          perStad[stad].eenheid = een;
+          perStad[stad].perHorizon = {};
+          Object.keys(bsh).forEach(function (h) { perStad[stad].perHorizon[h] = uit(bsh[h]); });
         }
       });
-      return { perStad: per, n: no.length,
-               maeOud: no.length ? no.reduce((x, y) => x + y, 0) / no.length : null,
-               maeNieuw: nn.length ? nn.reduce((x, y) => x + y, 0) / nn.length : null };
+      const r = uit(totaal);
+      r.perStad = perStad;
+      r.perHorizon = {};
+      Object.keys(perHorizon).forEach(function (h) { r.perHorizon[h] = uit(perHorizon[h]); });
+      return r;
     },
   };
 

@@ -35,6 +35,12 @@ jobs:
       - name: Correctiekern testen (python en javascript)
         run: python bot/test_kern.py
 
+      - name: ML-koppeling testen
+        # Bewaakt dat de invoer van de ML-modellen dezelfde grootheden blijft
+        # als waarop deel9_wekelijks.py ze traint. Dat liep uit elkaar zonder
+        # dat er iets omviel; zie REVIEW.md.
+        run: python bot/test_ml.py
+
       - name: Herkansingen testen
         # Draait offline: er wordt niets opgehaald, alleen geteld hoe vaak een
         # haperende fetch opnieuw wordt aangeboden.

@@ -256,3 +256,206 @@ hebben die kolom leeg en zijn niet nageschat; hun `strat_a_signaal` is op de
 in de vergelijking met de 174 handmatig afgewikkelde posities, die op het einde
 van de lokale dag zijn gemeten. Het aantal bruikbare regels begint bij nul op
 7 augustus 2026.
+
+---
+
+# Natrekking van de externe review en het implementatieplan
+
+Toegevoegd op 2026-08-13, na twee aangeleverde stukken: *Technical Review and
+Optimization* en *Implementation Blueprint*. Beide zijn geschreven op een oudere
+kopie van dit project (Weerbot V3.1, 51 steden) en op de GitHub-weergave, die de
+inhoud van de grote bestanden niet toont. Dat is aan de conclusies te merken.
+Hieronder eerst wat er niet klopte, dan wat er wél uit is gekomen — en dat is
+meer dan de drie P0's van de review samen.
+
+## De drie P0's van de review bestaan niet
+
+**"De workflows stoppen na het installeren van de pakketten."** Ze doen dat
+niet. `hertraining-wekelijks.yml` draait `deel9_wekelijks.py` en commit vier
+bestanden, `klim-dagelijks.yml` draait `bereken_klim_vandaag.py` en commit
+`klim_vandaag.json`, en `kalibratie-wekelijks.yml` weigert zelfs te committen
+onder de 45 steden. Alle drie hebben `workflow_dispatch`. De review zegt er
+zelf bij dat de bestanden niet volledig te lezen waren; dat had de bevinding
+moeten tegenhouden in plaats van hem op P0 zetten.
+
+**"De modelsleutels lopen niet gelijk."** Ze lopen wel gelijk. `ENS_MODELLEN`
+in `index.html` en `ENSMAP` in `weerbot-ml-koppel.js` dekten elkaar precies. De
+`gfs_seamless` en `gem_seamless` waar de review over viel zijn `UUR_MODELLEN`,
+de uurkoers voor de piekgrafiek, en die komt nooit bij de ML-koppeling.
+
+**"De servicewerker gooit de caches van andere apps weg."** Dat deed hij in de
+oude kopie; in dit project staat het voorvoegsel `weerbot2-` er al, ruimt
+`activate` alleen sleutels met dat voorvoegsel op, en dwingt
+`controleer_schil.py` in de zelftest af dat het versienummer meegaat met de
+schil.
+
+Verder: het zijn 49 steden en niet 51, en de minima worden sinds 6 augustus wel
+degelijk offline gekalibreerd — alle 49 steden hebben een `min`-blok in
+`app_params.js`. Aanbeveling P2 "bouw een min-kalibratie" is daarmee al gedaan,
+met de meting in de vorige sectie.
+
+## Wat de review en het plan allebei missen
+
+Beide stukken bespreken hoe de ML-modellen aangezet moeten worden. Geen van
+beide kijkt naar wat er in die modellen gáát. Daar zit het probleem.
+
+De modellen worden getraind door `deel9_wekelijks.py` op de deterministische
+previous-runs: `p1_ifs` tot en met `p1_gem`, opgehaald bij
+`previous-runs-api.open-meteo.com` met de modellen `ecmwf_ifs025`,
+`ecmwf_aifs025_single`, `gfs_seamless`, `icon_seamless` en `gem_seamless`. Live
+kregen ze iets anders: `weerbot-ml-koppel.js` nam `d.mlx.m`, en dat zijn de
+gemiddelden van de ensembleleden uit `ensemble-api.open-meteo.com`. Voor twee
+van de vijf gaat het zelfs om een andere modelvariant: `gem_global` tegen
+`gem_seamless`, `ncep_gefs025` tegen `gfs_seamless`.
+
+Gemeten door `logs/ensemble_log.csv` naast `features_alle.csv` te leggen, 377
+gematchte stad-dagen op lead 1, alles in °C:
+
+| feature | bias | sd | gemiddeld verschil |
+| --- | --- | --- | --- |
+| `p1_ifs` | −0,142 | 1,063 | 0,647 |
+| `p1_aifs` | +0,039 | 0,926 | 0,668 |
+| `p1_gfs` | +0,115 | 1,923 | 1,450 |
+| `p1_icon` | −0,234 | 0,999 | 0,740 |
+| `p1_gem` | −0,776 | 2,061 | 1,479 |
+| modelgemiddelde | −0,200 | 0,740 | 0,567 |
+
+Wat dat met de voorspelling doet, over 262 stad-dagen waarvoor het model en
+beide reeksen er zijn: de ML-uitkomst verschuift gemiddeld **0,565 °C**, met
+Jeddah op 1,76, Qingdao op 1,63 en New York op 1,15. De winst die deze modellen
+moeten opleveren is 0,89 → 0,83 °C MAE, oftewel 0,06 °C. De ruis op de invoer
+was negen keer zo groot als het effect dat gemeten moest worden.
+
+Daarmee vervalt de vraag waar het implementatieplan over gaat. Er viel niets te
+activeren en er viel ook niets te beoordelen: het schaduwlogboek van de
+afgelopen maanden is gevuld met voorspellingen op invoer die de modellen niet
+kennen.
+
+Twee kleinere versies van hetzelfde:
+
+- `run2run` stond altijd op `null` en werd als nul ingevuld. De feature zit in
+  alle 38 ridge-modellen. Effect per graad run-to-run: gemiddeld 0,088 °C, in
+  Houston 0,36 °C. Dat signaal was er domweg niet.
+- `lagFout` kreeg de EWMA-restfout van de eigen rekenkern doorgegeven, terwijl
+  de modellen op `lag2_err` zijn gefit: de kale fout van het modelgemiddelde van
+  twee dagen terug. De eerste heeft een spreiding van 0,56 °C, de tweede van
+  1,18 °C over dezelfde 49 steden. De lagterm telde dus structureel half mee.
+
+## Wat er is veranderd
+
+`weerbot-ml-koppel.js` haalt de p1- en p2-reeksen nu zelf op bij dezelfde API en
+met dezelfde modelnamen als de training, gebundeld in drie groepen en ná het
+eerste beeld, net als de aux-aanroep die er al stond. Daaruit komen p1,
+`mm_spreiding` (met ddof=1, zoals `np.std(p1v, ddof=1)`) en `run2run`. Ontbreekt
+die reeks, dan wordt er niet voorspeld: een schaduwcijfer op de verkeerde invoer
+is misleidender dan geen cijfer.
+
+`index.html` legt in de verificatierij de fout van het kale modelgemiddelde vast
+(`mmf`), en `lag2Voor` leest daaruit de lagfeature in de vorm die de training
+kent. Het oude `mlx`-blok met ensemblegemiddelden is vervallen.
+
+`weerbot-ml.js` vult een ontbrekende `run2run` of `lag2_err` nu met de mediaan
+uit de training in plaats van met een harde nul. Die mediaan loopt per stad van
+−0,66 tot +0,24 en is voor `lag2_err` nergens nul, dus de nul was een uitspraak
+en geen ontbrekende waarde.
+
+Het schaduwlogboek is v2. Het oude logboek schreef per stad per doeldag één
+regel, en die werd elke dag overschreven door de kortere horizon; wat overbleef
+was altijd lead 0. Nu staat de horizon erbij, plus de sigma en de eenheid van de
+stad. `schaduwRapport()` geeft daardoor n, MAE, bias, CRPS en 80%-dekking per
+stad én per horizon, alles omgerekend naar °C zodat een graad Fahrenheit niet
+even zwaar meetelt als een graad Celsius.
+
+`bot/test_ml.py` legt de trainingsdefinities vast: welke modellen worden
+opgevraagd, welk dagmaximum, welke spreiding, welke terugval. 32 toetsen,
+draait mee in de zelftest. De sleutelvraag van de review staat er ook in, nu als
+toets in plaats van als vermoeden.
+
+## Wat er van het implementatieplan is overgenomen
+
+**Activeren per stad en horizon** (`ml_activatie.json`). Overgenomen, en de
+reden is sterker dan het plan geeft. Het plan wil per horizon kunnen activeren
+omdat dat fijnmaziger is. De echte reden: de modellen zijn op p1 getraind, de
+run van de vorige dag, en dat is de horizon "morgen". Op vandaag en overmorgen
+worden ze buiten hun trainingsafstand gebruikt. Dat is geen fijnafstelling maar
+een reden om die twee apart te beoordelen.
+
+Het bestand staat in de schil van de servicewerker en in `controleer_schil.py`.
+Wijzigt het, dan valt de zelftest om tot het versienummer meegaat, en halen
+bezoekers het vers op. Terugdraaien is daarmee: alles op `false`, nummer
+ophogen. Het plan liet dit bestand buiten de schil en gaf de rollback als
+handmatige procedure; zo is het afdwingbaar.
+
+**Sigma, CRPS, dekking en bias in het schaduwrapport.** Overgenomen, maar in
+javascript en niet in Python. Het plan zet `scoring.py` en `verify_ml_shadow.py`
+in `weerbot-modellen/` en laat die een CSV met kolommen `baseline_mu`, `ml_mu`
+en `ml_sigma` lezen. Dat bestand bestaat niet en kan ook niet bestaan: het
+schaduwlogboek staat in localStorage van de browser en komt nooit bij een
+GitHub-actie. Een Python-script zou daar naar een leeg pad kijken. De cijfers
+zijn nu berekend waar de gegevens staan.
+
+**De acceptatiedrempels** (n ≥ 45, MAE-winst ≥ 0,05 °C, |bias| ≤ 0,35 °C,
+dekking tussen 72 en 88 procent, CRPS beter) staan in `ml_activatie.json`. Als
+afspraak, niet als code: de code leest alleen `aan` en `nooit_labels`, want een
+drempel die zichzelf afvinkt op een reeks van 45 dagen is geen drempel.
+
+## Wat er niet is overgenomen
+
+**De Diebold-Mariano-toets als activatiepoort.** De richting klopt — twee
+voorspellingen vergelijken vraagt om meer dan het verschil in gemiddelde. Maar
+de p-waarde van 0,10 die het plan noemt zou hier over 45 waarnemingen per stad
+en horizon gaan, met een reeks die op zichzelf autocorreleert. Zo'n toets zegt
+dan vooral iets over de aanname en niet over de modellen. De uitweg is niet een
+strengere p-waarde maar meer materiaal: het schaduwlogboek loopt nu per horizon
+door, en bij een paar honderd dagen per stad-horizon is de vraag zinnig te
+stellen. Tot die tijd staan MAE, bias, CRPS en dekking naast elkaar in het
+rapport, en dat is eerlijker dan één getal met een sterretje.
+
+**`requirements.txt` en het herschrijven van `zelftest.yml`.** Het voorgestelde
+`zelftest.yml` vervangt negen stappen door drie en laat de pariteitstoets van de
+rekenkern, `controleer_schil.py`, `compileall` en vier testbestanden vallen. Dat
+is een verslechtering. De pinning die het plan wil (`scikit-learn==1.8.*`) staat
+al in de twee workflows die hem nodig hebben, en de andere workflows hebben
+alleen de standaardbibliotheek nodig; een `requirements.txt` zou daar een
+installatiestap toevoegen die niets doet.
+
+**`klim_vandaag.json` in de schil.** Het plan wil hem meecachen. Dat bestand
+wordt twee keer per dag herschreven door `klim-dagelijks.yml`. In de schil zou
+elke bezoeker de klimwaarden van gisteren zien tot het versienummer toevallig
+meegaat, en zou `controleer_schil.py` elke dag omvallen. `modellen.json` staat
+er wel in, want die wijzigt wekelijks en staat om die reden buiten de
+vingerafdruk.
+
+**`horizonVanDag` uit het plan.** De voorgestelde functie leest `dag.horizon` of
+`dag.lead` en valt terug op `arguments[1]` binnen een `forEach`-callback; die
+velden bestaan niet en `arguments` is daar de callback-argumenten. De index van
+de `forEach` is de horizon, en zo staat het er nu.
+
+**Modularisatie van `index.html`.** Terecht, en het staat sinds 6 augustus al op
+punt 5 van de eigen lijst hierboven. Maar niet in dezelfde wijziging als deze:
+de pariteitstoets tussen `index.html` en `kalibratie.py` is het enige wat
+garandeert dat de app rekent zoals de backtest, en die moet eerst mee verhuizen.
+Een verplaatsing zonder die toets is precies het soort stille breuk waar deze
+hele natrekking over gaat.
+
+**Backend, monitoring-infrastructuur, modelregister, SLA's.** De review beoordeelt
+het project tegen een commerciële norm en concludeert dat het daar niet aan
+voldoet. Dat klopt, maar het is geen bevinding: dit is een browser-only app
+zonder server, en dat is een keuze, geen tekortkoming. Wat er van die lijst wél
+toe doet en goedkoop is — een licentie en een model card — staat er nu.
+
+## Wat hierna moet gebeuren
+
+De schaduwreeks begint opnieuw. Alles wat er nu in `weerbot-ml-schaduw-v1`
+staat is gemaakt met de oude invoer en is als vergelijkingsmateriaal onbruikbaar;
+de nieuwe sleutel is `weerbot-ml-schaduw-v2` en die begint bij nul op 13 augustus
+2026. Zestig dagen is dus zestig dagen vanaf nu, en pas daarna is
+`WeerbotKoppel.rapport()` een uitspraak over de modellen in plaats van over hun
+invoer.
+
+Eén ding is niet na te rekenen zolang de reeks niet loopt: of de
+previous-runs-API dezelfde waarden voor de kómende dagen geeft als voor de
+dagen achteraf, waar de training hem op bevraagt. De aanroep is dezelfde en de
+code valt netjes terug als het antwoord leeg is, maar dat is een aanname tot het
+schaduwlogboek hem bevestigt. Eerste controle daarop: staat er na een dag voor
+alle 49 steden een regel in het logboek, dan komt de reeks binnen.
