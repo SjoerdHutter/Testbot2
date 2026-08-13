@@ -33,15 +33,17 @@
     p1_icon: (i, mm) => eersteGeldig(i.p1 && i.p1.icon, mm),
     p1_gem: (i, mm) => eersteGeldig(i.p1 && i.p1.gem, mm),
     mm_spreiding: (i) => i.spreiding,
-    /* Ontbreekt run2run of de lagfout, dan geeft NAAMMAP null terug en vult
-       bouwVector de mediaan uit de training in (params.med). Hiervoor stond
-       hier een harde nul. Dat is niet hetzelfde: de mediaan van run2run loopt
-       per stad van -0,66 tot +0,24 en die van lag2_err is nergens nul, dus een
-       nul verschoof de voorspelling met een bedrag dat per stad verschilde. Nu
-       valt een ontbrekende invoer terug op precies wat de training als
-       middenwaarde zag, net als elke andere feature. */
-    run2run: (i) => i.run2run,
-    lag2_err: (i) => i.lagFout,
+    /* Deze twee vallen terug op nul en niet op de mediaan, anders dan elke
+       andere feature hieronder. Dat is geen slordigheid maar de conventie van
+       de training, en de twee moeten gelijk lopen: _matrix in
+       deel9_wekelijks.py zet een ontbrekende run2run op 0.0 vóórdat het de
+       medianen uitrekent, en _laad begint lag2_err als een nulvector die
+       alleen wordt gevuld waar er een fout van twee of drie dagen terug is.
+       Een ontbrekende waarde is in beide gevallen dus als nul gefit, en dan is
+       nul ook wat hij hier moet zijn. Het gaat om 0,1% van de trainingsrijen
+       voor run2run. bot/test_ml.py legt dit vast tegen deel9_wekelijks.py. */
+    run2run: (i) => eersteGeldig(i.run2run, 0),
+    lag2_err: (i) => eersteGeldig(i.lagFout, 0),
     rh_gem: (i) => i.aux && i.aux.rh,
     bewolking_gem: (i) => i.aux && i.aux.bewolking,
     wind_max: (i) => i.aux && i.aux.wind,

@@ -3,7 +3,7 @@
 # Controle: python3 weerbot-modellen/controleer_upload.py
 39606d9d60fecd85     242746  index.html
 07bf71493e979ca9      22215  portefeuille.html
-d589e92a8f38c7d4       5748  sw.js
+65fd2d752a0579c2       5748  sw.js
 ded0a476a3cb785b       8808  weerbot-modellen/bereken_klim_vandaag.py
 ffc861e9125d66cd       2301  weerbot-modellen/controleer_upload.py
 09d1d18d1efd8d4f      14592  weerbot-modellen/deel9_wekelijks.py
@@ -11,7 +11,7 @@ ffc861e9125d66cd       2301  weerbot-modellen/controleer_upload.py
 f7a88e70aac76dfb       1508  weerbot-modellen/tijdzones.json
 8153f60b45d0171b      42961  weerbot-modellen/polymarkt.js
 74a59050503a9dfd      13879  weerbot-modellen/weerbot-ml-koppel.js
-73d8963fd571974e      12423  weerbot-modellen/weerbot-ml.js
+7dc080744b8bed30      12619  weerbot-modellen/weerbot-ml.js
 6357d04d6c1d805d      57190  weerbot-modellen/modellen/modellen.json
 ffb778f1353583f9     649499  weerbot-modellen/modellen/pooled_gbm.pkl
 dca71f9b0b85ca9a     725169  weerbot-modellen/modellen/stagea_gbm_atlanta.pkl

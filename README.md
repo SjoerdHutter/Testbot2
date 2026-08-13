@@ -796,6 +796,8 @@ Deze draaien ook in `.github/workflows/zelftest.yml` bij elke push.
 | `weerbot-modellen/polymarkt.js` | Polymarket-koppeling en het marktvenster |
 | `weerbot-modellen/weerbot-ml*.js` | ML-modellen, nog in schaduwfase |
 | `weerbot-modellen/ml_activatie.json` | welke stad-horizonnen de ML-uitkomst getoond krijgen; alles staat uit |
+| `weerbot-modellen/schaduw_backtest.py` | de ML-modellen walk forward tegen de rekenkern, op de historie in `features_alle.csv` |
+| `weerbot-modellen/monitoring/` | de uitkomst daarvan per lead |
 | `bot/` | kalibratie, logboeken, portefeuillebewaking en zelftests in Python |
 | `bot/waarneming.py` | de meting van vandaag en de conditionering erop |
 | `bot/fijnmeting.py` | AMeDAS en NEA, fijner dan het uurlijkse METAR |

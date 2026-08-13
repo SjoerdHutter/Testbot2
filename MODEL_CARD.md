@@ -40,9 +40,13 @@ Vijftien features:
 - `rh_gem`, `bewolking_gem`, `wind_max`, `instraling_som`, `neerslag_som`
 - `klim` — alleen bij de variant `ridge_klim`, vier steden
 
-Ontbreekt een feature, dan vult `weerbot-ml.js` de mediaan uit de training in
-(`params.med`), behalve `klim`: zonder klimwaarde valt `ridge_klim` terug op
-`ridge`.
+Ontbreekt een feature, dan volgt `weerbot-ml.js` de conventie waarmee
+`deel9_wekelijks.py` hem heeft gefit:
+
+- `run2run` en `lag2_err` → nul, want zo staan ze in de trainingsmatrix
+- een ontbrekend `p1_*` → het modelgemiddelde `mm_gem`
+- de aux-features en `doy` → de mediaan uit de training (`params.med`)
+- `klim` → geen terugval; zonder klimwaarde valt `ridge_klim` terug op `ridge`
 
 De sigma komt uit de NGR-parameters: `sqrt(c² + (d · spreiding)²)`.
 
@@ -75,6 +79,19 @@ in `ml_activatie.json`:
 Toetsen met `WeerbotKoppel.rapport()` in de console. Dat geeft n, MAE, bias,
 CRPS en dekking per stad en per horizon, omgerekend naar °C.
 
+Wat het model waard is, is los daarvan al bekend. `schaduw_backtest.py` traint
+de modellen walk forward op `features_alle.csv` — wekelijks hertrainen op alleen
+de dagen ervoor — en scoort ze tegen de rekenkern van de app op dezelfde dagen,
+597 tot 740 per stad. Uitkomst: gemiddeld +0,018 °C op lead 1 en +0,025 °C op
+lead 2, bij 12 van de 34 steden is ML slechter, en alleen **Singapore** en
+**Shanghai** halen op beide horizonnen de drempels. Atlanta en Chengdu scoorden
+hoger maar tellen niet mee: hun klim-term is niet walk forward. Zie REVIEW.md.
+
+De backtest vervangt de wachttijd niet helemaal. Hij bewijst dat een model op
+historische invoer beter is; hij bewijst niet dat de app die invoer live in
+dezelfde vorm binnenkrijgt. Dat blijft het schaduwlogboek, maar dat is een
+kwestie van dagen.
+
 ## Wat er bekend mis is
 
 **De schaduwreeks begint op 13 augustus 2026.** Alles daarvoor is gemaakt met
@@ -90,10 +107,11 @@ loopt via de weekkalibratie in `app_params.js`.
 **Vier steden zonder eigen klimwaarde.** `ridge_klim` bestaat voor vier steden;
 de rest gebruikt `ridge` en mist die term.
 
-**De p1-reeks voor de komende dagen is een aanname.** De training bevraagt de
-previous-runs-API achteraf, de app bevraagt hem voor de dagen die nog moeten
-komen. Dat hoort dezelfde grootheid te zijn, maar dat is pas bevestigd als het
-schaduwlogboek voor alle 49 steden regels laat zien.
+**De p1-reeks voor de komende dagen is een aanname.** Voor een doeldag D is
+`previous_day1` de verwachting van één dag vóór D. Voor vandaag en morgen
+bestaat die run al, voor overmorgen nog niet — horizon 2 krijgt dan geen invoer
+en wordt overgeslagen. Of dat zo uitpakt is pas te zien aan het schaduwlogboek:
+staat er na een dag voor alle 49 steden een regel, en op welke horizonnen.
 
 ## Terugdraaien
 

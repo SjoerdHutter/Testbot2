@@ -333,9 +333,11 @@ kennen.
 
 Twee kleinere versies van hetzelfde:
 
-- `run2run` stond altijd op `null` en werd als nul ingevuld. De feature zit in
-  alle 38 ridge-modellen. Effect per graad run-to-run: gemiddeld 0,088 °C, in
-  Houston 0,36 °C. Dat signaal was er domweg niet.
+- `run2run` stond altijd op `null`. De feature zit in alle 38 ridge-modellen.
+  Effect per graad run-to-run: gemiddeld 0,088 °C, in Houston 0,36 °C. Dat
+  signaal was er domweg niet. De nul waarmee hij werd ingevuld is overigens de
+  juiste terugval — `_matrix` in `deel9_wekelijks.py` doet hetzelfde — maar
+  invullen is iets anders dan meten, en hier werd altijd ingevuld.
 - `lagFout` kreeg de EWMA-restfout van de eigen rekenkern doorgegeven, terwijl
   de modellen op `lag2_err` zijn gefit: de kale fout van het modelgemiddelde van
   twee dagen terug. De eerste heeft een spreiding van 0,56 °C, de tweede van
@@ -354,10 +356,14 @@ is misleidender dan geen cijfer.
 (`mmf`), en `lag2Voor` leest daaruit de lagfeature in de vorm die de training
 kent. Het oude `mlx`-blok met ensemblegemiddelden is vervallen.
 
-`weerbot-ml.js` vult een ontbrekende `run2run` of `lag2_err` nu met de mediaan
-uit de training in plaats van met een harde nul. Die mediaan loopt per stad van
-−0,66 tot +0,24 en is voor `lag2_err` nergens nul, dus de nul was een uitspraak
-en geen ontbrekende waarde.
+`weerbot-ml.js` blijft een ontbrekende `run2run` of `lag2_err` met nul invullen
+en niet met de mediaan. Dat zag er bij eerste lezing uit als een fout — elke
+andere feature valt wél op `params.med` terug — maar het is de conventie van de
+training: `_matrix` zet een ontbrekende `run2run` op 0.0 vóórdat het de medianen
+uitrekent, en `_laad` begint `lag2_err` als nulvector. Als nul gefit is nul ook
+wat het moet zijn. `bot/test_ml.py` legt beide kanten nu vast, inclusief dat de
+aux-features juist wél naar de mediaan gaan, zodat het verschil niet nog eens
+per ongeluk wordt rechtgetrokken.
 
 Het schaduwlogboek is v2. Het oude logboek schreef per stad per doeldag één
 regel, en die werd elke dag overschreven door de kortere horizon; wat overbleef
@@ -459,3 +465,107 @@ dagen achteraf, waar de training hem op bevraagt. De aanroep is dezelfde en de
 code valt netjes terug als het antwoord leeg is, maar dat is een aanname tot het
 schaduwlogboek hem bevestigt. Eerste controle daarop: staat er na een dag voor
 alle 49 steden een regel in het logboek, dan komt de reeks binnen.
+
+---
+
+# Nagekomen: de zestig dagen waren er al
+
+Toegevoegd op 2026-08-13, bij de vraag of de schaduwperiode van zestig dagen te
+versnellen is. Ja — voor de vraag die er werkelijk toe doet, en het antwoord is
+minder gunstig dan het schaduwlogboek ooit had laten zien.
+
+## Waarom het kon
+
+`features_alle.csv` bevat 44.668 stad-dagen met een bruikbare p1-reeks én een
+waarneming, van november 2023 tot augustus 2026. Dat is per stad zo'n
+negenhonderd dagen, tegenover de zestig waar op gewacht werd. De ML-invoer, de
+uitkomst en de waarneming staan er allemaal in.
+
+Wat je er niet mee mag doen is `modellen.json` erop nakijken. `refit()` in
+`deel9_wekelijks.py` fit op `tr = np.where(isfinite(mm_gem) & isfinite(doel))`,
+oftewel op de hele geschiedenis. De modellen zijn dus op precies deze rijen
+getraind en erop scoren is in de eigen trainingsdata kijken.
+
+`weerbot-modellen/schaduw_backtest.py` doet het daarom overnieuw: elke zeven
+dagen hertrainen op uitsluitend de dagen ervoor, minimaal 180, en de week erna
+voorspellen. Dat is de cadans van de echte maandagactie. De referentie is niet
+verzonnen maar geleend — `kalibratie.walk_forward` is de walk-forward van de app
+zelf en geeft per dag terug wat de rekenkern die dag zou hebben getoond. Beide
+kanten worden op dezelfde dagen gescoord, allebei met alleen kennis van
+daarvoor.
+
+## Wat eruit komt
+
+34 steden met een eigen ridge, 597 tot 740 evaluatiedagen per stad. Alles in °C.
+
+| | MAE kern | MAE ML | winst |
+| --- | --- | --- | --- |
+| lead 1 | 0,846 | 0,828 | +0,018 |
+| lead 2 | 0,945 | 0,920 | +0,025 |
+
+Dat is een derde van de 0,06 °C die het interne materiaal noemde (0,89 → 0,83).
+Bij 12 van de 34 steden is het ML-model op lead 1 gewoon slechter dan de kern.
+
+Tegen de drempels uit `ml_activatie.json` — winst ≥ 0,05 °C, |bias| ≤ 0,35 °C,
+dekking tussen 72 en 88 procent:
+
+| stad | winst lead 1 | winst lead 2 |
+| --- | --- | --- |
+| Singapore | +0,058 | +0,082 |
+| Shanghai | +0,050 | +0,071 |
+| Chongqing | +0,050 | +0,074 |
+| New York | +0,040 | +0,065 |
+| Hongkong | +0,036 | +0,057 |
+
+Op beide horizonnen halen alleen **Singapore en Shanghai** het. Op lead 2 komen
+Chongqing, New York en Hongkong erbij; op lead 1 blijven die net onder de
+drempel.
+
+## Twee steden die er wél uitsprongen, en waarom dat niet telt
+
+Atlanta (+0,111) en Chengdu (+0,124) waren de grootste winnaars — en dat zijn
+precies de twee die het niet mogen zijn. Allebei hebben ze variant `ridge_klim`,
+en die klim-term komt uit `klim_features.csv`, dat `refit()` uitrekent met
+`stagea_gbm_*.pkl`-modellen die op de hele geschiedenis zijn gefit. De
+hertraining in de backtest is walk forward, die ene feature niet. Die twee
+steden kijken via de klim-term in hun eigen toekomst.
+
+Het is dezelfde val als bij de invoer: het opvallendste resultaat kwam uit de
+methode en niet uit het model. `schaduw_backtest.py` merkt `ridge_klim`-steden
+daarom af met "haalt ze, maar klim lekt" en telt ze niet mee als geslaagd. Dat
+Atlanta en Chengdu in het interne integratieplan al "extra voorzichtig" heetten
+is een aardige samenloop, maar de reden is een andere dan daar staat.
+
+## Wat hiermee vervalt en wat er overblijft
+
+Vervalt: zestig dagen wachten om te weten óf deze modellen beter zijn. Dat is nu
+bekend, op negenhonderd dagen per stad in plaats van zestig, en het antwoord is
+"bij twee van de 34, en bescheiden".
+
+Blijft staan, en dat is een plumbing-vraag van dagen en niet van maanden:
+
+1. Levert `previous-runs-api` de p1-waarden ook voor de kómende dagen? Voor een
+   doeldag D is `previous_day1` de verwachting van één dag vóór D. Voor vandaag
+   en morgen bestaat die run al, voor overmorgen nog niet. Het is dus goed
+   mogelijk dat horizon 2 in de app helemaal geen invoer krijgt — de code slaat
+   die dag dan over, wat de juiste uitkomst is, maar het betekent wel dat de
+   lead 2-kolom hierboven een backtest is waar geen live tegenhanger bij hoort.
+2. Zijn die live waarden gelijk aan wat je achteraf voor dezelfde dag
+   terugkrijgt?
+
+Allebei te zien aan het schaduwlogboek: staat er na één dag voor alle 49 steden
+een regel, en op welke horizonnen, dan is vraag 1 beantwoord. Vraag 2 vraagt om
+een handvol dagen, niet om zestig.
+
+## Wat dit betekent voor activeren
+
+Niet Singapore en Shanghai aanzetten omdat ze de drempel halen. De drempels in
+`ml_activatie.json` zijn geschreven voor een live schaduwmeting en deze backtest
+is iets anders: hij bewijst dat het model op historische invoer beter is, niet
+dat de app die invoer live in dezelfde vorm binnenkrijgt. De volgorde blijft
+dus: eerst de plumbing-vraag beantwoorden met het schaduwlogboek, dan de twee
+steden aanzetten waarvan nu al vaststaat dat het model deugt.
+
+Wat er wél mee vervalt is het omgekeerde: voor de 12 steden waar ML op
+negenhonderd dagen slechter is dan de kern hoeft geen enkele schaduwdag meer te
+worden afgewacht. Die kunnen uit de kandidatenlijst.

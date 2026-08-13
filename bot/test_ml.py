@@ -205,13 +205,29 @@ process.stdout.write(JSON.stringify(uit));
           dichtbij(r["uitDeltaF"], 1.8))
 
 
-# ── 3. terugval op de mediaan in plaats van een harde nul ────────────────────
+# ── 3. terugval bij ontbrekende invoer ──────────────────────────────────────
 
-def toets_mediaan():
+def toets_terugval():
     print("ontbrekende invoer")
     if not heeft_node():
         print("  overgeslagen (node ontbreekt)")
         return
+
+    # De training kent twee conventies naast elkaar en de app moet ze allebei
+    # volgen. _matrix in deel9_wekelijks.py zet een ontbrekende run2run op 0.0
+    # en een ontbrekende p1 op mm_gem, en pas wat daarna nog ontbreekt krijgt
+    # de mediaan. _laad begint lag2_err als nulvector. Alles wat hier niet
+    # genoemd staat -- de aux-features, doy, klim -- gaat dus wel naar de
+    # mediaan. Loopt dat uit elkaar, dan rekent de app anders dan de training
+    # zonder dat er iets omvalt.
+    deel9 = DEEL9.read_text()
+    toets("deel9_wekelijks.py vult een ontbrekende run2run met nul",
+          'if k == "run2run":' in deel9 and "v, 0.0)" in deel9)
+    toets("deel9_wekelijks.py begint lag2_err als nulvector",
+          "lag = np.zeros(len(rijen))" in deel9)
+    toets("deel9_wekelijks.py vult een ontbrekende p1 met mm_gem",
+          "if k in P1:" in deel9 and 'kol["mm_gem"][idx]' in deel9)
+
     modellen = json.loads(MODELLEN.read_text())
     stad = next(k for k, v in modellen.items()
                 if isinstance(v, dict) and v.get("ridge")
@@ -219,37 +235,47 @@ def toets_mediaan():
                 and v["ridge"]["med"][v["ridge"]["features"].index("run2run")] != 0)
     p = modellen[stad]["ridge"]
     med_r2r = p["med"][p["features"].index("run2run")]
+    med_aux = p["med"][p["features"].index("rh_gem")]
 
     basis = {"ifs": 20.0, "aifs": 21.0, "gfs": 19.0, "icon": 22.0, "gem": 18.0}
     script = koppel_omgeving() + """
-const M = JSON.parse(require("fs").readFileSync("weerbot-modellen/modellen/modellen.json", "utf8"));
-const K = JSON.parse(require("fs").readFileSync("weerbot-modellen/klim_vandaag.json", "utf8"));
+const M = JSON.parse(require("fs").readFileSync(WORTEL + "/weerbot-modellen/modellen/modellen.json", "utf8"));
+const K = JSON.parse(require("fs").readFileSync(WORTEL + "/weerbot-modellen/klim_vandaag.json", "utf8"));
 WeerbotML._laadDirect(M, K);
 const p1 = %s;
-const grond = { p1: p1, spreiding: 1.5, lagFout: 0.5, aux: {} };
+const grond = { p1: p1, spreiding: 1.5, run2run: 0.3, lagFout: 0.5,
+                aux: { rh: 70, bewolking: 50, wind: 15, instraling: 18, neerslag: 0 } };
 function mu(extra) {
   const inv = Object.assign({}, grond, extra);
+  if (extra && extra.aux) inv.aux = Object.assign({}, grond.aux, extra.aux);
   const v = WeerbotML.voorspel("%s", "2026-08-13", inv);
   return v ? v.mu : null;
 }
-uit.ontbreekt = mu({ run2run: null });
-uit.mediaan   = mu({ run2run: %s });
-uit.nul       = mu({ run2run: 0 });
-uit.lag_ontbreekt = mu({ run2run: 0.2, lagFout: null });
-uit.lag_mediaan   = mu({ run2run: 0.2, lagFout: %s });
+uit.r2r_weg    = mu({ run2run: null });
+uit.r2r_nul    = mu({ run2run: 0 });
+uit.r2r_med    = mu({ run2run: %s });
+uit.lag_weg    = mu({ lagFout: null });
+uit.lag_nul    = mu({ lagFout: 0 });
+uit.aux_weg    = mu({ aux: { rh: null } });
+uit.aux_med    = mu({ aux: { rh: %s } });
+uit.p1_weg     = mu({ p1: { aifs: 21.0, gfs: 19.0, icon: 22.0, gem: 18.0 } });
 process.stdout.write(JSON.stringify(uit));
-""" % (json.dumps(basis), stad, json.dumps(med_r2r),
-       json.dumps(p["med"][p["features"].index("lag2_err")]))
+""" % (json.dumps(basis), stad, json.dumps(med_r2r), json.dumps(med_aux))
     r = draai_node(script)
 
-    toets("een ontbrekende run2run valt terug op de mediaan uit de training",
-          dichtbij(r["ontbreekt"], r["mediaan"], 1e-9),
-          f'{r["ontbreekt"]} tegen {r["mediaan"]}')
-    toets("en dus niet meer op een harde nul",
-          not dichtbij(r["ontbreekt"], r["nul"], 1e-9),
-          f'stad {stad}, mediaan {med_r2r}')
-    toets("hetzelfde geldt voor een ontbrekende lagfout",
-          dichtbij(r["lag_ontbreekt"], r["lag_mediaan"], 1e-9))
+    toets("een ontbrekende run2run telt als nul, zoals in de training",
+          dichtbij(r["r2r_weg"], r["r2r_nul"], 1e-9),
+          f'{r["r2r_weg"]} tegen {r["r2r_nul"]}')
+    toets("en dus niet als de mediaan",
+          not dichtbij(r["r2r_weg"], r["r2r_med"], 1e-9),
+          f"stad {stad}, mediaan {med_r2r}")
+    toets("een ontbrekende lagfout telt ook als nul",
+          dichtbij(r["lag_weg"], r["lag_nul"], 1e-9))
+    toets("een ontbrekende aux-feature valt wel op de mediaan terug",
+          dichtbij(r["aux_weg"], r["aux_med"], 1e-9),
+          f'{r["aux_weg"]} tegen {r["aux_med"]}')
+    toets("een ontbrekend model valt op het modelgemiddelde terug",
+          r["p1_weg"] is not None)
 
 
 # ── 4. schaduwlogboek en rapport ─────────────────────────────────────────────
@@ -360,7 +386,7 @@ def main():
     print("ML-koppeling")
     toets_sleutels()
     toets_rekenstappen()
-    toets_mediaan()
+    toets_terugval()
     toets_schaduw()
     toets_crps()
     toets_activatie()
