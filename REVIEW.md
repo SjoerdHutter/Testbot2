@@ -960,6 +960,58 @@ en die is met dezelfde gegevens te meten.
 3. Pas daarna eventueel de restfactor op de eigen reeks kalibreren, wat de kop
    van `waarneming.py` al als openstaand punt noemt.
 
-Niet gedaan in deze wijziging: alledrie. De eerste is een verandering aan het
-hoofdgetal van de app en hoort een apart besluit te zijn; de tweede is een
-meting die er nog niet is.
+Punt 1 is inmiddels doorgevoerd; zie de sectie hieronder.
+
+
+---
+
+# De ondergrens op het getoonde cijfer
+
+Toegevoegd op 2026-08-13, punt 1 uit de vorige sectie.
+
+`index.html` legt vanaf nu de meting van vandaag als ondergrens onder het cijfer
+op de kaart: `zetOndergrens()` draait bovenaan `teken()` en zet per stad op de
+dag van vandaag een veld `grens` met `max(verwachting, m)`, `max(p10, m)` en
+`max(p90, m)`. De weergave leest dat via `getoond(d)`; is er geen meting, dan
+staat er precies wat er eerst stond.
+
+Alleen het maximum en alleen vandaag. `WeerbotMarkt.metingVoor` doet de
+datumcontrole al — een dag na middernacht krijgt de meting van gisteren niet
+mee — en dat is dezelfde functie die de kansen gebruiken, dus de twee kunnen
+niet uit elkaar lopen.
+
+Op de kaart staat er bij zodra de grens bijt: "al 24° gemeten" achter de
+80%-band. Zonder die regel zou een cijfer dat vastzit op de meting eruitzien als
+een gewone voorspelling.
+
+## Wat er met opzet níét is veranderd
+
+`d.verwachting`, `d.p10` en `d.p90` blijven staan zoals ze waren. `onzeKansen`
+in `polymarkt.js` bouwt daaruit de hele voorwaardelijke verdeling en past de
+afkapping op `m` zélf toe; zou de grens ook daarheen gaan, dan werd de meting
+dubbel geteld en werden de vakkansen scherper dan ze zijn. Daar hangt in
+`inzet.py` een weddenschap aan.
+
+Dat is geen belofte maar een toets. De kansenvergelijking in `bot/test_kern.py`
+rekent nu elk geval twee keer door: één keer met het kale dagobject en één keer
+met een `grens` erop die vijf graden hoger ligt. De uitkomsten moeten tot op
+1e-15 gelijk zijn. Nagegaan of die toets ook kán falen: met `dag.grens || dag`
+in `onzeKansen` vallen er 651 van de 1320 vakken om.
+
+## Waarom de kale ondergrens en niet de krimp
+
+`max(m, mu)` gebruikt geen restfactor. Dat is bewust: `m` is geen schatting maar
+een meting, dus deze correctie kan niet doorschieten — het cijfer kan alleen
+omhoog naar iets wat al op de meter stond. De variant met krimp is op de MAE
+beter (+0,750 tegen +0,402 om tien uur 's avonds), maar leunt op een curve die
+uit de marktprijzen is geleend en waarvan dezelfde meting laat zien dat de
+rechtvaardiging eronder niet klopt voor de dagen waarop de piek nog moet vallen.
+Die vraag staat als punt 2 open.
+
+## Wat dit niet raakt
+
+De verificatietabel en `mae_nieuw` in `app_params.js` rekenen de rekenkern na op
+historische gegevens en niet op wat er op het scherm stond; die cijfers
+veranderen dus niet. De gemeten winst van +0,058 tot +0,402 zit in wat de
+bezoeker leest, niet in wat de app over zichzelf rapporteert. Dat verschil hoort
+er te zijn zolang de controle de kern toetst en niet de weergave.
