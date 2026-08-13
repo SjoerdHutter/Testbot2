@@ -194,6 +194,9 @@ def zelftest():
     per_uur = {u: {"kaal": [], "met": [], "ondergrens": []} for u in UREN}
     rest = {u: [] for u in UREN}
     dek = {u: {"alles": [], "voor": [], "kaal": [], "breedte": []} for u in UREN}
+    # De losse waarnemingen bewaren, want de kalibratie hieronder moet de reeks
+    # op datum kunnen splitsen en met een andere factor kunnen doorrekenen.
+    rauw = {u: [] for u in UREN}
     for u in UREN:
         for _ in range(60):
             per_uur[u]["kaal"].append(abs(rnd.gauss(0, 1)))
@@ -222,6 +225,42 @@ def zelftest():
         toets("een uur zonder piek-voor-dagen laat hem niet omvallen", True)
     except Exception as ex:                                   # noqa: BLE001
         toets("een uur zonder piek-voor-dagen laat hem niet omvallen", False, repr(ex))
+
+    # ── de verbredingsfactor ──
+    # Een reeks waarvan de werkelijke spreiding twee keer zo groot is als wat
+    # het model denkt. De factor hoort daar rond de 2 uit te komen en de
+    # dekking op de toetsdatums terug te brengen naar ongeveer 80 procent.
+    rnd2 = random.Random(9)
+    krap = {u: [] for u in UREN}
+    for i in range(1500):
+        datum = f"2026-{1 + i % 12:02d}-{1 + i % 28:02d}"
+        for u in UREN:
+            y = 20.0 + rnd2.gauss(0, 2.0)          # echte spreiding 2,0
+            m = y - abs(rnd2.gauss(0, 3.0)) - 0.5  # piek nog niet gevallen
+            krap[u].append((datum, m, 20.0, 1.0, y))   # model denkt 1,0
+    fac, tts = kalibreer(krap)
+    u0 = sorted(tts)[0] if tts else None
+    toets("een te krappe band levert een factor boven 1",
+          u0 is not None and fac[u0] > 1.5, str(fac.get(u0)))
+    toets("en brengt de dekking op de toetsdatums naar ongeveer 80%",
+          u0 is not None and 0.75 <= tts[u0]["voor_na"] <= 0.86,
+          str(tts[u0]["voor_na"]) if u0 else "-")
+    toets("de dekking was daarvoor duidelijk te laag",
+          u0 is not None and tts[u0]["voor_nu"] < 0.70, str(tts[u0]["voor_nu"]) if u0 else "-")
+    toets("de band wordt er breder van, niet smaller",
+          u0 is not None and tts[u0]["breedte_na"] > tts[u0]["breedte_nu"])
+
+    # De klem los getoetst. Een variant hiervan via kalibreer() met een reeks
+    # die overal al boven de 80 procent dekt is niet te bouwen, en dat is geen
+    # tekortkoming van de toets maar het verschijnsel zelf: zodra `w` klein
+    # wordt trekt de conditionering mu_R naar `m` toe, en een dag waarop de
+    # piek nog moet vallen ligt per definitie bóven `m`. Precies daarom zakt de
+    # dekking in de echte reeks tussen drie en vijf uur weg.
+    goed = [("2026-01-01", 19.9, 20.0, 1.0, 20.0)] * 300
+    toets("zoek_factor geeft precies 1 zodra het doel al gehaald is",
+          zoek_factor(goed, 12, 0.80) == 1.0)
+    toets("en blijft op 1 bij een dekking ruim boven het doel",
+          zoek_factor([("2026-01-01", 19.9, 20.0, 5.0, 20.0)] * 300, 8, 0.80) == 1.0)
 
     # De ontleding op hetzelfde voorbeeld als bot/test_waarneming.py, zodat de
     # uurversie en de dagversie niet uit elkaar kunnen lopen.
@@ -352,6 +391,88 @@ def gem(v):
     return sum(v) / len(v) if v else None
 
 
+def dekking(rijen, uur, factor=1.0):
+    """Aandeel van `rijen` waarvan de waarneming in de 80%-band valt.
+
+    `rijen` zijn tupels (datum, m, mu, sig, y). `factor` vermenigvuldigt de
+    gekrompen sigma; 1,0 is precies wat de app nu doet.
+    """
+    raak = 0
+    for _, m, mu, sig, y in rijen:
+        mu_r, sig_r = W.conditioneer(mu, sig, m, uur, "max")
+        lo, hi = band80(m, mu_r, sig_r * factor)
+        if lo - 1e-9 <= y <= hi + 1e-9:
+            raak += 1
+    return raak / len(rijen) if rijen else None
+
+
+def zoek_factor(rijen, uur, doel=0.80, boven=4.0):
+    """De kleinste factor >= 1 waarbij de dekking het doel haalt.
+
+    Nooit onder 1: deze factor mag de band alleen verbreden. Vroeg op de dag
+    doet de conditionering niets (w is dan 1,0) en zou een factor onder 1 in
+    feite de basisband herijken -- dat hoort in kalibratie.py en niet hier.
+    Zo kan deze wijziging niets scherper maken dan het nu is, en dat is de
+    veilige kant: de kop van bot/waarneming.py noemt overschatte scherpte
+    uitdrukkelijk de gevaarlijke kant op.
+    """
+    if not rijen or dekking(rijen, uur, 1.0) >= doel:
+        return 1.0
+    lo, hi = 1.0, boven
+    if dekking(rijen, uur, hi) < doel:
+        return hi
+    for _ in range(40):
+        mid = (lo + hi) / 2
+        if dekking(rijen, uur, mid) < doel:
+            lo = mid
+        else:
+            hi = mid
+    return round(hi, 3)
+
+
+def kalibreer(rauw, doel=0.80, deel=0.70):
+    """Per uur een verbredingsfactor op de gekrompen sigma.
+
+    Gefit op de eerste `deel` van de datums en getoetst op de rest. Die
+    scheiding op datum is dezelfde methode waarmee `band_lokaal` eerder is
+    beoordeeld; zonder haar zou de factor zichzelf bewijzen op de reeks waarop
+    hij is gemaakt.
+
+    Het doel is de dekking op de dagen waarop de piek nog moest vallen. Op de
+    dagen dat hij al gevallen was doet de afkapping het werk; daar is de vraag
+    niet of de band breed genoeg is maar of hij niet boven `m` is blijven
+    hangen, en een bredere band helpt daar vanzelf mee.
+    """
+    datums = sorted({r[0] for rijen in rauw.values() for r in rijen})
+    if len(datums) < 60:
+        return {}, {}
+    grens = datums[int(len(datums) * deel)]
+    uit, toets = {}, {}
+    for u in sorted(rauw):
+        voor = [r for r in rauw[u] if r[1] < r[4] - 1e-9]        # piek nog niet gevallen
+        trein = [r for r in voor if r[0] < grens]
+        test = [r for r in voor if r[0] >= grens]
+        if len(trein) < 200 or len(test) < 100:
+            continue
+        f = zoek_factor(trein, u, doel)
+        uit[u] = f
+        alle_test = [r for r in rauw[u] if r[0] >= grens]
+        toets[u] = {
+            "factor": f, "n_trein": len(trein), "n_test": len(test),
+            "voor_nu": dekking(test, u, 1.0), "voor_na": dekking(test, u, f),
+            "alles_nu": dekking(alle_test, u, 1.0),
+            "alles_na": dekking(alle_test, u, f),
+            "breedte_nu": gem([band80(m, *W.conditioneer(mu, sig, m, u, "max"))[1]
+                               - band80(m, *W.conditioneer(mu, sig, m, u, "max"))[0]
+                               for _, m, mu, sig, _ in alle_test]),
+        }
+        mr = [W.conditioneer(mu, sig, m, u, "max") for _, m, mu, sig, _ in alle_test]
+        toets[u]["breedte_na"] = gem([
+            band80(r[1], a, b * f)[1] - band80(r[1], a, b * f)[0]
+            for r, (a, b) in zip(alle_test, mr)])
+    return uit, toets
+
+
 def rapporteer(per_uur, rest, dek, n_dagen):
     """De twee tabellen afdrukken en de regels per uur teruggeven.
 
@@ -423,6 +544,9 @@ def meet(dagen):
     # gevallen was. Op de dagen dat hij al viel doet de afkapping het werk en
     # is dekking geen vraag; de krimp moet zich bewijzen op de andere.
     dek = {u: {"alles": [], "voor": [], "kaal": [], "breedte": []} for u in UREN}
+    # De losse waarnemingen bewaren, want de kalibratie hieronder moet de reeks
+    # op datum kunnen splitsen en met een andere factor kunnen doorrekenen.
+    rauw = {u: [] for u in UREN}
     n_dagen = 0
     for s in steden:
         mlk = keymap.get(s["key"])
@@ -458,6 +582,7 @@ def meet(dagen):
                 if m is None:
                     continue
                 mu_r, sig_r = W.conditioneer(mu, sig, m, u, "max")
+                rauw[u].append((r["datum"], m, mu, sig, y))
                 per_uur[u]["kaal"].append(abs(mu - y))
                 per_uur[u]["met"].append(abs(verwachting_max(m, mu_r, sig_r) - y))
                 per_uur[u]["ondergrens"].append(abs(max(m, mu) - y))
@@ -476,10 +601,28 @@ def meet(dagen):
 
     tabel = rapporteer(per_uur, rest, dek, n_dagen)
 
+    # ── punt 3: de verbredingsfactor, gefit en getoetst op gescheiden datums ──
+    factoren, toets = kalibreer(rauw)
+    if toets:
+        print(f"\n{'uur':>4s} {'factor':>7s} {'n test':>7s} {'voor nu':>8s} "
+              f"{'voor na':>8s} {'alles nu':>9s} {'alles na':>9s} "
+              f"{'breed nu':>9s} {'breed na':>9s}")
+        for u in sorted(toets):
+            e = toets[u]
+            print(f"{u:4d} {e['factor']:7.3f} {e['n_test']:7d} "
+                  f"{e['voor_nu']*100:7.1f}% {e['voor_na']*100:7.1f}% "
+                  f"{e['alles_nu']*100:8.1f}% {e['alles_na']*100:8.1f}% "
+                  f"{e['breedte_nu']:9.3f} {e['breedte_na']:9.3f}")
+        for u, e in toets.items():
+            if u in tabel:
+                tabel[u]["factor"] = e["factor"]
+                tabel[u]["toets"] = e
+
     UIT.parent.mkdir(exist_ok=True)
     UIT.write_text(json.dumps({"gegenereerd": date.today().isoformat(),
                                "dagen": dagen, "stad_dagen": n_dagen,
-                               "per_uur": tabel}, indent=1) + "\n")
+                               "factoren": factoren, "per_uur": tabel},
+                              indent=1) + "\n")
     print(f"\ngeschreven naar {UIT.relative_to(WORTEL)}")
     return 0
 
