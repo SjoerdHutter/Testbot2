@@ -781,6 +781,7 @@ python3 weerbot-modellen/controleer_schil.py    # servicewerkerversie dekt de sc
                                                 # (--zet werkt hem bij)
 python3 weerbot-modellen/pak_features.py check  # featurebundel
 python3 bot/test_ml.py                          # invoer van de ML-modellen
+python3 bot/meet_meting.py --zelftest            # rekenkant van de metingstudie
 ```
 
 Deze draaien ook in `.github/workflows/zelftest.yml` bij elke push.
@@ -800,6 +801,7 @@ Deze draaien ook in `.github/workflows/zelftest.yml` bij elke push.
 | `weerbot-modellen/monitoring/` | de uitkomst daarvan per lead |
 | `bot/` | kalibratie, logboeken, portefeuillebewaking en zelftests in Python |
 | `bot/waarneming.py` | de meting van vandaag en de conditionering erop |
+| `bot/meet_meting.py` | wat die meting waard zou zijn in de puntvoorspelling; met de hand te starten |
 | `bot/fijnmeting.py` | AMeDAS en NEA, fijner dan het uurlijkse METAR |
 | `bot/inzet.py` | positiegrootte, risicoplafonds en het meten van de edge |
 | `bot/taf.py` | de luchthavenverwachting, voorlopig alleen loggend |

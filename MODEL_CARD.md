@@ -124,6 +124,13 @@ seizoen scheef; die scheefheid zit er niet in.
 **Eén doel.** Alleen het dagmaximum. Het dagminimum heeft geen ML-model; dat
 loopt via de weekkalibratie in `app_params.js`.
 
+**De meting van vandaag zit er niet in.** Geen enkele feature zegt wat er vandaag
+al op de meter staat; de app gebruikt dat alleen om de kansen af te kappen. Op
+horizon 0 is dat naar schatting 0,05 tot 0,57 °C waard afhankelijk van het uur,
+tegen +0,018 °C voor dit model — maar het is een natuurkundige ondergrens en
+geen geleerde correctie, dus het hoort in de rekenkern en niet hier.
+`bot/meet_meting.py` meet wat het precies is.
+
 **Vier steden zonder eigen klimwaarde.** `ridge_klim` bestaat voor vier steden;
 de rest gebruikt `ridge` en mist die term.
 

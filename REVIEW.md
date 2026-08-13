@@ -766,3 +766,111 @@ verse run niets meer oplevert — dan valt de zelftest om in plaats van dat
 
 De conclusie blijft dus dezelfde als in de vorige sectie, maar staat nu op
 cijfers en beweegt mee.
+
+---
+
+# Wat de meting van vandaag als feature zou opleveren
+
+Toegevoegd op 2026-08-13. In de vorige sectie stond dat één ding het
+horizon 0-antwoord zou kunnen kantelen: de temperatuur die vandaag al gemeten
+is. Hier wat dat waard is.
+
+## Eerst waar hij al zit, en waar niet
+
+De app conditioneert al op `m`, de hoogste meting van vandaag tot nu toe, maar
+uitsluitend in de kansen per temperatuurvak. `waarneming.cdf` kapt de verdeling
+af op `m` en `waarneming.conditioneer` krimpt wat er overblijft. Dat is
+paragraaf 7 van README.md en het werkt.
+
+Wat er niet mee gebeurt is `d.verwachting`. Het getal op het scherm — en dus ook
+de MAE waarop de rekenkern en de ML-modellen worden afgerekend — weet van niets.
+Op horizon 0 voorspelt de app nog steeds alsof de dag moet beginnen, ook al
+staat er om drie uur 's middags al een cijfer op de meter.
+
+Dat maakt het meteen een andere vraag dan "helpt een ML-model op h0". De meting
+is geen geleerde correctie maar een natuurkundige ondergrens: het dagmaximum kan
+niet lager uitvallen dan wat er al staat. Wie die ondergrens gebruikt heeft geen
+model nodig.
+
+## De orde van grootte
+
+Uit de restfactorcurve in `polymarkt.js` volgt hoeveel onzekerheid er per lokaal
+uur nog over is. Bij een MAE van 0,634 °C op h0 geeft dat, als de MAE evenredig
+met de resterende spreiding meeschaalt:
+
+| lokaal uur | w ruw (markt) | winst | w app (gedempt) | winst |
+| --- | --- | --- | --- | --- |
+| tot 10 | 1,00 | +0,000 | 1,00 | +0,000 |
+| 11 | 0,81 | +0,120 | 0,92 | +0,052 |
+| 13 | 0,68 | +0,203 | 0,83 | +0,106 |
+| 14 | 0,59 | +0,260 | 0,76 | +0,153 |
+| 15 | 0,38 | +0,393 | 0,55 | +0,289 |
+| 16 | 0,26 | +0,469 | 0,40 | +0,384 |
+| 18 | 0,12 | +0,558 | 0,19 | +0,511 |
+| 20 | 0,06 | +0,596 | 0,10 | +0,571 |
+
+Ter vergelijking: het ML-model levert op h1 +0,018 °C en de drempel om aan te
+mogen is +0,050. Zelfs de voorzichtige kolom is vanaf elf uur 's ochtends al
+groter dan de drempel en loopt op tot dertig keer de ML-winst.
+
+Dat is de goede orde van grootte om te onthouden, maar het is nadrukkelijk geen
+meting. Drie redenen tot voorzichtigheid, en de eerste twee staan al in de kop
+van `bot/waarneming.py`:
+
+1. De curve is de onzekerheid van de **markt**, teruggerekend uit de entropie
+   van de vakprijzen. De markt is scherper dan wij om meer redenen dan alleen
+   de meting.
+2. Daarom staat er een demping overheen. Die is gekozen voor het samenspel met
+   de afkapping in de kansen, niet voor een puntvoorspelling.
+3. "MAE schaalt met de spreiding" gaat uit van een symmetrische restverdeling,
+   en de afkapping maakt hem juist scheef.
+
+## Waarom dit niet alsnog voor ML pleit
+
+Als de meting eenmaal in de puntvoorspelling zit, is hij er voor de rekenkern
+net zo goed als voor een ML-model. De +0,223 °C versheidspremie waarmee de kern
+op h0 wint blijft staan, en daar komt voor beide kanten hetzelfde bedrag
+bovenop. Het rangordevraagstuk verandert dus niet: `nooit_horizons: ["0"]`
+blijft goed.
+
+Wat er wél verandert is de rangorde van de openstaande verbeteringen. De meting
+in de puntvoorspelling stoppen is op h0 een orde van grootte meer waard dan alle
+ML-winst op h1 en h2 bij elkaar, en het kost geen model — alleen `max(m, mu)`,
+of netter `E[max(m, R)]`.
+
+## Wat er nu is gebouwd
+
+`bot/meet_meting.py`. Het IEM-archief heeft de uurlijkse METAR's van jaren
+terug, dus de curve hoeft niet van de markt geleend te worden: hij is op de
+eigen reeks te meten. Het script haalt per tijdzone de uurreeksen op,
+reconstrueert per stad-dag wat er om elk lokaal uur op de meter stond, en legt
+dat naast de walk-forward van de rekenkern zelf (`kalibratie.walk_forward`, net
+als `schaduw_backtest.py`). Per uur komt eruit:
+
+- **kaal** — MAE van de rekenkern zonder meting
+- **ondergrens** — MAE van `max(m, mu)`: alleen de natuurkundige ondergrens,
+  zonder restfactor en dus zonder geleende curve. Dit is de eerlijkste
+  ondergrens van wat de meting waard is, en dit deel is gratis.
+- **met krimp** — MAE van `E[max(m, R)]` met `R` uit `waarneming.conditioneer`
+
+Het verschil tussen de tweede en de derde kolom is precies wat de krimp bovenop
+de afkapping doet, en dus waar de dubbeltelling zit waar de demping voor bedoeld
+is. Daarnaast komt de restfactor zelf eruit, gemeten op de eigen reeks, om naast
+`W_REST_MAX` te leggen — wat de kop van `waarneming.py` al als openstaand punt
+noemt.
+
+Draaien kan hier niet: Open-Meteo én IEM zijn vanuit deze omgeving een
+beleidsblokkade. `.github/workflows/meting-studie.yml` start hem met de hand;
+daar is het netwerk er wel. De rekenkant draait wel offline en zit in de
+zelftest: `E[max(m,R)]` tegen zijn grensgevallen, de loopmax, en de
+uurontleding op hetzelfde IEM-voorbeeld als `bot/test_waarneming.py`, met de
+eis dat de dagmax eruit gelijk is aan die van `waarneming.ontleed_iem`.
+
+## Wat er daarna te besluiten valt
+
+Niet meteen de getoonde verwachting aanpassen. Dat is het hoofdgetal van de app
+en de meting kan hem alleen omhoog duwen; wie dat op de verkeerde curve doet
+maakt het beeld structureel te warm. Eerst de studie draaien, dan kijken of de
+gratis kolom — `max(m, mu)`, zonder enige kalibratie — het al doet. Als die het
+doet is dat de wijziging: goedkoop, uitlegbaar, en zonder een curve die van de
+markt geleend is.
