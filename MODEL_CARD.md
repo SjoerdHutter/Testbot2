@@ -125,11 +125,12 @@ seizoen scheef; die scheefheid zit er niet in.
 loopt via de weekkalibratie in `app_params.js`.
 
 **De meting van vandaag zit er niet in.** Geen enkele feature zegt wat er vandaag
-al op de meter staat; de app gebruikt dat alleen om de kansen af te kappen. Op
-horizon 0 is dat naar schatting 0,05 tot 0,57 °C waard afhankelijk van het uur,
-tegen +0,018 °C voor dit model — maar het is een natuurkundige ondergrens en
-geen geleerde correctie, dus het hoort in de rekenkern en niet hier.
-`bot/meet_meting.py` meet wat het precies is.
+al op de meter staat; de app gebruikt dat alleen om de kansen af te kappen.
+Gemeten over 18.959 stad-dagen is alleen al de kale ondergrens `max(m, mu)` op
+horizon 0 vanaf elf uur 's ochtends +0,058 °C waard, oplopend tot +0,402 vanaf
+zes uur 's avonds — de MAE gaat daar van 0,815 naar 0,414. Tegen +0,018 °C voor
+dit model. Maar het is een natuurkundige ondergrens en geen geleerde correctie,
+dus het hoort in de rekenkern en niet hier. Zie REVIEW.md.
 
 **Vier steden zonder eigen klimwaarde.** `ridge_klim` bestaat voor vier steden;
 de rest gebruikt `ridge` en mist die term.

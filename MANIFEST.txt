@@ -1,15 +1,15 @@
 # sha256 (eerste 16 tekens) · bytes · pad
 5c063fd435dab73f       3686  weerbot-modellen/controleer_schil.py
 # Controle: python3 weerbot-modellen/controleer_upload.py
-39606d9d60fecd85     242746  index.html
+5609a510f77f4124     245854  index.html
 07bf71493e979ca9      22215  portefeuille.html
-095052711db9af5b       5748  sw.js
+837c016316c6884d       5748  sw.js
 ded0a476a3cb785b       8808  weerbot-modellen/bereken_klim_vandaag.py
 ffc861e9125d66cd       2301  weerbot-modellen/controleer_upload.py
 09d1d18d1efd8d4f      14592  weerbot-modellen/deel9_wekelijks.py
 69d6b44d59157fca       8360  weerbot-modellen/steden.json
 f7a88e70aac76dfb       1508  weerbot-modellen/tijdzones.json
-8153f60b45d0171b      42961  weerbot-modellen/polymarkt.js
+d5437daf0a6539cd      45854  weerbot-modellen/polymarkt.js
 00bf9a49f16e9283      15399  weerbot-modellen/weerbot-ml-koppel.js
 7dc080744b8bed30      12619  weerbot-modellen/weerbot-ml.js
 6357d04d6c1d805d      57190  weerbot-modellen/modellen/modellen.json

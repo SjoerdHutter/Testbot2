@@ -180,7 +180,7 @@ def onze_kansen(vakken: list, dag: dict, markt_eenheid, app_eenheid,
         soort = "min" if waarneming.get("soort") == "min" else "max"
         w = W.restfactor(waarneming.get("uur"), soort)
         mu = mu * w + m * (1 - w)
-        sigma = sigma * w
+        sigma = sigma * w * W.sigfactor(waarneming.get("uur"), soort)
         if not (sigma > 0.05):
             sigma = 0.05
 

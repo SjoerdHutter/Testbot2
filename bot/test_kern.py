@@ -355,10 +355,22 @@ def test_kans_pariteit() -> bool:
         'const gevallen = JSON.parse(fs.readFileSync(process.argv[2], "utf8"));',
         'console.log(JSON.stringify(gevallen.map(function (g) {',
         '  const vakken = g.labels.map(function (l) { return M.vakUit(l); });',
+        # index.html hangt op het dagobject een `grens`: het getoonde cijfer met
+        # de meting van vandaag als ondergrens. Dat veld mag hier niets doen.
+        # onzeKansen hoort de kale verwachting en de kale band te lezen en de
+        # afkapping zelf te zetten; leest hij de grens, dan wordt de meting
+        # dubbel geteld en worden de vakkansen scherper dan ze zijn.
+        '  const metGrens = Object.assign({}, g.dag, { grens: {',
+        '    verwachting: g.dag.verwachting + 5, p10: g.dag.p10 + 5,',
+        '    p90: g.dag.p90 + 5, m: g.dag.verwachting + 5 } });',
         '  return { vakken: vakken,',
         '           kansen: M.onzeKansen(vakken, g.dag, g.marktEenheid,',
         '                                g.appEenheid, g.waarneming),',
+        '           kansenMetGrens: M.onzeKansen(vakken, metGrens, g.marktEenheid,',
+        '                                        g.appEenheid, g.waarneming),',
         '           w: g.waarneming ? M.restFactor(g.waarneming.uur,',
+        '                                          g.waarneming.soort) : null,',
+        '           sf: g.waarneming ? M.sigFactor(g.waarneming.uur,',
         '                                          g.waarneming.soort) : null };',
         '})));',
     ])
@@ -369,6 +381,7 @@ def test_kans_pariteit() -> bool:
         return False
 
     grootste, vakfouten, n, gecond = 0.0, 0, 0, 0
+    grensfouten = 0
     for g, uit in zip(gevallen, js):
         vakken = [S.vak_uit(l) for l in g["labels"]]
         for a, b in zip(vakken, uit["vakken"]):
@@ -385,15 +398,25 @@ def test_kans_pariteit() -> bool:
             # kunnen verstoppen achter een tweede fout
             pw = W.restfactor(g["waarneming"]["uur"], g["waarneming"]["soort"])
             grootste = max(grootste, abs(pw - uit["w"]))
+            # de verbredingsfactor net zo apart: hij zit in dezelfde sigma en
+            # zou zich anders achter de restfactor kunnen verstoppen
+            ps = W.sigfactor(g["waarneming"]["uur"], g["waarneming"]["soort"])
+            grootste = max(grootste, abs(ps - uit["sf"]))
         for a, b in zip(py or [], uit["kansen"] or []):
             grootste = max(grootste, abs(a - b))
             n += 1
+        # Een dagobject met een `grens` erop moet exact dezelfde kansen geven.
+        for a, b in zip(uit["kansen"] or [], uit["kansenMetGrens"] or []):
+            if abs(a - b) > 1e-15:
+                grensfouten += 1
 
-    ok = vakfouten == 0 and grootste < 1e-12
+    ok = vakfouten == 0 and grensfouten == 0 and grootste < 1e-12
     print(f"  kansen    {'ok' if ok else 'MISLUKT'}: grootste verschil "
           f"python/javascript over {n} vakken is {grootste:.2e} "
           f"({gecond} van de {len(gevallen)} met waarneming)"
-          + (f", {vakfouten} vakken anders gelezen" if vakfouten else ""))
+          + (f", {vakfouten} vakken anders gelezen" if vakfouten else "")
+          + (f", {grensfouten} vakken door de ondergrens veranderd"
+             if grensfouten else ""))
     return ok
 
 

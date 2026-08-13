@@ -2679,11 +2679,13 @@ const CONFIG = {"nws_gewicht": 0.25, "steden": [{"key": "NYC", "naam": "New York
           if (d.nws !== undefined) {
             bijregels += '<div class="dag-wu">NWS ' + heel(d.nws) + "\u00B0" + (d.nws_gemengd ? " \u2713" : "") + "</div>";
           }
+          const g = getoond(d);
           maxHtml =
-            '<div class="dag-temp" style="color:' + tint(d.verwachting, s.eenheid) + '">' +
-              heel(d.verwachting) + '<span class="eenh">' + s.eenheid + "</span>" +
+            '<div class="dag-temp" style="color:' + tint(g.verwachting, s.eenheid) + '">' +
+              heel(g.verwachting) + '<span class="eenh">' + s.eenheid + "</span>" +
             "</div>" +
-            '<div class="dag-interval">80%: ' + heel(d.p10) + " tot " + heel(d.p90) + "</div>" +
+            '<div class="dag-interval">80%: ' + heel(g.p10) + " tot " + heel(g.p90) +
+              (d.grens ? ' \u00b7 al ' + heel(d.grens.m) + "\u00b0 gemeten" : "") + "</div>" +
             '<div><span class="zeker-chip ' + z[1] + '">' + z[0] + "</span></div>" +
             '<div class="dag-hist">' + histHtml + "</div>" +
             bijregels;
@@ -3154,7 +3156,7 @@ const CONFIG = {"nws_gewicht": 0.25, "steden": [{"key": "NYC", "naam": "New York
   function toonWaarde(d) {
     if (!d) return null;
     if (TOON === "min") return d.mn ? d.mn.verwachting : null;
-    return d.verwachting;
+    return getoond(d).verwachting;
   }
 
   /* De breedte van de 80%-band van het getoonde cijfer: klein is zeker. Bij
@@ -3366,7 +3368,8 @@ const CONFIG = {"nws_gewicht": 0.25, "steden": [{"key": "NYC", "naam": "New York
         let h = dubbel ? '<span class="rij-groep-label">' + (soort === "min" ? "min" : "max") + "</span>" : "";
         ["vd", "mo", "ov"].forEach(function (lbl, i) {
           const d = dagen[i];
-          const w = d ? (soort === "min" ? (d.mn && d.mn.verwachting) : d.verwachting) : null;
+          const w = d ? (soort === "min" ? (d.mn && d.mn.verwachting)
+                                         : getoond(d).verwachting) : null;
           const uur = (soort === "max" && d && d.piek) ? "\u00B7" + d.piek.uur + "u" : "";
           h += '<div class="rij-temp' + (soort === "min" ? " min" : "") + '"' +
                (w === null || w === undefined ? "" : ' style="color:' + tint(w, s.eenheid) + '"') + ">" +
@@ -3438,8 +3441,67 @@ const CONFIG = {"nws_gewicht": 0.25, "steden": [{"key": "NYC", "naam": "New York
      Sorteren, filteren en van weergave wisselen gaan hier langs, zonder netwerk. */
   let LAATSTE = null;
 
+  /* ── De ondergrens van vandaag op het getoonde cijfer ──
+
+     Het dagmaximum kan niet lager uitvallen dan wat er vandaag al op de meter
+     staat. De app wist dat wel maar deed er tot nu toe alleen iets mee in de
+     kansen per vak: polymarkt.js kapt de verdeling af op `m`. Het getal op de
+     kaart voorspelde nog steeds alsof de dag moest beginnen.
+
+     Gemeten met bot/meet_meting.py over 18.959 stad-dagen, 400 dagen uurlijkse
+     METAR's, tegen de walk-forward van de rekenkern zelf:
+
+       lokaal uur   MAE kaal   MAE met max(m, mu)   winst
+       10           0,815      0,786                +0,029
+       11           0,815      0,758                +0,058
+       13           0,815      0,620                +0,195
+       15           0,815      0,466                +0,350
+       18 en later  0,815      0,414                +0,402
+
+     Vanaf elf uur 's ochtends is dat meer dan de drempel waarop een ML-model
+     aan mag (+0,05), en 's avonds is de fout gehalveerd. Ter vergelijking: het
+     beste ML-model levert +0,058 en het gemiddelde over 34 steden +0,018.
+
+     Alleen de kale ondergrens, geen restfactor. Die curve is uit de
+     marktprijzen geleend en dezelfde meting laat zien dat de krimp eronder niet
+     klopt voor de dagen waarop de piek nog moet vallen; zie REVIEW.md. `m` zelf
+     is geen schatting maar een meting, dus die kan niet doorschieten.
+
+     Bewust alleen op het getoonde cijfer. `d.verwachting`, `d.p10` en `d.p90`
+     blijven staan, want polymarkt.js bouwt daaruit de hele voorwaardelijke
+     verdeling en past de afkapping zelf toe. Zou de grens ook daarheen gaan,
+     dan werd hij dubbel geteld en werden de vakkansen scherper dan ze zijn --
+     en daar hangt in inzet.py een weddenschap aan. bot/test_kern.py bewaakt
+     dat: de kansen moeten cijfer voor cijfer gelijk blijven aan die van
+     bot/signalen.py, dat de rauwe waarden krijgt.
+
+     Alleen het maximum en alleen vandaag. Voor het dagminimum geldt de
+     spiegelvorm (`min(m, mu)`) en die is net zo vanzelfsprekend, maar hij is
+     niet gemeten, dus hij staat er niet in. */
+  function zetOndergrens() {
+    if (!LAATSTE || !window.WeerbotMarkt || !WeerbotMarkt.metingVoor) return;
+    LAATSTE.forEach(function (o) {
+      const dagen = o.data && o.data.dagen;
+      if (!dagen || !dagen.length) return;
+      dagen.forEach(function (d, i) {
+        d.grens = null;
+        if (i !== 0 || !d) return;
+        const w = WeerbotMarkt.metingVoor(o.s, d.datum, 0, "max");
+        if (!w || typeof w.m !== "number") return;
+        d.grens = { verwachting: Math.max(d.verwachting, w.m),
+                    p10: Math.max(d.p10, w.m),
+                    p90: Math.max(d.p90, w.m),
+                    m: w.m, uur: w.uur };
+      });
+    });
+  }
+
+  /* Het getoonde cijfer: met de ondergrens waar die er is, anders het kale. */
+  function getoond(d) { return (d && d.grens) || d; }
+
   function teken() {
     if (!LAATSTE) return;
+    zetOndergrens();
     const items = LAATSTE.filter(function (o) {
       if (filterTekst && o.s.naam.toLowerCase().indexOf(filterTekst) === -1) return false;
       if (isVerborgen(o.s.key) && !TOON_VERBORGEN) return false;

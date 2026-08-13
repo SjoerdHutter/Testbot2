@@ -874,3 +874,292 @@ maakt het beeld structureel te warm. Eerst de studie draaien, dan kijken of de
 gratis kolom — `max(m, mu)`, zonder enige kalibratie — het al doet. Als die het
 doet is dat de wijziging: goedkoop, uitlegbaar, en zonder een curve die van de
 markt geleend is.
+
+---
+
+# De metingstudie: uitkomst
+
+Toegevoegd op 2026-08-13, na `.github/workflows/meting-studie.yml` (run
+31709804705). 400 dagen uurlijkse METAR's, 34 tijdzonegroepen, alle 48
+IEM-stations gevuld zonder één misser, **18.959 stad-dagen**. De schatting uit
+de vorige sectie kwam uit een geleende marktcurve; dit is de eigen reeks.
+
+Alles in °C. `kaal` is de walk-forward van de rekenkern zelf.
+
+| lokaal uur | kaal | ondergrens | winst | met krimp | winst | w eigen | w app |
+| --- | --- | --- | --- | --- | --- | --- | --- |
+| 6 | 0,815 | 0,801 | +0,014 | 0,808 | +0,007 | 1,000 | 1,000 |
+| 9 | 0,815 | 0,797 | +0,018 | 0,801 | +0,014 | 0,996 | 1,000 |
+| 10 | 0,815 | 0,786 | +0,029 | 0,788 | +0,027 | 0,991 | 1,000 |
+| **11** | 0,815 | 0,758 | **+0,058** | 0,754 | +0,061 | 0,988 | 0,918 |
+| 12 | 0,815 | 0,702 | +0,113 | 0,688 | +0,128 | 0,991 | 0,861 |
+| 13 | 0,815 | 0,620 | +0,195 | 0,609 | +0,206 | 1,006 | 0,832 |
+| 14 | 0,815 | 0,532 | +0,283 | 0,524 | +0,292 | 1,021 | 0,759 |
+| 15 | 0,815 | 0,466 | +0,350 | 0,381 | +0,434 | 1,031 | 0,545 |
+| 16 | 0,815 | 0,433 | +0,382 | 0,271 | +0,544 | 1,069 | 0,395 |
+| 18 | 0,815 | 0,418 | +0,398 | 0,133 | +0,683 | 1,099 | 0,194 |
+| 20 | 0,815 | 0,416 | +0,400 | 0,070 | +0,745 | 1,104 | 0,099 |
+| 22 | 0,815 | 0,414 | +0,402 | 0,065 | +0,750 | 1,107 | 0,099 |
+
+## De gratis kolom doet het
+
+`max(m, mu)` — geen restfactor, geen kalibratie, geen geleende curve — passeert
+de drempel van +0,05 °C om **elf uur 's ochtends** en zit vanaf zes uur 's
+avonds op +0,40. Dat is de MAE van 0,815 naar 0,414, oftewel gehalveerd.
+
+Ter vergelijking: het beste ML-model levert +0,058 op h1 en het gemiddelde over
+34 steden +0,018. Eén regel `Math.max` is vanaf de middag een orde van grootte
+meer waard dan alle ML-winst bij elkaar, en hij vraagt geen model, geen
+hertraining en geen drempel.
+
+De eerdere schatting uit de marktcurve zat er niet ver naast — die gaf +0,052
+om elf uur tegen +0,058 gemeten, en +0,384 om vier uur tegen +0,382. Dat de
+geleende curve zo dicht bij de eigen reeks uitkomt is op zich een geruststelling
+over de curve; wat eronder zit is dat niet.
+
+## De krimp is niet wat hij lijkt
+
+De kolom `w eigen` is de spreiding van de restfout van de kale verwachting op de
+dagen waarop de piek nog **niet** gevallen was, geschaald op het eerste uur. Dat
+is de dagen waarop de krimp iets moet doen, want op de dagen waarop de piek al
+geweest is doet de afkapping het werk.
+
+Die kolom daalt niet. Hij loopt van 1,000 naar 1,107 — hij *stijgt*. De app
+rekent op diezelfde uren met 1,000 naar 0,099.
+
+Dat betekent niet dat de krimp de MAE geen goed doet; de kolom "met krimp" laat
+zien van wel, tot +0,750 om tien uur 's avonds. Maar die winst komt ergens
+anders vandaan dan waar de curve hem belooft. `mu_R = mu·w + m·(1−w)` trekt de
+verwachting naar `m` toe, en laat op de dag ís `m` het antwoord meestal al. De
+winst zit in het naar `m` trekken, niet in het smaller worden.
+
+En dat smaller worden gebeurt wel. Op de dagen waarop de piek nog moet komen
+krimpt `sigma` naar 0,099 keer de oorspronkelijke waarde terwijl de gemeten
+spreiding daar niet krimpt maar iets groeit. De kop van `bot/waarneming.py`
+noemt precies dit de gevaarlijke kant: "Overschatte scherpte is hier de
+gevaarlijke kant op — daar hangt in `inzet.py` een weddenschap aan."
+
+Voorbehoud, want dit is de plek om er een te maken: `w eigen` is de spreiding
+van `y − mu`, niet die van `R` gegeven `m`. Het is dus geen weerlegging van de
+curve maar van de rechtvaardiging eronder — "er is minder dag over, dus minder
+onzekerheid" gaat niet op voor de dagen waarop de piek nog moet vallen. De
+sluitende toets is de dekking van de geconditioneerde band op precies die dagen,
+en die is met dezelfde gegevens te meten.
+
+## Wat hieruit volgt
+
+1. **`max(m, mu)` in de puntvoorspelling op horizon 0.** Gemeten, gratis,
+   uitlegbaar, en hij kan de verwachting alleen omhoog duwen naar iets wat al
+   gemeten is — geen curve die te ver kan doorschieten. Dit is de wijziging met
+   de beste verhouding tussen winst en risico die deze hele reeks heeft
+   opgeleverd.
+2. **De dekking van de geconditioneerde band meten op de dagen dat de piek nog
+   moet vallen**, vóór er iets aan de demping verandert. Als die dekking daar
+   onder de 80 procent zakt, staat de app op die dagen te scherp en rekent
+   `inzet.py` met een edge die er niet is.
+3. Pas daarna eventueel de restfactor op de eigen reeks kalibreren, wat de kop
+   van `waarneming.py` al als openstaand punt noemt.
+
+Punt 1 en 2 zijn inmiddels gedaan; zie de twee secties hieronder.
+
+Punt 1 is inmiddels doorgevoerd; zie de sectie hieronder.
+
+
+---
+
+# De ondergrens op het getoonde cijfer
+
+Toegevoegd op 2026-08-13, punt 1 uit de vorige sectie.
+
+`index.html` legt vanaf nu de meting van vandaag als ondergrens onder het cijfer
+op de kaart: `zetOndergrens()` draait bovenaan `teken()` en zet per stad op de
+dag van vandaag een veld `grens` met `max(verwachting, m)`, `max(p10, m)` en
+`max(p90, m)`. De weergave leest dat via `getoond(d)`; is er geen meting, dan
+staat er precies wat er eerst stond.
+
+Alleen het maximum en alleen vandaag. `WeerbotMarkt.metingVoor` doet de
+datumcontrole al — een dag na middernacht krijgt de meting van gisteren niet
+mee — en dat is dezelfde functie die de kansen gebruiken, dus de twee kunnen
+niet uit elkaar lopen.
+
+Op de kaart staat er bij zodra de grens bijt: "al 24° gemeten" achter de
+80%-band. Zonder die regel zou een cijfer dat vastzit op de meting eruitzien als
+een gewone voorspelling.
+
+## Wat er met opzet níét is veranderd
+
+`d.verwachting`, `d.p10` en `d.p90` blijven staan zoals ze waren. `onzeKansen`
+in `polymarkt.js` bouwt daaruit de hele voorwaardelijke verdeling en past de
+afkapping op `m` zélf toe; zou de grens ook daarheen gaan, dan werd de meting
+dubbel geteld en werden de vakkansen scherper dan ze zijn. Daar hangt in
+`inzet.py` een weddenschap aan.
+
+Dat is geen belofte maar een toets. De kansenvergelijking in `bot/test_kern.py`
+rekent nu elk geval twee keer door: één keer met het kale dagobject en één keer
+met een `grens` erop die vijf graden hoger ligt. De uitkomsten moeten tot op
+1e-15 gelijk zijn. Nagegaan of die toets ook kán falen: met `dag.grens || dag`
+in `onzeKansen` vallen er 651 van de 1320 vakken om.
+
+## Waarom de kale ondergrens en niet de krimp
+
+`max(m, mu)` gebruikt geen restfactor. Dat is bewust: `m` is geen schatting maar
+een meting, dus deze correctie kan niet doorschieten — het cijfer kan alleen
+omhoog naar iets wat al op de meter stond. De variant met krimp is op de MAE
+beter (+0,750 tegen +0,402 om tien uur 's avonds), maar leunt op een curve die
+uit de marktprijzen is geleend en waarvan dezelfde meting laat zien dat de
+rechtvaardiging eronder niet klopt voor de dagen waarop de piek nog moet vallen.
+Die vraag staat als punt 2 open.
+
+## Wat dit niet raakt
+
+De verificatietabel en `mae_nieuw` in `app_params.js` rekenen de rekenkern na op
+historische gegevens en niet op wat er op het scherm stond; die cijfers
+veranderen dus niet. De gemeten winst van +0,058 tot +0,402 zit in wat de
+bezoeker leest, niet in wat de app over zichzelf rapporteert. Dat verschil hoort
+er te zijn zolang de controle de kern toetst en niet de weergave.
+
+---
+
+# Punt 2: de dekking van de geconditioneerde band
+
+Toegevoegd op 2026-08-13, run 31712181298, dezelfde 18.959 stad-dagen.
+
+Eerst een correctie op de vorige sectie. Daar stond dat `w eigen` — de
+spreiding van de restfout op de dagen waarop de piek nog niet gevallen was —
+niet daalt maar stijgt, en dat de krimp naar 0,099 daarmee niet gedragen wordt.
+Als aanwijzing klopte dat, als lezing was hij te sterk. De sluitende toets is de
+dekking, en die zegt iets veel preciezers.
+
+| lokaal uur | n piek voor | piek al af | dek kaal | dek alles | dek voor | breedte | w app |
+| --- | --- | --- | --- | --- | --- | --- | --- |
+| 6 | 17.912 | 5,5% | 84,1% | 83,9% | 84,5% | 2,794 | 1,000 |
+| 10 | 17.115 | 9,7% | 84,1% | 83,7% | 84,9% | 2,676 | 1,000 |
+| 11 | 15.741 | 17,0% | 84,1% | 80,4% | 81,4% | 2,302 | 0,918 |
+| 12 | 13.473 | 28,9% | 84,1% | 78,8% | 79,3% | 1,941 | 0,861 |
+| 13 | 10.281 | 45,8% | 84,1% | 79,5% | 79,2% | 1,633 | 0,832 |
+| 14 | 6.964 | 63,3% | 84,1% | 79,8% | 78,0% | 1,300 | 0,759 |
+| **15** | 4.268 | 77,5% | 84,0% | 78,4% | **70,1%** | 0,845 | 0,545 |
+| **16** | 2.847 | 85,0% | 84,0% | 78,9% | **67,7%** | 0,582 | 0,395 |
+| 17 | 2.305 | 87,8% | 84,0% | 79,9% | 72,1% | 0,410 | 0,283 |
+| 18 | 2.128 | 88,8% | 84,0% | 80,6% | 76,6% | 0,279 | 0,194 |
+| 20 | 2.035 | 89,3% | 84,0% | 80,9% | 78,8% | 0,142 | 0,099 |
+| 22 | 1.969 | 89,6% | 84,0% | 81,2% | 81,8% | 0,142 | 0,099 |
+
+Het ijkpunt eerst: de onvoorwaardelijke band zit op 84,1% waar 80% de bedoeling
+is. Hij staat dus iets ruim, maar netjes binnen de 72 tot 88 procent die
+`ml_activatie.json` als aanvaardbaar aanhoudt, en hij is de hele dag stabiel. Elke
+afwijking hieronder is daarmee van de krimp en niet van de basisband.
+
+En over de hele dag gemeten doet de krimp het goed: `dek alles` blijft tussen
+78,4 en 83,9 procent. Van "de krimp deugt niet" is geen sprake.
+
+## Waar het wél misgaat
+
+Op de dagen waarop de piek nog moet vallen zakt de dekking tussen drie en vijf
+uur 's middags naar **70,1% en 67,7%** — onder de 72 procent die het project
+zelf als ondergrens hanteert. Daarvoor en daarna is het in orde.
+
+Dat is precies het venster waarin de krimp het hardst toeslaat (`w` van 0,545
+naar 0,395) terwijl de piek nog moet komen. Om vier uur is 85 procent van de
+dagen al gelopen — daar doet de afkapping het werk — maar voor de resterende 15
+procent, 2.847 stad-dagen, staat de band te krap.
+
+Hoeveel te krap: onder de aanname dat de restfout daar ongeveer normaal is,
+zou de band 1,23 keer breder moeten om 15 uur en 1,30 keer om 16 uur. In
+absolute termen 0,845 naar 1,042 en 0,582 naar 0,755 graden. Buiten dat venster
+ligt de factor tussen 0,90 en 1,08, wat op ruis lijkt.
+
+## Waarom dit uitgerekend daar pijn doet
+
+Dat venster is niet willekeurig. De Brier-tabel in README.md meet de markt in
+precies die uren als 42 procent beter dan het model, en `STRAT_A` in
+`polymarkt.js` handelt er. `inzet.py` rekent de inzet uit de modelkans. Een band
+die op 68 procent dekt in plaats van 80 laat de staartvakken te goedkoop lijken,
+en dat is de kant op waar geld verdwijnt — precies waarvoor de kop van
+`bot/waarneming.py` waarschuwt.
+
+## Wat hieruit volgt
+
+De demping hoort omhoog, maar alleen in de overgangsuren. De kop van
+`waarneming.py` zegt al dat de demping daar het grootst moet zijn "waar de
+afkapping het meeste bijdraagt en de dubbeltelling dus zit"; de meting laat
+zien dat hij daar niet groot genoeg is. Dat is punt 3 uit de vorige sectie en
+is niet doorgevoerd — het raakt de vakkansen en dus de inzet, en de juiste vorm
+(een bredere demping, of een aparte behandeling van de continue tak naast de
+puntmassa) is een keuze die eerst apart getoetst hoort te worden op dezelfde
+reeks.
+
+Wat er wel is: de meting staat er, hij is herhaalbaar met één druk op de knop,
+en `meting_studie.json` bewaart hem per uur.
+
+---
+
+# Punt 3: de band verbreed waar hij de vloer brak
+
+Toegevoegd op 2026-08-13, op dezelfde 18.959 stad-dagen.
+
+## De methode
+
+`bot/meet_meting.py` zoekt per uur de kleinste factor op de gekrompen sigma
+waarbij de dekking op de dagen dat de piek nog moest vallen 80 procent haalt.
+Gefit op de eerste 70 procent van de datums, getoetst op de rest — dezelfde
+scheiding waarmee `band_lokaal` eerder is beoordeeld.
+
+Twee klemmen, allebei met een reden:
+
+- **De factor gaat nooit onder 1.** Vroeg op de dag doet de conditionering
+  niets en zou een factor onder 1 in feite de basisband herijken; dat hoort in
+  `kalibratie.py`. Zo kan deze wijziging niets scherper maken dan het was, en
+  dat is de veilige kant.
+- **Er wordt alleen gecorrigeerd waar de dekking op de trainingsdatums onder
+  0,72 zakt.** Die grens staat al in `ml_activatie.json` als ondergrens voor
+  een aanvaardbare 80%-band. Zonder die drempel kreeg elk uur een factor: in de
+  eerste ronde gaven de avonduren 1,05 tot 1,25 terwijl hun dekking op de
+  toetsdatums al op 83 tot 86 procent stond, en die werd er 87 tot 92. Breder
+  zonder dat er iets opgelost werd, gefit op ruis uit zeshonderd waarnemingen.
+
+## De uitkomst, op datums die niet zijn meegefit
+
+| uur | dekking trein | factor | n test | dekking voor → na | alles voor → na | breedte voor → na |
+| --- | --- | --- | --- | --- | --- | --- |
+| 14 | 77,1% | 1,000 | 2367 | 79,8% | 79,8% | 1,377 |
+| **15** | **70,5%** | **1,256** | 1496 | 69,5% → **79,3%** | 77,1% → 82,5% | 0,889 → 1,102 |
+| **16** | **68,8%** | **1,403** | 927 | 65,3% → **79,7%** | 77,4% → 83,8% | 0,602 → 0,837 |
+| **17** | **71,6%** | **1,426** | 686 | 73,2% → **82,2%** | 79,1% → 84,5% | 0,420 → 0,597 |
+| 18 | 74,2% | 1,000 | 598 | 82,8% | 80,4% | 0,285 |
+
+Drie uren, en precies de drie waar de vloer brak. Alle andere blijven ongemoeid.
+De prijs is een band die op die uren 24 tot 42 procent breder wordt, en een
+totale dekking die naar 82 tot 85 procent gaat — iets ruim, en dat is de kant
+waar het misgaan mag.
+
+## Waar het in de code staat
+
+`W_SIG_MAX` in `polymarkt.js`, naast `W_REST_MAX`, met `W_SIG_MIN` op 1 omdat
+dit voor het dagminimum niet gemeten is. `sigFactor` interpoleert tussen hele
+uren zoals `restFactor` dat doet; die interpolatie loopt buiten de meting om,
+maar een sprong van 1,0 naar 1,26 op de klokslag van drie uur zou een grotere
+aanname zijn dan een helling.
+
+Toegepast op drie plekken die gelijk moeten blijven: `onzeKansen` in
+`polymarkt.js`, `conditioneer` in `bot/waarneming.py` en `onze_kansen` in
+`bot/signalen.py`. `bot/waarneming.py` léést de tabel uit `polymarkt.js` via
+`jslezer`, dus de getallen kunnen niet uit elkaar lopen — de implementaties
+wel, en daar gaat de pariteitstoets in `bot/test_kern.py` over. Die vergelijkt
+nu ook `sigFactor` apart naast `restFactor`, zodat een fout in de een zich niet
+achter de ander kan verstoppen. Nagegaan of hij kán falen: met `+ 0.01` in de
+javascript-versie loopt het verschil op naar 1,00e-02.
+
+Dat de tabel niet kan divergeren maar de implementatie wel, was overigens zelf
+een bevinding: de eerste negatieve toets die ik deed veranderde een getal in de
+tabel en de pariteit bleef staan — terecht, want `waarneming.py` las hetzelfde
+gewijzigde getal.
+
+## Wat dit voor de inzet betekent
+
+Een bredere band in dat venster betekent een vlakkere kansverdeling en dus een
+kleinere gemeten edge tussen drie en vijf uur. `inzet.py` zal daar minder en
+kleiner inzetten. Dat is de bedoeling: de Brier-tabel in README.md laat zien dat
+de markt daar 42 procent beter is dan het model, en de dekkingsmeting laat zien
+dat het model daar bovendien te stellig was. Minder inzetten waar je aantoonbaar
+te stellig bent is geen verlies maar het wegnemen van een verlies.
