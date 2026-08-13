@@ -960,6 +960,8 @@ en die is met dezelfde gegevens te meten.
 3. Pas daarna eventueel de restfactor op de eigen reeks kalibreren, wat de kop
    van `waarneming.py` al als openstaand punt noemt.
 
+Punt 1 en 2 zijn inmiddels gedaan; zie de twee secties hieronder.
+
 Punt 1 is inmiddels doorgevoerd; zie de sectie hieronder.
 
 
@@ -1015,3 +1017,77 @@ historische gegevens en niet op wat er op het scherm stond; die cijfers
 veranderen dus niet. De gemeten winst van +0,058 tot +0,402 zit in wat de
 bezoeker leest, niet in wat de app over zichzelf rapporteert. Dat verschil hoort
 er te zijn zolang de controle de kern toetst en niet de weergave.
+
+---
+
+# Punt 2: de dekking van de geconditioneerde band
+
+Toegevoegd op 2026-08-13, run 31712181298, dezelfde 18.959 stad-dagen.
+
+Eerst een correctie op de vorige sectie. Daar stond dat `w eigen` — de
+spreiding van de restfout op de dagen waarop de piek nog niet gevallen was —
+niet daalt maar stijgt, en dat de krimp naar 0,099 daarmee niet gedragen wordt.
+Als aanwijzing klopte dat, als lezing was hij te sterk. De sluitende toets is de
+dekking, en die zegt iets veel preciezers.
+
+| lokaal uur | n piek voor | piek al af | dek kaal | dek alles | dek voor | breedte | w app |
+| --- | --- | --- | --- | --- | --- | --- | --- |
+| 6 | 17.912 | 5,5% | 84,1% | 83,9% | 84,5% | 2,794 | 1,000 |
+| 10 | 17.115 | 9,7% | 84,1% | 83,7% | 84,9% | 2,676 | 1,000 |
+| 11 | 15.741 | 17,0% | 84,1% | 80,4% | 81,4% | 2,302 | 0,918 |
+| 12 | 13.473 | 28,9% | 84,1% | 78,8% | 79,3% | 1,941 | 0,861 |
+| 13 | 10.281 | 45,8% | 84,1% | 79,5% | 79,2% | 1,633 | 0,832 |
+| 14 | 6.964 | 63,3% | 84,1% | 79,8% | 78,0% | 1,300 | 0,759 |
+| **15** | 4.268 | 77,5% | 84,0% | 78,4% | **70,1%** | 0,845 | 0,545 |
+| **16** | 2.847 | 85,0% | 84,0% | 78,9% | **67,7%** | 0,582 | 0,395 |
+| 17 | 2.305 | 87,8% | 84,0% | 79,9% | 72,1% | 0,410 | 0,283 |
+| 18 | 2.128 | 88,8% | 84,0% | 80,6% | 76,6% | 0,279 | 0,194 |
+| 20 | 2.035 | 89,3% | 84,0% | 80,9% | 78,8% | 0,142 | 0,099 |
+| 22 | 1.969 | 89,6% | 84,0% | 81,2% | 81,8% | 0,142 | 0,099 |
+
+Het ijkpunt eerst: de onvoorwaardelijke band zit op 84,1% waar 80% de bedoeling
+is. Hij staat dus iets ruim, maar netjes binnen de 72 tot 88 procent die
+`ml_activatie.json` als aanvaardbaar aanhoudt, en hij is de hele dag stabiel. Elke
+afwijking hieronder is daarmee van de krimp en niet van de basisband.
+
+En over de hele dag gemeten doet de krimp het goed: `dek alles` blijft tussen
+78,4 en 83,9 procent. Van "de krimp deugt niet" is geen sprake.
+
+## Waar het wél misgaat
+
+Op de dagen waarop de piek nog moet vallen zakt de dekking tussen drie en vijf
+uur 's middags naar **70,1% en 67,7%** — onder de 72 procent die het project
+zelf als ondergrens hanteert. Daarvoor en daarna is het in orde.
+
+Dat is precies het venster waarin de krimp het hardst toeslaat (`w` van 0,545
+naar 0,395) terwijl de piek nog moet komen. Om vier uur is 85 procent van de
+dagen al gelopen — daar doet de afkapping het werk — maar voor de resterende 15
+procent, 2.847 stad-dagen, staat de band te krap.
+
+Hoeveel te krap: onder de aanname dat de restfout daar ongeveer normaal is,
+zou de band 1,23 keer breder moeten om 15 uur en 1,30 keer om 16 uur. In
+absolute termen 0,845 naar 1,042 en 0,582 naar 0,755 graden. Buiten dat venster
+ligt de factor tussen 0,90 en 1,08, wat op ruis lijkt.
+
+## Waarom dit uitgerekend daar pijn doet
+
+Dat venster is niet willekeurig. De Brier-tabel in README.md meet de markt in
+precies die uren als 42 procent beter dan het model, en `STRAT_A` in
+`polymarkt.js` handelt er. `inzet.py` rekent de inzet uit de modelkans. Een band
+die op 68 procent dekt in plaats van 80 laat de staartvakken te goedkoop lijken,
+en dat is de kant op waar geld verdwijnt — precies waarvoor de kop van
+`bot/waarneming.py` waarschuwt.
+
+## Wat hieruit volgt
+
+De demping hoort omhoog, maar alleen in de overgangsuren. De kop van
+`waarneming.py` zegt al dat de demping daar het grootst moet zijn "waar de
+afkapping het meeste bijdraagt en de dubbeltelling dus zit"; de meting laat
+zien dat hij daar niet groot genoeg is. Dat is punt 3 uit de vorige sectie en
+is niet doorgevoerd — het raakt de vakkansen en dus de inzet, en de juiste vorm
+(een bredere demping, of een aparte behandeling van de continue tak naast de
+puntmassa) is een keuze die eerst apart getoetst hoort te worden op dezelfde
+reeks.
+
+Wat er wel is: de meting staat er, hij is herhaalbaar met één druk op de knop,
+en `meting_studie.json` bewaart hem per uur.
