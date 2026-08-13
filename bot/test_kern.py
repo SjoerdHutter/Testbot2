@@ -369,6 +369,8 @@ def test_kans_pariteit() -> bool:
         '           kansenMetGrens: M.onzeKansen(vakken, metGrens, g.marktEenheid,',
         '                                        g.appEenheid, g.waarneming),',
         '           w: g.waarneming ? M.restFactor(g.waarneming.uur,',
+        '                                          g.waarneming.soort) : null,',
+        '           sf: g.waarneming ? M.sigFactor(g.waarneming.uur,',
         '                                          g.waarneming.soort) : null };',
         '})));',
     ])
@@ -396,6 +398,10 @@ def test_kans_pariteit() -> bool:
             # kunnen verstoppen achter een tweede fout
             pw = W.restfactor(g["waarneming"]["uur"], g["waarneming"]["soort"])
             grootste = max(grootste, abs(pw - uit["w"]))
+            # de verbredingsfactor net zo apart: hij zit in dezelfde sigma en
+            # zou zich anders achter de restfactor kunnen verstoppen
+            ps = W.sigfactor(g["waarneming"]["uur"], g["waarneming"]["soort"])
+            grootste = max(grootste, abs(ps - uit["sf"]))
         for a, b in zip(py or [], uit["kansen"] or []):
             grootste = max(grootste, abs(a - b))
             n += 1

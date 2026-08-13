@@ -300,6 +300,50 @@
   };
   var W_DEMPING = 0.7;
 
+  /* Een verbreding bovenop de krimp, alleen waar de meting laat zien dat de
+     band te krap staat.
+
+     De demping hierboven is één getal over de hele dag. Dat bleek niet genoeg
+     te zijn op precies de uren waar het ertoe doet. Gemeten met
+     bot/meet_meting.py over 18.959 stad-dagen, uitgesplitst naar de dagen
+     waarop de piek nog moest vallen — want op de dagen dat hij al gevallen was
+     doet de afkapping het werk:
+
+       lokaal uur   dekking van de 80%-band, piek nog te gaan
+       12 tot 14    77 tot 79 procent
+       15           70,5 procent
+       16           68,8 procent
+       17           71,6 procent
+       18 en later  74 tot 80 procent
+
+     Tussen drie en vijf uur zakt hij dus onder de 72 procent die
+     weerbot-modellen/ml_activatie.json als ondergrens hanteert. De factoren
+     hieronder zijn gefit op de eerste 70 procent van de datums en getoetst op
+     de rest, dezelfde scheiding waarmee band_lokaal eerder is beoordeeld. Op
+     die toetsdatums gaat de dekking van 69,5 naar 79,3 (15u), van 65,3 naar
+     79,7 (16u) en van 73,2 naar 82,2 (17u), tegen een band die 24 tot 42
+     procent breder wordt.
+
+     Alleen die drie uren. Waar de dekking binnen de marge zat blijft de factor
+     op 1: anders fit je ruis, en een eerdere ronde zonder die drempel gaf de
+     avonduren een factor terwijl ze al op 83 tot 86 procent dekten. De factor
+     kan ook nooit onder 1 — verbreden mag, versmallen niet, want overschatte
+     scherpte is hier de kant op waar geld verdwijnt.
+
+     W_SIG_MIN staat op 1: voor het dagminimum is dit niet gemeten. */
+  var W_SIG_MAX = {
+    0: 1.00, 1: 1.00, 2: 1.00, 3: 1.00, 4: 1.00, 5: 1.00, 6: 1.00, 7: 1.00,
+    8: 1.00, 9: 1.00, 10: 1.00, 11: 1.00, 12: 1.00, 13: 1.00, 14: 1.00,
+    15: 1.256, 16: 1.403, 17: 1.426, 18: 1.00, 19: 1.00, 20: 1.00, 21: 1.00,
+    22: 1.00, 23: 1.00
+  };
+  var W_SIG_MIN = {
+    0: 1.00, 1: 1.00, 2: 1.00, 3: 1.00, 4: 1.00, 5: 1.00, 6: 1.00, 7: 1.00,
+    8: 1.00, 9: 1.00, 10: 1.00, 11: 1.00, 12: 1.00, 13: 1.00, 14: 1.00,
+    15: 1.00, 16: 1.00, 17: 1.00, 18: 1.00, 19: 1.00, 20: 1.00, 21: 1.00,
+    22: 1.00, 23: 1.00
+  };
+
   function restFactor(uur, soort) {
     if (uur === null || uur === undefined) return 1;
     var tabel = soort === "min" ? W_REST_MIN : W_REST_MAX;
@@ -311,6 +355,22 @@
     var deel = u - onder;
     var ruw = tabel[onder] * (1 - deel) + tabel[boven] * deel;
     return ruw * (1 + W_DEMPING * (1 - ruw));
+  }
+
+  /* De verbreding uit W_SIG_MAX, op dezelfde manier tussen hele uren
+     geïnterpoleerd als restFactor. Die interpolatie loopt buiten de meting om
+     — die is per heel uur gedaan — maar een sprong van 1,0 naar 1,26 op de
+     klokslag van drie uur zou een grotere aanname zijn dan een helling. */
+  function sigFactor(uur, soort) {
+    if (uur === null || uur === undefined) return 1;
+    var tabel = soort === "min" ? W_SIG_MIN : W_SIG_MAX;
+    var u = Number(uur);
+    if (!(u > 0)) u = 0;
+    if (u > 23) u = 23;
+    var onder = Math.floor(u);
+    var boven = Math.min(23, onder + 1);
+    var deel = u - onder;
+    return tabel[onder] * (1 - deel) + tabel[boven] * deel;
   }
 
   /* Wat index.html uit de lopende dag van het afrekenstation heeft gehaald, per
@@ -362,7 +422,7 @@
       soort = waarneming.soort === "min" ? "min" : "max";
       var w = restFactor(waarneming.uur, soort);
       mu = mu * w + m * (1 - w);
-      sigma = sigma * w;
+      sigma = sigma * w * sigFactor(waarneming.uur, soort);
       if (!(sigma > 0.05)) sigma = 0.05;
     }
     function F(t) {
@@ -926,6 +986,7 @@
     onzeKansen: onzeKansen,
     restFactor: restFactor,
     zetMeting: zetMeting,
+    sigFactor: sigFactor,
     metingVoor: metingVoor,
     marktGemiddelde: marktGemiddelde,
     beoordeelA: beoordeelA,

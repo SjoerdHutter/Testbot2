@@ -129,6 +129,8 @@ _POLY = jslezer.poly_tekst()
 W_REST_MAX = {int(k): v for k, v in jslezer.letterlijk("W_REST_MAX", _POLY).items()}
 W_REST_MIN = {int(k): v for k, v in jslezer.letterlijk("W_REST_MIN", _POLY).items()}
 DEMPING = jslezer.letterlijk("W_DEMPING", _POLY)
+W_SIG_MAX = {int(k): v for k, v in jslezer.letterlijk("W_SIG_MAX", _POLY).items()}
+W_SIG_MIN = {int(k): v for k, v in jslezer.letterlijk("W_SIG_MIN", _POLY).items()}
 
 SIGMA_MIN = 0.05         # zelfde ondergrens als onzeKansen in polymarkt.js
 IEM_BUNDEL = 12          # stations per verzoek; IEM accepteert er meerdere
@@ -178,6 +180,24 @@ def restfactor(uur: float, soort: str = "max") -> float:
     return ruw * (1.0 + DEMPING * (1.0 - ruw))
 
 
+def sigfactor(uur: float, soort: str = "max") -> float:
+    """De verbreding uit W_SIG_MAX, exact dezelfde functie als sigFactor in
+    polymarkt.js. Alleen tussen drie en vijf uur 's middags wijkt hij van 1 af;
+    de afleiding staat bij de tabel in polymarkt.js."""
+    tabel = W_SIG_MIN if soort == "min" else W_SIG_MAX
+    if uur is None:
+        return 1.0
+    u = float(uur)
+    if u <= 0:
+        u = 0.0
+    if u >= 23:
+        u = 23.0
+    onder = int(u)
+    boven = min(23, onder + 1)
+    deel = u - onder
+    return tabel[onder] * (1 - deel) + tabel[boven] * deel
+
+
 def conditioneer(mu: float, sigma: float, m: float, uur: float, soort: str):
     """De parameters van `R`, het cijfer over de uren die nog komen.
 
@@ -185,7 +205,8 @@ def conditioneer(mu: float, sigma: float, m: float, uur: float, soort: str):
     verdelingsfunctie thuis, want alleen daar is bekend welke kant op afgekapt
     wordt."""
     w = restfactor(uur, soort)
-    return mu * w + m * (1.0 - w), max(sigma * w, SIGMA_MIN)
+    return (mu * w + m * (1.0 - w),
+            max(sigma * w * sigfactor(uur, soort), SIGMA_MIN))
 
 
 def cdf(t: float, mu_r: float, sigma_r: float, m, soort: str, phi) -> float:

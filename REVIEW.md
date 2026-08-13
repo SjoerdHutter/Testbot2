@@ -1091,3 +1091,75 @@ reeks.
 
 Wat er wel is: de meting staat er, hij is herhaalbaar met één druk op de knop,
 en `meting_studie.json` bewaart hem per uur.
+
+---
+
+# Punt 3: de band verbreed waar hij de vloer brak
+
+Toegevoegd op 2026-08-13, op dezelfde 18.959 stad-dagen.
+
+## De methode
+
+`bot/meet_meting.py` zoekt per uur de kleinste factor op de gekrompen sigma
+waarbij de dekking op de dagen dat de piek nog moest vallen 80 procent haalt.
+Gefit op de eerste 70 procent van de datums, getoetst op de rest — dezelfde
+scheiding waarmee `band_lokaal` eerder is beoordeeld.
+
+Twee klemmen, allebei met een reden:
+
+- **De factor gaat nooit onder 1.** Vroeg op de dag doet de conditionering
+  niets en zou een factor onder 1 in feite de basisband herijken; dat hoort in
+  `kalibratie.py`. Zo kan deze wijziging niets scherper maken dan het was, en
+  dat is de veilige kant.
+- **Er wordt alleen gecorrigeerd waar de dekking op de trainingsdatums onder
+  0,72 zakt.** Die grens staat al in `ml_activatie.json` als ondergrens voor
+  een aanvaardbare 80%-band. Zonder die drempel kreeg elk uur een factor: in de
+  eerste ronde gaven de avonduren 1,05 tot 1,25 terwijl hun dekking op de
+  toetsdatums al op 83 tot 86 procent stond, en die werd er 87 tot 92. Breder
+  zonder dat er iets opgelost werd, gefit op ruis uit zeshonderd waarnemingen.
+
+## De uitkomst, op datums die niet zijn meegefit
+
+| uur | dekking trein | factor | n test | dekking voor → na | alles voor → na | breedte voor → na |
+| --- | --- | --- | --- | --- | --- | --- |
+| 14 | 77,1% | 1,000 | 2367 | 79,8% | 79,8% | 1,377 |
+| **15** | **70,5%** | **1,256** | 1496 | 69,5% → **79,3%** | 77,1% → 82,5% | 0,889 → 1,102 |
+| **16** | **68,8%** | **1,403** | 927 | 65,3% → **79,7%** | 77,4% → 83,8% | 0,602 → 0,837 |
+| **17** | **71,6%** | **1,426** | 686 | 73,2% → **82,2%** | 79,1% → 84,5% | 0,420 → 0,597 |
+| 18 | 74,2% | 1,000 | 598 | 82,8% | 80,4% | 0,285 |
+
+Drie uren, en precies de drie waar de vloer brak. Alle andere blijven ongemoeid.
+De prijs is een band die op die uren 24 tot 42 procent breder wordt, en een
+totale dekking die naar 82 tot 85 procent gaat — iets ruim, en dat is de kant
+waar het misgaan mag.
+
+## Waar het in de code staat
+
+`W_SIG_MAX` in `polymarkt.js`, naast `W_REST_MAX`, met `W_SIG_MIN` op 1 omdat
+dit voor het dagminimum niet gemeten is. `sigFactor` interpoleert tussen hele
+uren zoals `restFactor` dat doet; die interpolatie loopt buiten de meting om,
+maar een sprong van 1,0 naar 1,26 op de klokslag van drie uur zou een grotere
+aanname zijn dan een helling.
+
+Toegepast op drie plekken die gelijk moeten blijven: `onzeKansen` in
+`polymarkt.js`, `conditioneer` in `bot/waarneming.py` en `onze_kansen` in
+`bot/signalen.py`. `bot/waarneming.py` léést de tabel uit `polymarkt.js` via
+`jslezer`, dus de getallen kunnen niet uit elkaar lopen — de implementaties
+wel, en daar gaat de pariteitstoets in `bot/test_kern.py` over. Die vergelijkt
+nu ook `sigFactor` apart naast `restFactor`, zodat een fout in de een zich niet
+achter de ander kan verstoppen. Nagegaan of hij kán falen: met `+ 0.01` in de
+javascript-versie loopt het verschil op naar 1,00e-02.
+
+Dat de tabel niet kan divergeren maar de implementatie wel, was overigens zelf
+een bevinding: de eerste negatieve toets die ik deed veranderde een getal in de
+tabel en de pariteit bleef staan — terecht, want `waarneming.py` las hetzelfde
+gewijzigde getal.
+
+## Wat dit voor de inzet betekent
+
+Een bredere band in dat venster betekent een vlakkere kansverdeling en dus een
+kleinere gemeten edge tussen drie en vijf uur. `inzet.py` zal daar minder en
+kleiner inzetten. Dat is de bedoeling: de Brier-tabel in README.md laat zien dat
+de markt daar 42 procent beter is dan het model, en de dekkingsmeting laat zien
+dat het model daar bovendien te stellig was. Minder inzetten waar je aantoonbaar
+te stellig bent is geen verlies maar het wegnemen van een verlies.
