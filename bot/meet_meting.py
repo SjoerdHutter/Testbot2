@@ -99,6 +99,27 @@ def verwachting_max(m, mu_r, sig_r):
     return m * Phi(z) + mu_r * (1 - Phi(z)) + sig_r * phi(z)
 
 
+Z80 = 1.2815515655446004
+
+
+def band80(m, mu_r, sig_r):
+    """De 10- en 90-procentgrens van de afgekapte verdeling uit waarneming.cdf.
+
+    F(t) is nul onder `m` en Phi((t-mu_r)/sig_r) daarboven, dus er zit een
+    puntmassa op `m` ter grootte p0 = Phi((m-mu_r)/sig_r): de kans dat de piek
+    al geweest is. Is die massa groter dan het kwantiel, dan valt de grens
+    samen met `m`.
+    """
+    if sig_r <= 0:
+        return (m, m) if m is not None else (mu_r, mu_r)
+    if m is None:
+        return mu_r - Z80 * sig_r, mu_r + Z80 * sig_r
+    p0 = Phi((m - mu_r) / sig_r)
+    lo = m if p0 >= 0.10 else mu_r - Z80 * sig_r
+    hi = m if p0 >= 0.90 else mu_r + Z80 * sig_r
+    return lo, hi
+
+
 def loopmax(uurwaarden):
     """{uur: hoogste waarde tot en met dat uur}. uurwaarden is {uur: temp}."""
     uit, hoog = {}, None
@@ -146,6 +167,24 @@ def zelftest():
     # conditioneer uit waarneming.py moet monotoon zijn in het uur
     ws = [W.restfactor(u) for u in range(6, 23)]
     toets("de restfactor daalt over de dag", all(a >= b for a, b in zip(ws, ws[1:])))
+
+    # band80: de 80%-grenzen van de afgekapte verdeling
+    lo, hi = band80(None, 10.0, 2.0)
+    toets("zonder meting is het de gewone 80%-band",
+          abs(lo - (10 - Z80 * 2)) < 1e-12 and abs(hi - (10 + Z80 * 2)) < 1e-12)
+    lo, hi = band80(0.0, 10.0, 2.0)
+    toets("een meting ver onder mu laat de band staan",
+          abs(lo - (10 - Z80 * 2)) < 1e-12 and abs(hi - (10 + Z80 * 2)) < 1e-12)
+    lo, hi = band80(20.0, 10.0, 2.0)
+    toets("een meting ver boven mu klapt de band op de meting",
+          lo == 20.0 and hi == 20.0)
+    m = 10.0 + 2.0 * -1.2                      # p0 = Phi(-1,2) = 0,115 > 0,10
+    lo, hi = band80(m, 10.0, 2.0)
+    toets("zodra de puntmassa het kwantiel haalt valt de ondergrens op m",
+          abs(lo - m) < 1e-12 and hi > m)
+    toets("de band is nooit omgekeerd",
+          all(band80(mm, 10.0, 2.0)[0] <= band80(mm, 10.0, 2.0)[1] + 1e-12
+              for mm in (0, 5, 9, 10, 11, 15, 20)))
 
     # De ontleding op hetzelfde voorbeeld als bot/test_waarneming.py, zodat de
     # uurversie en de dagversie niet uit elkaar kunnen lopen.
@@ -289,6 +328,10 @@ def meet(dagen):
 
     per_uur = {u: {"kaal": [], "met": [], "ondergrens": []} for u in UREN}
     rest = {u: [] for u in UREN}
+    # De dekking van de geconditioneerde band, gesplitst naar of de piek al
+    # gevallen was. Op de dagen dat hij al viel doet de afkapping het werk en
+    # is dekking geen vraag; de krimp moet zich bewijzen op de andere.
+    dek = {u: {"alles": [], "voor": [], "kaal": [], "breedte": []} for u in UREN}
     n_dagen = 0
     for s in steden:
         mlk = keymap.get(s["key"])
@@ -327,8 +370,18 @@ def meet(dagen):
                 per_uur[u]["kaal"].append(abs(mu - y))
                 per_uur[u]["met"].append(abs(verwachting_max(m, mu_r, sig_r) - y))
                 per_uur[u]["ondergrens"].append(abs(max(m, mu) - y))
+                lo, hi = band80(m, mu_r, sig_r)
+                raak = 1.0 if lo - 1e-9 <= y <= hi + 1e-9 else 0.0
+                dek[u]["alles"].append(raak)
+                dek[u]["breedte"].append(hi - lo)
+                # de onvoorwaardelijke band als ijkpunt: die hoort op 80% te
+                # zitten, en zit hij daar, dan is elke afwijking verderop van
+                # de krimp en niet van de basisband
+                dek[u]["kaal"].append(
+                    1.0 if mu - Z80 * sig <= y <= mu + Z80 * sig else 0.0)
                 if m < y - 1e-9:           # de piek was nog niet gevallen
                     rest[u].append(y - mu)
+                    dek[u]["voor"].append(raak)
 
     print(f"\n{n_dagen} stad-dagen met een uurreeks\n")
     print(f"{'uur':>4s} {'n':>6s} {'kaal':>7s} {'ondergrens':>11s} {'winst':>7s} "
@@ -350,6 +403,22 @@ def meet(dagen):
               f"{met:10.3f} {kaal-met:+7.3f} "
               f"{(f'{w_eigen:8.3f}' if w_eigen is not None else '       -')} "
               f"{W.restfactor(u):7.3f}")
+
+    # ── de dekking van de geconditioneerde band ──
+    print(f"\n{'uur':>4s} {'n voor':>7s} {'piek af':>8s} {'dek kaal':>9s} "
+          f"{'dek alles':>10s} {'dek voor':>9s} {'breedte':>8s}")
+    for u in UREN:
+        b = dek[u]
+        if len(b["alles"]) < 30:
+            continue
+        voor = gem(b["voor"])
+        deel_af = 1 - len(b["voor"]) / len(b["alles"])
+        tabel[u].update({"dekking_alles": gem(b["alles"]), "dekking_piek_voor": voor,
+                         "dekking_kaal": gem(b["kaal"]), "n_piek_voor": len(b["voor"]),
+                         "aandeel_piek_af": deel_af, "breedte80": gem(b["breedte"])})
+        print(f"{u:4d} {len(b['voor']):7d} {deel_af*100:7.1f}% "
+              f"{gem(b['kaal'])*100:8.1f}% {gem(b['alles'])*100:9.1f}% "
+              f"{(voor*100 if voor is not None else 0):8.1f}% {gem(b['breedte']):8.3f}")
 
     UIT.parent.mkdir(exist_ok=True)
     UIT.write_text(json.dumps({"gegenereerd": date.today().isoformat(),
