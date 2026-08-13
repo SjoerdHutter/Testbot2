@@ -569,3 +569,104 @@ steden aanzetten waarvan nu al vaststaat dat het model deugt.
 Wat er wél mee vervalt is het omgekeerde: voor de 12 steden waar ML op
 negenhonderd dagen slechter is dan de kern hoeft geen enkele schaduwdag meer te
 worden afgewacht. Die kunnen uit de kandidatenlijst.
+
+---
+
+# Activering, en een fout in de horizonafbeelding
+
+Toegevoegd op 2026-08-13, bij het verzoek om de steden met bewezen winst aan te
+zetten en de rest twee keer per week na te lopen.
+
+## Wat er eerst nog mis was
+
+Het uitzoeken welke horizon aan mocht, bracht een fout aan het licht in de
+koppeling die een paar commits eerder was herzien. `kalibratie.py` voedt de
+rekenkern per horizon uit een andere bron — zie `run()`, waar `h == 0` uit `hf`
+komt en `h` 1 en 2 uit `fc[(h, dag)]`:
+
+| horizon | rekenkern krijgt | ML-model is getraind op |
+| --- | --- | --- |
+| 0, vandaag | historical-forecast, de run van vandaag | — |
+| 1, morgen | `previous_day1` | `previous_day1` |
+| 2, overmorgen | `previous_day2` | — |
+
+`invoerVoor` gaf op alle drie de horizonnen `p1` door. Op horizon 2 hoort dat
+`p2` te zijn: dezelfde grootheid een dag verder weg, wat `schaduw_backtest.py`
+met `--lead 2` ook meet. En op horizon 0 hoort er niets te gebeuren. Daar heeft
+de rekenkern de run van vandaag terwijl het model het met die van gisteren zou
+moeten doen; dat is geen afweging tussen twee methodes maar het vervangen van
+een verse voorspelling door een oudere.
+
+Hersteld. `reeksVoor` kiest nu per horizon, horizon 0 krijgt geen invoer, en
+`"0"` staat in `ml_activatie.json` onder `nooit_horizons` zodat het ook niet per
+ongeluk aangezet kan worden. `run2run` bestaat alleen op horizon 1: op horizon 2
+zou je `p3` nodig hebben, en die ontbreekt — precies zoals de lead 2-backtest
+hem behandelt.
+
+Daarmee vallen backtest en app op elkaar: lead 1 in de backtest is horizon 1 in
+de app, lead 2 is horizon 2. Dat was het ontbrekende stuk om de cijfers uit de
+vorige sectie te mogen gebruiken voor een activeringsbesluit.
+
+## Wat er aanstaat
+
+| stad | horizon 1 | horizon 2 |
+| --- | --- | --- |
+| Singapore | +0,058 | +0,082 |
+| Shanghai | +0,050 | +0,071 |
+| Chongqing | — | +0,074 |
+| Hongkong | — | +0,057 |
+| New York | — | +0,065 |
+
+Winst in °C tegenover de rekenkern, walk forward over 597 tot 740 dagen. Alle
+vijf halen ze op de aangezette horizon ook de bias- en dekkingsdrempels.
+Chongqing, Hongkong en New York blijven op horizon 1 net onder de 0,05 en staan
+daar dus uit.
+
+Atlanta en Chengdu staan niet in de lijst, hoewel ze de hoogste winst lieten
+zien. Hun klim-term lekt; de vorige sectie legt uit waarom.
+
+## De lijst controleert zichzelf
+
+`bot/test_ml.py` leest `ml_activatie.json` en toetst elke ingang tegen
+`monitoring/backtest_lead<horizon>.json`: haalt deze stad op deze horizon de
+drempels, heeft hij een eigen model, staat de horizon niet op de nooit-lijst,
+en lekt de klim-term niet. De zelftest valt dus om zodra er een stad aanstaat
+die de cijfers niet draagt — of hij nu met de hand is toegevoegd of stilletjes
+is verslechterd.
+
+Dat laatste is de reden dat die toets ook in de tweewekelijkse actie draait, ná
+de verse backtest.
+
+## De tweewekelijkse controle
+
+`.github/workflows/ml-controle.yml`, dinsdag en vrijdag 11:07 UTC. Draait de
+backtest voor lead 1 en 2 met `--controleer`, wat niet de tabel maar de
+verandering meldt:
+
+- een stad die de drempels nu haalt en nog uitstaat, met de cijfers erbij
+- een stad die aanstaat en ze niet meer haalt, met de reden erbij
+
+Daarna draait `bot/test_ml.py`, en die valt om bij het tweede geval. De actie
+commit `monitoring/` en zet zelf niets aan: aanzetten verandert wat bezoekers
+zien en vraagt ook een nieuw schilversienummer, en dat hoort een besluit te
+zijn.
+
+Dinsdag is de zinnige run — de hertraining draait maandag 03:17 en schrijft
+`features_alle.csv` opnieuw. Vrijdag rekent meestal op dezelfde reeks en zal
+hetzelfde zeggen. Dat is geen verspilling maar de prijs van vier minuten voor
+het opvangen van een maandag die omviel of pas later landde.
+
+## Wat activeren nog niet is
+
+De backtest bewijst dat deze modellen op historische invoer beter zijn dan de
+rekenkern. Hij bewijst niet dat de app die invoer live in dezelfde vorm
+binnenkrijgt, en dat is de ene vraag die alleen de live-reeks beantwoordt:
+levert `previous-runs-api` `previous_day1` en `previous_day2` ook voor een
+doeldag die nog moet komen, en met dezelfde waarden als je achteraf voor die
+dag terugkrijgt?
+
+De app faalt hier veilig: zonder bruikbare reeks rekent `invoerVoor` niet en
+blijft de rekenkern staan, ook voor een stad die aanstaat. Het risico is dus
+niet een verkeerd getal maar een activering die stilzwijgend niets doet. Eerste
+controle daarop is het schaduwlogboek: staat er na een dag voor de vijf steden
+een regel, en op welke horizonnen.

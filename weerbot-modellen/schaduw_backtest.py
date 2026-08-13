@@ -316,7 +316,13 @@ def main():
     p.add_argument("--stad")
     p.add_argument("--schrijf", action="store_true",
                    help="uitkomst wegschrijven naar monitoring/backtest_lead<N>.json")
+    p.add_argument("--controleer", action="store_true",
+                   help="vergelijken met de vorige uitkomst en de omslagen melden")
     a = p.parse_args()
+    vorig = {}
+    pad_vorig = HIER / "monitoring" / f"backtest_lead{a.lead}.json"
+    if a.controleer and pad_vorig.exists():
+        vorig = json.loads(pad_vorig.read_text())
 
     modellen = json.loads((HIER / "modellen" / "modellen.json").read_text())
     activatie = json.loads((HIER / "ml_activatie.json").read_text())
@@ -371,6 +377,37 @@ def main():
         print(f"  haalt de drempels: {len(haalt)}"
               + (" · " + ", ".join(haalt) if haalt else ""))
         print(f"  haalt ze niet   : {len(valt)}")
+
+    if a.controleer:
+        # Wat de tweewekelijkse controle moet opleveren is niet de tabel maar de
+        # verandering: een stad die de drempels nu wel haalt en aangezet kan
+        # worden, en -- belangrijker -- een stad die al aanstaat maar ze niet
+        # meer haalt. Dat tweede is een reden om iets uit te zetten en dat mag
+        # niet in een tabel van 34 regels verdwijnen.
+        eerder = set(vorig.get("haalt_drempels") or [])
+        nu = set(haalt)
+        aan = {s for s, per in (activatie.get("aan") or {}).items()
+               if per.get(str(a.lead)) is True}
+        print(f"\n── controle lead {a.lead} ──")
+        nieuw = sorted(nu - eerder - aan)
+        weg = sorted(aan - nu)
+        if nieuw:
+            print("  NIEUW: haalt de drempels en staat nog uit: " + ", ".join(nieuw))
+            for s in nieuw:
+                r = uit[s]
+                print(f'     {s}: winst {r["winst"]:+.3f} °C over {r["n"]} dagen, '
+                      f'bias {r["bias_ml"]:+.3f}, dekking {(r["dekking80"] or 0)*100:.0f}%')
+            print("     Aanzetten in weerbot-modellen/ml_activatie.json, daarna")
+            print("     python3 weerbot-modellen/controleer_schil.py --zet")
+        if weg:
+            print("  LET OP: staat aan maar haalt de drempels niet meer: " + ", ".join(weg))
+            for s in weg:
+                r = uit.get(s)
+                if r:
+                    print(f'     {s}: ' + ", ".join(oordeel(r, drempels)))
+            print("     Overweeg uit te zetten in ml_activatie.json.")
+        if not nieuw and not weg:
+            print("  geen omslagen sinds de vorige controle")
 
     if a.schrijf:
         map_ = HIER / "monitoring"

@@ -1,0 +1,70 @@
+name: ML-controle
+
+# Draait weerbot-modellen/schaduw_backtest.py voor lead 1 en 2 en meldt welke
+# steden de drempels uit ml_activatie.json net wél of net niet meer halen.
+#
+# Twee keer per week, dinsdag en vrijdag. Dinsdag is de zinnige: de wekelijkse
+# hertraining draait maandag 03:17 en schrijft features_alle.csv opnieuw, dus
+# dinsdag is de eerste run op verse gegevens. Vrijdag rekent in principe op
+# dezelfde reeks en zal meestal hetzelfde zeggen. Dat is met opzet: hij kost
+# vier minuten en hij vangt de maandag op die is omgevallen of pas later
+# landde, en de handmatige tussentijdse hertraining.
+#
+# Op 11:07: ver van de kalibratie (05:23), de hertraining (03:17), de klim
+# (02:23 en 14:23) en het signalenlog (:41), en niet op het hele uur waar de
+# wachtrij van GitHub het langst staat.
+#
+# Deze actie zet niets aan. Hij commit de gemeten cijfers en zegt wat er te
+# besluiten valt; het besluit blijft bij de mens, want aanzetten verandert wat
+# bezoekers op hun scherm zien en vraagt ook een nieuw schilversienummer.
+# Draait alleen op de default branch: GitHub plant schema's uitsluitend
+# daarvandaan, en een workflow verschijnt pas in het Actions-overzicht nadat
+# hij een keer op die branch is gedraaid of ernaartoe is gepusht.
+on:
+  schedule:
+    - cron: "7 11 * * 2,5"
+  workflow_dispatch:
+permissions:
+  contents: write
+
+concurrency:
+  group: ml-controle
+  cancel-in-progress: false
+
+jobs:
+  controle:
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      # schaduw_backtest.py gebruikt alleen de standaardbibliotheek: de ridge
+      # wordt uit lopende sommen gesloten met kalibratie.los_op, juist zodat
+      # deze actie geen numpy of scikit-learn hoeft te installeren.
+
+      - name: Backtest lead 1
+        run: python weerbot-modellen/schaduw_backtest.py --lead 1 --controleer --schrijf
+
+      - name: Backtest lead 2
+        run: python weerbot-modellen/schaduw_backtest.py --lead 2 --controleer --schrijf
+
+      - name: Activatielijst toetsen
+        # Valt om zodra een stad die aanstaat de drempels in de verse backtest
+        # niet meer haalt. Dat is precies de bedoeling: een stilzwijgend
+        # verslechterende stad hoort niet in een logboek weg te zakken.
+        run: python bot/test_ml.py
+
+      - name: Committen
+        run: |
+          git config user.name "weerbot-actie"
+          git config user.email "actions@users.noreply.github.com"
+          git add weerbot-modellen/monitoring/
+          if git diff --cached --quiet; then
+            echo "  geen wijziging"
+            exit 0
+          fi
+          git commit -m "ML-controle"
+          git pull --rebase origin "${GITHUB_REF_NAME}"
+          git push origin "HEAD:${GITHUB_REF_NAME}"

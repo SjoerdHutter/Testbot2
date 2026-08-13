@@ -59,9 +59,20 @@ reden dat `ml_activatie.json` per stad **en** per horizon gaat.
 
 ## Wat het nu doet
 
-Niets aan wat u ziet. `ml_activatie.json` heeft een lege `aan`, dus de app toont
-de uitkomst van zijn eigen rekenkern en logt de ML-voorspelling er alleen naast
-in localStorage.
+Vijf steden krijgen de ML-uitkomst getoond, de rest niet. Singapore en Shanghai
+op horizon 1 en 2, Chongqing, Hongkong en New York alleen op horizon 2. Voor
+alle overige steden en horizonnen toont de app zijn eigen rekenkern en wordt de
+ML-voorspelling er alleen naast gelogd.
+
+Horizon 0 staat permanent uit. De rekenkern krijgt daar de run van vandaag
+(historical-forecast) terwijl dit model op `previous_day1` is getraind, dus de
+run van gisteren; aanzetten zou een verse voorspelling door een oudere
+vervangen. Horizon 1 krijgt `previous_day1` en is precies waarop getraind is,
+horizon 2 krijgt `previous_day2`.
+
+De lijst staat in `ml_activatie.json` en `bot/test_ml.py` toetst elke ingang
+tegen `monitoring/backtest_lead<horizon>.json`, zodat er niets aan kan staan wat
+de cijfers niet dragen.
 
 ## Wanneer het aan mag
 

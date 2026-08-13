@@ -173,14 +173,42 @@
     return Math.sqrt(q / (v.length - 1));
   }
 
-  function invoerVoor(mk, datum, s, d) {
+  /* Welke reeks bij welke horizon hoort, en waarom horizon 0 niets krijgt.
+   *
+   * kalibratie.py voedt zijn eigen rekenkern per horizon uit een andere bron:
+   * horizon 0 uit de historical-forecast (de run van de dag zelf), horizon 1
+   * uit previous_day1 en horizon 2 uit previous_day2. De ML-modellen zijn
+   * uitsluitend op previous_day1 getraind, oftewel op horizon 1.
+   *
+   * Horizon 1 is daarmee de enige waar het model krijgt waar het op is gefit.
+   * Horizon 2 krijgt previous_day2: dezelfde grootheid, een dag verder weg —
+   * buiten de trainingsafstand, maar wel meetbaar, en schaduw_backtest.py
+   * meet hem ook zo (--lead 2).
+   *
+   * Horizon 0 krijgt niets. Daar heeft de rekenkern de run van vandaag en zou
+   * het ML-model het met die van gisteren moeten doen; dan vervang je een
+   * verse voorspelling door een oudere. Dat is geen afweging maar een
+   * verslechtering, dus er wordt niet eens gerekend. */
+  function reeksVoor(r, horizon) {
+    if (horizon === 1) return r.p1;
+    if (horizon === 2) return r.p2;
+    return null;
+  }
+
+  function invoerVoor(mk, datum, s, d, horizon) {
     var r = PREV[mk] && PREV[mk][datum];
     if (!r) return null;                            // geen trainingsinvoer: niet voorspellen
-    var mm1 = gemiddelde(r.p1);
+    var reeks = reeksVoor(r, horizon);
+    if (!reeks) return null;
+    var mm1 = gemiddelde(reeks);
     if (mm1 === null) return null;
-    var mm2 = gemiddelde(r.p2);
-    return { p1: r.p1,
-             spreiding: spreidingVan(r.p1),
+    /* run2run is de laatste ronde tegenover de vorige. Op horizon 1 is dat p1
+       tegen p2; op horizon 2 zou je p3 nodig hebben en die is er niet. In de
+       training telt een ontbrekende run2run als nul, en zo komt hij hier ook
+       binnen. */
+    var mm2 = (horizon === 1) ? gemiddelde(r.p2) : null;
+    return { p1: reeks,
+             spreiding: spreidingVan(reeks),
              run2run: (mm2 === null) ? null : mm1 - mm2,
              /* lag2_err van de training: de fout van het kale modelgemiddelde
                 op t-2 of t-3. index.html levert hem in mlx.lag2. Hiervoor ging
@@ -198,7 +226,7 @@
       var mk = KEYMAP[s.key]; if (!mk) return;
       uitkomst.dagen.forEach(function (d, horizon) {
         if (!d || !d.mlx) return;
-        var inv = invoerVoor(mk, d.datum, s, d);
+        var inv = invoerVoor(mk, d.datum, s, d, horizon);
         if (!inv) return;
         var ml = WeerbotML.voorspel(mk, d.datum, inv);
         if (!ml) return;
@@ -236,6 +264,7 @@
 
   function magActief(mk, horizon) {
     if (!ACTIVATIE || !ACTIVATIE.aan) return false;
+    if ((ACTIVATIE.nooit_horizons || []).indexOf(String(horizon)) >= 0) return false;
     if ((ACTIVATIE.nooit_labels || []).indexOf(WeerbotML.label(mk)) >= 0) return false;
     var a = ACTIVATIE.aan[mk];
     return !!(a && a[String(horizon)] === true);

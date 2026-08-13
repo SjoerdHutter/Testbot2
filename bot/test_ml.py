@@ -176,9 +176,11 @@ uit.spreiding = IN.spreidingVan(%s);
 uit.gem_vier = IN.gemiddelde({ifs:1, aifs:2, gfs:3, icon:4});
 uit.gem_drie = IN.gemiddelde({ifs:1, aifs:2, gfs:3});
 IN.zet({ nyc: { "2026-08-13": { p1: %s, p2: %s } } }, null);
-uit.invoer = IN.invoerVoor("nyc", "2026-08-13",
-  { eenheid: "\\u00b0F" }, { mlx: { lag2: 1.8 } });
-uit.geen_prev = IN.invoerVoor("nyc", "2026-08-99", { eenheid: "\\u00b0C" }, { mlx: {} });
+const stad = { eenheid: "\\u00b0F" }, dag = { mlx: { lag2: 1.8 } };
+uit.invoer = IN.invoerVoor("nyc", "2026-08-13", stad, dag, 1);
+uit.h0 = IN.invoerVoor("nyc", "2026-08-13", stad, dag, 0);
+uit.h2 = IN.invoerVoor("nyc", "2026-08-13", stad, dag, 2);
+uit.geen_prev = IN.invoerVoor("nyc", "2026-08-99", { eenheid: "\\u00b0C" }, { mlx: {} }, 1);
 uit.uitDeltaF = IN.uitDelta(1, "\\u00b0F");
 process.stdout.write(JSON.stringify(uit));
 """ % (json.dumps(tijden), json.dumps(waarden), json.dumps(p1),
@@ -201,6 +203,14 @@ process.stdout.write(JSON.stringify(uit));
     toets("de p1-waarden gaan ongewijzigd door (de reeks staat al in °C)",
           r["invoer"]["p1"] == p1)
     toets("zonder previous-runs wordt er niet voorspeld", r["geen_prev"] is None)
+    # De horizonafbeelding van kalibratie.py: h0 uit de historical-forecast, h1
+    # uit previous_day1, h2 uit previous_day2. Het model kent alleen p1, dus h0
+    # zou het met oudere gegevens moeten doen dan de rekenkern al heeft.
+    toets("horizon 0 krijgt geen ML-invoer", r["h0"] is None)
+    toets("horizon 2 krijgt de p2-reeks", r["h2"] is not None and r["h2"]["p1"] == p2)
+    toets("horizon 2 heeft geen run2run (p3 bestaat niet)",
+          r["h2"]["run2run"] is None)
+    toets("horizon 1 heeft die wel", r["invoer"]["run2run"] is not None)
     toets("een verschil in °F gaat maal 9/5, zonder de 32",
           dichtbij(r["uitDeltaF"], 1.8))
 
@@ -345,9 +355,44 @@ process.stdout.write(JSON.stringify(uit));
 def toets_activatie():
     print("activatie")
     cfg = json.loads(ACTIVATIE.read_text())
-    toets("het activatiebestand zet niets aan", not cfg.get("aan"),
-          "aan: " + json.dumps(cfg.get("aan")))
     toets("LINEAIR staat op de nooit-lijst", "LINEAIR" in cfg.get("nooit_labels", []))
+    toets("horizon 0 staat op de nooit-lijst", "0" in cfg.get("nooit_horizons", []))
+
+    # Elke ingang in `aan` moet door de backtest gedekt zijn. Zonder deze toets
+    # kan er een stad aangezet worden op een onderbuikgevoel, of blijft er een
+    # aanstaan waarvan de cijfers inmiddels zijn omgeslagen. De backtest van
+    # lead N hoort bij horizon N: h1 krijgt previous_day1, h2 previous_day2.
+    modellen = json.loads(MODELLEN.read_text())
+    drempels = cfg["drempels"]
+    for stad, per_h in (cfg.get("aan") or {}).items():
+        label = (modellen.get(stad) or {}).get("label")
+        toets(f"{stad}: heeft een eigen ML-model",
+              label not in cfg.get("nooit_labels", []) and label is not None,
+              f"label {label}")
+        for h, aan in per_h.items():
+            if not aan:
+                continue
+            toets(f"{stad} h{h}: staat niet op een geblokkeerde horizon",
+                  h not in cfg.get("nooit_horizons", []))
+            pad = WORTEL / "weerbot-modellen" / "monitoring" / f"backtest_lead{h}.json"
+            if not pad.exists():
+                toets(f"{stad} h{h}: er is een backtest voor deze horizon", False,
+                      f"{pad.name} ontbreekt")
+                continue
+            bt = json.loads(pad.read_text())["steden"].get(stad)
+            if not bt:
+                toets(f"{stad} h{h}: staat in de backtest", False)
+                continue
+            lo, hi = drempels["dekking80_tussen"]
+            toets(f"{stad} h{h}: haalt de drempels in backtest_lead{h}.json",
+                  bt["n"] >= drempels["min_n"]
+                  and bt["winst"] >= drempels["min_mae_winst_c"]
+                  and abs(bt["bias_ml"]) <= drempels["max_abs_bias_c"]
+                  and (bt["dekking80"] is None or lo <= bt["dekking80"] <= hi),
+                  f'n={bt["n"]} winst={bt["winst"]:+.3f} bias={bt["bias_ml"]:+.3f} '
+                  f'dekking={(bt["dekking80"] or 0)*100:.0f}%')
+            toets(f"{stad} h{h}: de klim-term lekt niet",
+                  not bt.get("klim_lekt"), "variant ridge_klim, klim is niet walk forward")
 
     if not heeft_node():
         print("  overgeslagen (node ontbreekt)")
@@ -369,8 +414,13 @@ uit.aan = IN.magActief("%s", 1);
 uit.andere_horizon = IN.magActief("%s", 0);
 IN.zet({}, { nooit_labels: ["LINEAIR"], aan: { "%s": { "1": true } } });
 uit.lineair = IN.magActief("%s", 1);
+IN.zet({}, { nooit_horizons: ["0"], nooit_labels: [],
+             aan: { "%s": { "0": true, "1": true } } });
+uit.h0_geblokkeerd = IN.magActief("%s", 0);
+uit.h1_naast_h0 = IN.magActief("%s", 1);
 process.stdout.write(JSON.stringify(uit));
-""" % (ml_stad, ml_stad, ml_stad, ml_stad, ml_stad, lin_stad, lin_stad)
+""" % (ml_stad, ml_stad, ml_stad, ml_stad, ml_stad, lin_stad, lin_stad,
+       ml_stad, ml_stad, ml_stad)
     r = draai_node(script)
 
     toets("zonder activatiebestand blijft alles uit", r["zonder_bestand"] is False)
@@ -380,6 +430,10 @@ process.stdout.write(JSON.stringify(uit));
           r["andere_horizon"] is False)
     toets("een LINEAIR-stad gaat niet aan, ook niet als hij op de lijst staat",
           r["lineair"] is False, f"stad {lin_stad}")
+    toets("horizon 0 gaat niet aan, ook niet als hij op de lijst staat",
+          r["h0_geblokkeerd"] is False)
+    toets("dat blokkeert horizon 1 van dezelfde stad niet",
+          r["h1_naast_h0"] is True)
 
 
 def main():
