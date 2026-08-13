@@ -186,6 +186,43 @@ def zelftest():
           all(band80(mm, 10.0, 2.0)[0] <= band80(mm, 10.0, 2.0)[1] + 1e-12
               for mm in (0, 5, 9, 10, 11, 15, 20)))
 
+    # De rapportagekant draaien op verzonnen accumulatoren. Dit blok gaat niet
+    # over de cijfers maar over of hij überhaupt doorloopt: een NameError hier
+    # kostte eerder een hele meetronde.
+    import io, contextlib, random
+    rnd = random.Random(1)
+    per_uur = {u: {"kaal": [], "met": [], "ondergrens": []} for u in UREN}
+    rest = {u: [] for u in UREN}
+    dek = {u: {"alles": [], "voor": [], "kaal": [], "breedte": []} for u in UREN}
+    for u in UREN:
+        for _ in range(60):
+            per_uur[u]["kaal"].append(abs(rnd.gauss(0, 1)))
+            per_uur[u]["met"].append(abs(rnd.gauss(0, 1)))
+            per_uur[u]["ondergrens"].append(abs(rnd.gauss(0, 1)))
+            rest[u].append(rnd.gauss(0, 1))
+            dek[u]["alles"].append(1.0 if rnd.random() < 0.8 else 0.0)
+            dek[u]["kaal"].append(1.0 if rnd.random() < 0.8 else 0.0)
+            dek[u]["breedte"].append(2.0)
+            if rnd.random() < 0.5:
+                dek[u]["voor"].append(1.0 if rnd.random() < 0.8 else 0.0)
+    try:
+        with contextlib.redirect_stdout(io.StringIO()):
+            tab = rapporteer(per_uur, rest, dek, 1234)
+        gelukt = (len(tab) == len(UREN)
+                  and all("dekking_piek_voor" in r and "mae_kaal" in r
+                          for r in tab.values()))
+        toets("de rapportage loopt door en vult elke uurregel", gelukt, str(list(tab)[:3]))
+    except Exception as ex:                                   # noqa: BLE001
+        toets("de rapportage loopt door en vult elke uurregel", False, repr(ex))
+    # en met een uur zonder enige dag waarop de piek nog moest vallen
+    dek[UREN[-1]]["voor"] = []
+    try:
+        with contextlib.redirect_stdout(io.StringIO()):
+            rapporteer(per_uur, rest, dek, 1)
+        toets("een uur zonder piek-voor-dagen laat hem niet omvallen", True)
+    except Exception as ex:                                   # noqa: BLE001
+        toets("een uur zonder piek-voor-dagen laat hem niet omvallen", False, repr(ex))
+
     # De ontleding op hetzelfde voorbeeld als bot/test_waarneming.py, zodat de
     # uurversie en de dagversie niet uit elkaar kunnen lopen.
     import test_waarneming as TW
@@ -310,6 +347,60 @@ def haal_uurreeksen(steden, d1, d2):
     return uit
 
 
+def gem(v):
+    """Gemiddelde, of None bij een lege reeks."""
+    return sum(v) / len(v) if v else None
+
+
+def rapporteer(per_uur, rest, dek, n_dagen):
+    """De twee tabellen afdrukken en de regels per uur teruggeven.
+
+    Staat los van meet() omdat meet() het netwerk op gaat en dus niet in de
+    zelftest kan draaien. Deze kant wel, en dat is nodig gebleken: een
+    NameError in dit blok kwam er pas na drie minuten IEM ophalen uit, met de
+    hele meting al gedaan en weggegooid. De zelftest voert hem nu uit op
+    verzonnen accumulatoren.
+    """
+    print(f"\n{n_dagen} stad-dagen met een uurreeks\n")
+    print(f"{'uur':>4s} {'n':>6s} {'kaal':>7s} {'ondergrens':>11s} {'winst':>7s} "
+          f"{'met krimp':>10s} {'winst':>7s} {'w eigen':>8s} {'w app':>7s}")
+    tabel = {}
+    eerste = sorted(rest)[0] if rest else None
+    sig0 = (statistics.pstdev(rest[eerste])
+            if eerste is not None and len(rest[eerste]) > 5 else None)
+    for u in sorted(per_uur):
+        b = per_uur[u]
+        if len(b["kaal"]) < 30:
+            continue
+        kaal, onder = gem(b["kaal"]), gem(b["ondergrens"])
+        met = gem(b["met"])
+        w_eigen = (statistics.pstdev(rest[u]) / sig0) if (sig0 and len(rest[u]) > 5) else None
+        tabel[u] = {"n": len(b["kaal"]), "mae_kaal": kaal, "mae_ondergrens": onder,
+                    "mae_met_krimp": met, "w_eigen": w_eigen,
+                    "w_app": W.restfactor(u)}
+        print(f"{u:4d} {len(b['kaal']):6d} {kaal:7.3f} {onder:11.3f} {kaal-onder:+7.3f} "
+              f"{met:10.3f} {kaal-met:+7.3f} "
+              f"{(f'{w_eigen:8.3f}' if w_eigen is not None else '       -')} "
+              f"{W.restfactor(u):7.3f}")
+
+    # ── de dekking van de geconditioneerde band ──
+    print(f"\n{'uur':>4s} {'n voor':>7s} {'piek af':>8s} {'dek kaal':>9s} "
+          f"{'dek alles':>10s} {'dek voor':>9s} {'breedte':>8s}")
+    for u in sorted(dek):
+        b = dek[u]
+        if u not in tabel or len(b["alles"]) < 30:
+            continue
+        voor = gem(b["voor"])
+        deel_af = 1 - len(b["voor"]) / len(b["alles"])
+        tabel[u].update({"dekking_alles": gem(b["alles"]), "dekking_piek_voor": voor,
+                         "dekking_kaal": gem(b["kaal"]), "n_piek_voor": len(b["voor"]),
+                         "aandeel_piek_af": deel_af, "breedte80": gem(b["breedte"])})
+        print(f"{u:4d} {len(b['voor']):7d} {deel_af*100:7.1f}% "
+              f"{(gem(b['kaal']) or 0)*100:8.1f}% {(gem(b['alles']) or 0)*100:9.1f}% "
+              f"{(voor*100 if voor is not None else 0):8.1f}% {(gem(b['breedte']) or 0):8.3f}")
+    return tabel
+
+
 def meet(dagen):
     # Hongkong loopt via het observatorium en niet via IEM; die valt hier af.
     steden = [s for s in weer.STEDEN
@@ -383,42 +474,7 @@ def meet(dagen):
                     rest[u].append(y - mu)
                     dek[u]["voor"].append(raak)
 
-    print(f"\n{n_dagen} stad-dagen met een uurreeks\n")
-    print(f"{'uur':>4s} {'n':>6s} {'kaal':>7s} {'ondergrens':>11s} {'winst':>7s} "
-          f"{'met krimp':>10s} {'winst':>7s} {'w eigen':>8s} {'w app':>7s}")
-    tabel = {}
-    sig0 = statistics.pstdev(rest[UREN[0]]) if len(rest[UREN[0]]) > 5 else None
-    for u in UREN:
-        b = per_uur[u]
-        if len(b["kaal"]) < 30:
-            continue
-        kaal = statistics.mean(b["kaal"])
-        onder = statistics.mean(b["ondergrens"])
-        met = statistics.mean(b["met"])
-        w_eigen = (statistics.pstdev(rest[u]) / sig0) if (sig0 and len(rest[u]) > 5) else None
-        tabel[u] = {"n": len(b["kaal"]), "mae_kaal": kaal, "mae_ondergrens": onder,
-                    "mae_met_krimp": met, "w_eigen": w_eigen,
-                    "w_app": W.restfactor(u)}
-        print(f"{u:4d} {len(b['kaal']):6d} {kaal:7.3f} {onder:11.3f} {kaal-onder:+7.3f} "
-              f"{met:10.3f} {kaal-met:+7.3f} "
-              f"{(f'{w_eigen:8.3f}' if w_eigen is not None else '       -')} "
-              f"{W.restfactor(u):7.3f}")
-
-    # ── de dekking van de geconditioneerde band ──
-    print(f"\n{'uur':>4s} {'n voor':>7s} {'piek af':>8s} {'dek kaal':>9s} "
-          f"{'dek alles':>10s} {'dek voor':>9s} {'breedte':>8s}")
-    for u in UREN:
-        b = dek[u]
-        if len(b["alles"]) < 30:
-            continue
-        voor = gem(b["voor"])
-        deel_af = 1 - len(b["voor"]) / len(b["alles"])
-        tabel[u].update({"dekking_alles": gem(b["alles"]), "dekking_piek_voor": voor,
-                         "dekking_kaal": gem(b["kaal"]), "n_piek_voor": len(b["voor"]),
-                         "aandeel_piek_af": deel_af, "breedte80": gem(b["breedte"])})
-        print(f"{u:4d} {len(b['voor']):7d} {deel_af*100:7.1f}% "
-              f"{gem(b['kaal'])*100:8.1f}% {gem(b['alles'])*100:9.1f}% "
-              f"{(voor*100 if voor is not None else 0):8.1f}% {gem(b['breedte']):8.3f}")
+    tabel = rapporteer(per_uur, rest, dek, n_dagen)
 
     UIT.parent.mkdir(exist_ok=True)
     UIT.write_text(json.dumps({"gegenereerd": date.today().isoformat(),
