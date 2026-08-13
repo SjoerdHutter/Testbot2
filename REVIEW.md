@@ -874,3 +874,92 @@ maakt het beeld structureel te warm. Eerst de studie draaien, dan kijken of de
 gratis kolom — `max(m, mu)`, zonder enige kalibratie — het al doet. Als die het
 doet is dat de wijziging: goedkoop, uitlegbaar, en zonder een curve die van de
 markt geleend is.
+
+---
+
+# De metingstudie: uitkomst
+
+Toegevoegd op 2026-08-13, na `.github/workflows/meting-studie.yml` (run
+31709804705). 400 dagen uurlijkse METAR's, 34 tijdzonegroepen, alle 48
+IEM-stations gevuld zonder één misser, **18.959 stad-dagen**. De schatting uit
+de vorige sectie kwam uit een geleende marktcurve; dit is de eigen reeks.
+
+Alles in °C. `kaal` is de walk-forward van de rekenkern zelf.
+
+| lokaal uur | kaal | ondergrens | winst | met krimp | winst | w eigen | w app |
+| --- | --- | --- | --- | --- | --- | --- | --- |
+| 6 | 0,815 | 0,801 | +0,014 | 0,808 | +0,007 | 1,000 | 1,000 |
+| 9 | 0,815 | 0,797 | +0,018 | 0,801 | +0,014 | 0,996 | 1,000 |
+| 10 | 0,815 | 0,786 | +0,029 | 0,788 | +0,027 | 0,991 | 1,000 |
+| **11** | 0,815 | 0,758 | **+0,058** | 0,754 | +0,061 | 0,988 | 0,918 |
+| 12 | 0,815 | 0,702 | +0,113 | 0,688 | +0,128 | 0,991 | 0,861 |
+| 13 | 0,815 | 0,620 | +0,195 | 0,609 | +0,206 | 1,006 | 0,832 |
+| 14 | 0,815 | 0,532 | +0,283 | 0,524 | +0,292 | 1,021 | 0,759 |
+| 15 | 0,815 | 0,466 | +0,350 | 0,381 | +0,434 | 1,031 | 0,545 |
+| 16 | 0,815 | 0,433 | +0,382 | 0,271 | +0,544 | 1,069 | 0,395 |
+| 18 | 0,815 | 0,418 | +0,398 | 0,133 | +0,683 | 1,099 | 0,194 |
+| 20 | 0,815 | 0,416 | +0,400 | 0,070 | +0,745 | 1,104 | 0,099 |
+| 22 | 0,815 | 0,414 | +0,402 | 0,065 | +0,750 | 1,107 | 0,099 |
+
+## De gratis kolom doet het
+
+`max(m, mu)` — geen restfactor, geen kalibratie, geen geleende curve — passeert
+de drempel van +0,05 °C om **elf uur 's ochtends** en zit vanaf zes uur 's
+avonds op +0,40. Dat is de MAE van 0,815 naar 0,414, oftewel gehalveerd.
+
+Ter vergelijking: het beste ML-model levert +0,058 op h1 en het gemiddelde over
+34 steden +0,018. Eén regel `Math.max` is vanaf de middag een orde van grootte
+meer waard dan alle ML-winst bij elkaar, en hij vraagt geen model, geen
+hertraining en geen drempel.
+
+De eerdere schatting uit de marktcurve zat er niet ver naast — die gaf +0,052
+om elf uur tegen +0,058 gemeten, en +0,384 om vier uur tegen +0,382. Dat de
+geleende curve zo dicht bij de eigen reeks uitkomt is op zich een geruststelling
+over de curve; wat eronder zit is dat niet.
+
+## De krimp is niet wat hij lijkt
+
+De kolom `w eigen` is de spreiding van de restfout van de kale verwachting op de
+dagen waarop de piek nog **niet** gevallen was, geschaald op het eerste uur. Dat
+is de dagen waarop de krimp iets moet doen, want op de dagen waarop de piek al
+geweest is doet de afkapping het werk.
+
+Die kolom daalt niet. Hij loopt van 1,000 naar 1,107 — hij *stijgt*. De app
+rekent op diezelfde uren met 1,000 naar 0,099.
+
+Dat betekent niet dat de krimp de MAE geen goed doet; de kolom "met krimp" laat
+zien van wel, tot +0,750 om tien uur 's avonds. Maar die winst komt ergens
+anders vandaan dan waar de curve hem belooft. `mu_R = mu·w + m·(1−w)` trekt de
+verwachting naar `m` toe, en laat op de dag ís `m` het antwoord meestal al. De
+winst zit in het naar `m` trekken, niet in het smaller worden.
+
+En dat smaller worden gebeurt wel. Op de dagen waarop de piek nog moet komen
+krimpt `sigma` naar 0,099 keer de oorspronkelijke waarde terwijl de gemeten
+spreiding daar niet krimpt maar iets groeit. De kop van `bot/waarneming.py`
+noemt precies dit de gevaarlijke kant: "Overschatte scherpte is hier de
+gevaarlijke kant op — daar hangt in `inzet.py` een weddenschap aan."
+
+Voorbehoud, want dit is de plek om er een te maken: `w eigen` is de spreiding
+van `y − mu`, niet die van `R` gegeven `m`. Het is dus geen weerlegging van de
+curve maar van de rechtvaardiging eronder — "er is minder dag over, dus minder
+onzekerheid" gaat niet op voor de dagen waarop de piek nog moet vallen. De
+sluitende toets is de dekking van de geconditioneerde band op precies die dagen,
+en die is met dezelfde gegevens te meten.
+
+## Wat hieruit volgt
+
+1. **`max(m, mu)` in de puntvoorspelling op horizon 0.** Gemeten, gratis,
+   uitlegbaar, en hij kan de verwachting alleen omhoog duwen naar iets wat al
+   gemeten is — geen curve die te ver kan doorschieten. Dit is de wijziging met
+   de beste verhouding tussen winst en risico die deze hele reeks heeft
+   opgeleverd.
+2. **De dekking van de geconditioneerde band meten op de dagen dat de piek nog
+   moet vallen**, vóór er iets aan de demping verandert. Als die dekking daar
+   onder de 80 procent zakt, staat de app op die dagen te scherp en rekent
+   `inzet.py` met een edge die er niet is.
+3. Pas daarna eventueel de restfactor op de eigen reeks kalibreren, wat de kop
+   van `waarneming.py` al als openstaand punt noemt.
+
+Niet gedaan in deze wijziging: alledrie. De eerste is een verandering aan het
+hoofdgetal van de app en hoort een apart besluit te zijn; de tweede is een
+meting die er nog niet is.
