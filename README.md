@@ -780,6 +780,8 @@ python3 weerbot-modellen/controleer_upload.py   # bestandshashes tegen MANIFEST.
 python3 weerbot-modellen/controleer_schil.py    # servicewerkerversie dekt de schil
                                                 # (--zet werkt hem bij)
 python3 weerbot-modellen/pak_features.py check  # featurebundel
+python3 bot/test_ml.py                          # invoer van de ML-modellen
+python3 bot/meet_meting.py --zelftest            # rekenkant van de metingstudie
 ```
 
 Deze draaien ook in `.github/workflows/zelftest.yml` bij elke push.
@@ -794,12 +796,17 @@ Deze draaien ook in `.github/workflows/zelftest.yml` bij elke push.
 | `app_params.js` | wekelijks gekalibreerde parameters per stad en horizon |
 | `weerbot-modellen/polymarkt.js` | Polymarket-koppeling en het marktvenster |
 | `weerbot-modellen/weerbot-ml*.js` | ML-modellen, nog in schaduwfase |
+| `weerbot-modellen/ml_activatie.json` | welke stad-horizonnen de ML-uitkomst getoond krijgen; de zelftest toetst de lijst tegen `monitoring/` |
+| `weerbot-modellen/schaduw_backtest.py` | de ML-modellen walk forward tegen de rekenkern, op de historie in `features_alle.csv` |
+| `weerbot-modellen/monitoring/` | de uitkomst daarvan per lead |
 | `bot/` | kalibratie, logboeken, portefeuillebewaking en zelftests in Python |
 | `bot/waarneming.py` | de meting van vandaag en de conditionering erop |
+| `bot/meet_meting.py` | wat die meting waard zou zijn in de puntvoorspelling; met de hand te starten |
 | `bot/fijnmeting.py` | AMeDAS en NEA, fijner dan het uurlijkse METAR |
 | `bot/inzet.py` | positiegrootte, risicoplafonds en het meten van de edge |
 | `bot/taf.py` | de luchthavenverwachting, voorlopig alleen loggend |
 | `bot/jslezer.py` | tabellen uit polymarkt.js lezen; één parser voor allebei |
 | `logs/` | ensemblelog, NWS-log, signalenlog en portefeuillereeks; zie hierboven |
 | `.github/workflows/` | dagelijkse en wekelijkse herberekeningen, plus de uurlijkse portefeuille |
+| `MODEL_CARD.md` | wat de ML-modellen zijn, waarop ze zijn getraind en wanneer ze aan mogen |
 | `REVIEW.md` | externe codereview en het narekenen van de aanbevelingen |

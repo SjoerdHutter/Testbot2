@@ -1,0 +1,50 @@
+name: Metingstudie
+
+# Draait bot/meet_meting.py: wat levert de meting van vandaag op als je hem in
+# de puntvoorspelling stopt, in plaats van alleen in de kansen?
+#
+# Met de hand te starten en niet op een schema. Het is een studie en geen
+# bewaking: het antwoord verandert niet van week tot week, en de IEM-aanroepen
+# zijn zwaar — ruim vierhonderd dagen uurlijkse METAR's voor 48 stations, per
+# tijdzone gebundeld omdat IEM er één per verzoek kent.
+#
+# De uitkomst hoort in REVIEW.md te belanden, niet alleen in monitoring/.
+on:
+  workflow_dispatch:
+    inputs:
+      dagen:
+        description: "Aantal dagen terug"
+        required: false
+        default: "400"
+permissions:
+  contents: write
+
+jobs:
+  studie:
+    runs-on: ubuntu-latest
+    timeout-minutes: 120      # de IEM-reeksen zijn traag
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      # meet_meting.py gebruikt alleen de standaardbibliotheek.
+
+      - name: Rekenkant toetsen
+        run: python bot/meet_meting.py --zelftest
+
+      - name: Meten
+        run: python bot/meet_meting.py --dagen ${{ github.event.inputs.dagen || '400' }}
+
+      - name: Committen
+        run: |
+          git config user.name "weerbot-actie"
+          git config user.email "actions@users.noreply.github.com"
+          git add weerbot-modellen/monitoring/meting_studie.json
+          if git diff --cached --quiet; then
+            echo "  geen wijziging"
+            exit 0
+          fi
+          git commit -m "Metingstudie"
+          git pull --rebase origin "${GITHUB_REF_NAME}"
+          git push origin "HEAD:${GITHUB_REF_NAME}"

@@ -1,0 +1,45 @@
+{
+  "_lees_dit": [
+    "Welke stad-horizonnen de ML-voorspelling getoond krijgen in plaats van de",
+    "eigen rekenkern. Wat hier aanstaat is niet gekozen op de schaduwmeting in",
+    "de browser maar op weerbot-modellen/schaduw_backtest.py: de modellen walk",
+    "forward hertraind op features_alle.csv, elke zeven dagen op alleen de dagen",
+    "ervoor, en gescoord tegen kalibratie.walk_forward op dezelfde dagen. 597 tot",
+    "740 evaluatiedagen per stad in plaats van de zestig waar de schaduwfase op",
+    "wachtte. De uitkomst staat in monitoring/backtest_lead1.json en _lead2.json,",
+    "de redenering in REVIEW.md.",
+    "",
+    "Horizon 0 staat op de nooit-lijst en dat blijft zo. Daar heeft de rekenkern",
+    "de run van vandaag terwijl het ML-model op previous_day1 is getraind, dus de",
+    "run van gisteren. Aanzetten zou een verse voorspelling door een oudere",
+    "vervangen. Horizon 1 krijgt previous_day1 en is precies waarop getraind is;",
+    "horizon 2 krijgt previous_day2, een dag verder weg, en is apart gemeten.",
+    "",
+    "Steden met label LINEAIR hebben geen eigen model en gaan nooit aan.",
+    "",
+    "Bijwerken gebeurt niet met de hand: .github/workflows/ml-controle.yml draait",
+    "de backtest dinsdag en vrijdag en meldt welke steden de drempels net wel of",
+    "net niet meer halen. Aanzetten blijft een besluit. Na elke wijziging",
+    "python3 weerbot-modellen/controleer_schil.py --zet draaien, anders houden",
+    "bezoekers de oude lijst."
+  ],
+  "versie": 2,
+  "drempels": {
+    "min_schaduwdagen": 60,
+    "min_n": 45,
+    "min_mae_winst_c": 0.05,
+    "max_abs_bias_c": 0.35,
+    "dekking80_tussen": [0.72, 0.88],
+    "crps_moet_beter": true
+  },
+  "nooit_labels": ["LINEAIR"],
+  "nooit_horizons": ["0"],
+  "extra_toets": ["atlanta", "chengdu"],
+  "aan": {
+    "singapore": { "1": true, "2": true },
+    "shanghai": { "1": true, "2": true },
+    "chongqing": { "2": true },
+    "hongkong": { "2": true },
+    "nyc": { "2": true }
+  }
+}

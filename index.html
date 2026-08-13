@@ -1569,7 +1569,12 @@ const CONFIG = {"nws_gewicht": 0.25, "steden": [{"key": "NYC", "naam": "New York
           gekalibreerd = true;
         }
         dagen.push({ datum: datum, verwachting: verw, p10: verw + lo, p90: verw + hi,
-                     mlx: { m: Object.assign({}, A.modelGem), s: sLive, lag: lag },
+                     /* Alleen de lagfeature gaat nog naar de ML-koppeling. De
+                        modelwaarden en de spreiding stonden hier ook, maar dat
+                        waren ensemblegemiddelden uit een andere API dan waar de
+                        modellen op zijn getraind; weerbot-ml-koppel.js haalt ze
+                        nu zelf uit de previous-runs-API. */
+                     mlx: { lag2: lag2Voor(s, datum) },
                      n_leden: A.pool.length, gekalibreerd: gekalibreerd,
                      piek: (pieken && pieken[datum]) || null,
                      verbreed: gekalibreerd && (A.d10 < bLo || A.d90 > bHi),
@@ -1826,6 +1831,28 @@ const CONFIG = {"nws_gewicht": 0.25, "steden": [{"key": "NYC", "naam": "New York
     return hp && hp.kern ? lagFoutEwma(s, h, d) : lagFout(s, h, d);
   }
 
+  /* De lagfeature van de ML-modellen, niet die van de rekenkern hierboven.
+     deel9_wekelijks.py neemt de fout van het kale modelgemiddelde van twee
+     dagen terug, en als die er niet is die van drie dagen terug; ontbreken ze
+     allebei, dan vult weerbot-ml.js de mediaan uit de training in. Geeft null
+     terug in dat laatste geval, want een nul is hier geen ontbrekende waarde
+     maar een uitspraak: gisteren zat het model er precies naast. */
+  function lag2Voor(s, datum) {
+    const v2 = VERIF[s.key];
+    if (!v2 || !v2.rijen) return null;
+    for (const stap of [2, 3]) {
+      const dag = isoMin(datum, stap);
+      for (let i = 0; i < v2.rijen.length; i++) {
+        /* Een rij zonder mmf telt als ontbrekend en niet als nul, dus dan door
+           naar drie dagen terug. Zo doet _laad in deel9_wekelijks.py het ook. */
+        if (v2.rijen[i].datum === dag && typeof v2.rijen[i].mmf === "number") {
+          return v2.rijen[i].mmf;
+        }
+      }
+    }
+    return null;
+  }
+
   /* ── kern:start ── gedeelde rekenkern, spiegelbeeld van bot/kalibratie.py.
      Alles tussen deze twee bakens draait ook los in node (zie bot/test_kern.py),
      zodat browser en backtest gegarandeerd hetzelfde uitrekenen. ── */
@@ -2079,9 +2106,26 @@ const CONFIG = {"nws_gewicht": 0.25, "steden": [{"key": "NYC", "naam": "New York
         });
         if (Object.keys(per).length) perDag[dag] = per;
       });
+      /* De fout van het kále modelgemiddelde over de p1-run, los van de fouten
+         hierboven. Die zijn van de gekalibreerde kern en horen bij deze app;
+         de ML-modellen kennen alleen lag2_err = doel - mm_gem uit
+         deel9_wekelijks.py, en dat is een andere grootheid met ruim twee keer
+         zoveel spreiding. Hier vastgelegd omdat fc[1] precies de p1-reeks is
+         waar de training op is gefit; mmFoutVoor leest hem later terug. */
+      const mmFout = {};
+      dagen.forEach(function (dag) {
+        const m = fc[1][dag];
+        if (!m) return;
+        const v = [];
+        for (const k in m) if (typeof m[k] === "number") v.push(m[k]);
+        if (v.length < 4) return;                    // zelfde drempel als de training
+        const gem = v.reduce(function (a, b) { return a + b; }, 0) / v.length;
+        mmFout[dag] = Math.round((act[dag] - gem) * 10) / 10;
+      });
       const rijen = [];
       dagen.slice().reverse().forEach(function (dag) {
-        if (perDag[dag]) rijen.push({ datum: dag, echt: Math.round(act[dag] * 10) / 10, per: perDag[dag] });
+        if (perDag[dag]) rijen.push({ datum: dag, echt: Math.round(act[dag] * 10) / 10,
+                                      per: perDag[dag], mmf: mmFout[dag] });
       });
       if (!rijen.length) throw new Error("geen overlap");
 

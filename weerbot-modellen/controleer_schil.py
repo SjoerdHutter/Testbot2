@@ -38,6 +38,13 @@ VAST = [
     "weerbot-modellen/polymarkt.js",
     "weerbot-modellen/weerbot-ml.js",
     "weerbot-modellen/weerbot-ml-koppel.js",
+    # Geen code maar wel een schakelaar: ml_activatie.json bepaalt welke
+    # stad-horizonnen de ML-voorspelling te zien krijgen. Zou hij buiten de
+    # vingerafdruk blijven, dan zou een activering pas de tweede keer openen
+    # doorkomen en zou terugdraaien niet gegarandeerd aankomen. Anders dan
+    # app_params.js en modellen.json herschrijft geen workflow dit bestand, dus
+    # hij laat de controle ook niet wekelijks omvallen.
+    "weerbot-modellen/ml_activatie.json",
 ]
 
 
