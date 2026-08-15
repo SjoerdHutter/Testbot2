@@ -1,5 +1,5 @@
 {
- "generated_at": "2026-08-15T16:36:34+00:00",
+ "generated_at": "2026-08-15T17:31:20+00:00",
  "wallet": "0x470b23A4b98C191e50b90AcD62D2cc18670A52AB",
  "positions": [
   {
@@ -24,7 +24,7 @@
    "delta_mean": 0.66,
    "fair_value": 1.0,
    "edge_now": 99.95,
-   "hours_to_close": 4.39,
+   "hours_to_close": 3.48,
    "hours_to_peak": null,
    "peak_hour": null,
    "peak_hour_spread": null,
@@ -35,8 +35,8 @@
    "market_disagrees": false,
    "market_note": "",
    "observed_today": 26.0,
-   "observed_hour": 18.83,
-   "restfactor": 0.1423,
+   "observed_hour": 19.83,
+   "restfactor": 0.105,
    "high_uncertainty": false,
    "unit": "°C",
    "bracket_lo": 27,
