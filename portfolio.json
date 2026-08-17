@@ -1,5 +1,5 @@
 {
- "generated_at": "2026-08-17T14:38:49+00:00",
+ "generated_at": "2026-08-17T15:35:34+00:00",
  "wallet": "0x470b23A4b98C191e50b90AcD62D2cc18670A52AB",
  "positions": [],
  "unmapped": [
@@ -32,39 +32,6 @@
     "outcomeIndex": 0,
     "oppositeOutcome": "No",
     "oppositeAsset": "72433435487515814631344400459815549868044734165082020724691045649454520502781",
-    "endDate": "2026-12-31",
-    "negativeRisk": false
-   }
-  },
-  {
-   "reason": "slug niet te ontleden: 'will-wildberries-announce-bankruptcy-before-2027-20260723171611669'",
-   "raw": {
-    "proxyWallet": "0x470b23a4b98c191e50b90acd62d2cc18670a52ab",
-    "asset": "76289247198182412635191487169884335182015989798043176430137861871296240083499",
-    "conditionId": "0xbef8c052aca381908541276ef2e56f3b1920599750b1d7e10dbd306f65b08c70",
-    "size": 101.9744,
-    "avgPrice": 0.1737,
-    "initialValue": 17.7225,
-    "grossInitialValue": 18.392927,
-    "entryFeesUsdc": 0.670425,
-    "currentValue": 19.885,
-    "cashPnl": 2.1624,
-    "percentPnl": 12.2014,
-    "totalBought": 135.9644,
-    "realizedPnl": 0.0858,
-    "percentRealizedPnl": -15.8475,
-    "curPrice": 0.195,
-    "redeemable": false,
-    "mergeable": false,
-    "title": "Will Wildberries announce bankruptcy before 2027?",
-    "slug": "will-wildberries-announce-bankruptcy-before-2027-20260723171611669",
-    "icon": "https://polymarket-upload.s3.us-east-2.amazonaws.com/will-wildberries-announce-bankruptcy-before-2027-20260723171611669-BMKA2_f8qbae.jpg",
-    "eventId": "744027",
-    "eventSlug": "will-wildberries-announce-bankruptcy-before-2027-20260723171611669",
-    "outcome": "Yes",
-    "outcomeIndex": 0,
-    "oppositeOutcome": "No",
-    "oppositeAsset": "48536131737315453741171594009376383990142554346916924101466379487979001336178",
     "endDate": "2026-12-31",
     "negativeRisk": false
    }
@@ -144,7 +111,7 @@
   "n_unknown": 0,
   "n_settled": 0,
   "n_market_disagrees": 0,
-  "n_unmapped": 4,
+  "n_unmapped": 3,
   "total_exposure": 0
  }
 }
