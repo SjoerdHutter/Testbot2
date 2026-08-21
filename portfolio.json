@@ -1,5 +1,5 @@
 {
- "generated_at": "2026-08-21T16:48:09+00:00",
+ "generated_at": "2026-08-21T17:39:16+00:00",
  "wallet": "0x470b23A4b98C191e50b90AcD62D2cc18670A52AB",
  "positions": [],
  "unmapped": [
@@ -32,7 +32,7 @@
     "outcomeIndex": 0,
     "oppositeOutcome": "No",
     "oppositeAsset": "72433435487515814631344400459815549868044734165082020724691045649454520502781",
-    "endDate": "2026-12-31",
+    "endDate": "2027-01-01",
     "negativeRisk": false
    }
   },
