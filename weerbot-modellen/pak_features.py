@@ -66,38 +66,55 @@ def klimaatprofiel_fouten(per: dict) -> list:
     permutatie van de verkeerde steden (kaapstad.csv droeg een noordelijk
     binnenlandklimaat, singapore.csv 4° in januari). De koppeling stad->rijen
     is aan geen enkele kolom te zien; het klimaat zelf is de enige controle die
-    zo'n verwisseling betrapt. Vergeleken wordt de gemiddelde doeltemperatuur
-    van juni-augustus met die van december-februari: op het noordelijk halfrond
-    hoort de eerste ruim warmer te zijn, op het zuidelijk halfrond de tweede.
-    De tropengordel (|lat| < 10) heeft geen bruikbaar seizoen en doet niet mee."""
+    zo'n verwisseling betrapt.
+
+    Getoetst wordt in welke maand het warmst is. Op het noordelijk halfrond
+    hoort die piek in het zomerhalfjaar te liggen (maart tot en met oktober), op
+    het zuidelijk halfrond in het winterhalfjaar van het noorden (september tot
+    en met april). Een verwisselde stad valt daar hard doorheen: de kaapstad.csv
+    van toen piekte in juli terwijl Kaapstad in januari hoort te pieken.
+
+    Hiervoor stond er een vergelijking van juni-augustus met december-februari,
+    met een marge van een graad. Die deugde niet dicht bij de evenaar. Manila
+    (14,5° N) piekt in april op 35,4° en houdt tussen die twee blokken maar 0,9°
+    over, want juni-augustus is daar het regenseizoen; de controle riep dus dat
+    de data van een andere stad was terwijl het maandprofiel onmiskenbaar
+    Manila is. De piekmaand heeft dat probleem niet: die ligt in april en dus
+    gewoon in het noordelijke zomerhalfjaar.
+
+    De tropengordel (|lat| < 10) doet nog steeds niet mee: daar is ook de
+    piekmaand ruis, want het verschil tussen de maanden valt weg tegen de
+    spreiding binnen een maand."""
     if not STEDEN.exists():
         return [f"{STEDEN.name} ontbreekt: klimaatprofiel niet te controleren"]
     lat_van = {s["key"]: s.get("lat") for s in json.load(open(STEDEN))}
+    # Het halfjaar waarin de piek hoort te vallen, per halfrond.
+    NOORD = {"03", "04", "05", "06", "07", "08", "09", "10"}
+    ZUID = {"09", "10", "11", "12", "01", "02", "03", "04"}
     fouten = []
     for stad, rijen in sorted(per.items()):
         lat = lat_van.get(stad)
         if lat is None or abs(lat) < 10:
             continue
-        jja, djf = [], []
+        per_maand: dict = {}
         for rij in rijen:
             try:
                 v = float(rij["doel"])
             except (KeyError, TypeError, ValueError):
                 continue
-            m = rij["datum"][5:7]
-            if m in ("06", "07", "08"):
-                jja.append(v)
-            elif m in ("12", "01", "02"):
-                djf.append(v)
-        if len(jja) < 30 or len(djf) < 30:
+            per_maand.setdefault(rij["datum"][5:7], []).append(v)
+        # genoeg maanden met genoeg dagen, anders is de piek niet te bepalen
+        bruikbaar = {m: sum(v) / len(v) for m, v in per_maand.items() if len(v) >= 10}
+        if len(bruikbaar) < 8:
             continue
-        zomer = jja if lat > 0 else djf
-        winter = djf if lat > 0 else jja
-        z = sum(zomer) / len(zomer)
-        w = sum(winter) / len(winter)
-        if z < w + 1.0:
-            fouten.append(f"{stad}: zomer {z:.1f}° tegen winter {w:.1f}° past "
-                          f"niet bij breedtegraad {lat} — data van een andere stad?")
+        piek = max(bruikbaar, key=lambda m: bruikbaar[m])
+        hoort = NOORD if lat > 0 else ZUID
+        if piek not in hoort:
+            halfrond = "noordelijk" if lat > 0 else "zuidelijk"
+            fouten.append(
+                f"{stad}: warmste maand is {piek} ({bruikbaar[piek]:.1f}°), en dat "
+                f"past niet bij het {halfrond} halfrond (breedtegraad {lat}) "
+                f"— data van een andere stad?")
     return fouten
 
 

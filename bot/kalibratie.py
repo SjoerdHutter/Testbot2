@@ -37,6 +37,38 @@ from datetime import date, timedelta
 from pathlib import Path
 
 import weer  # STEDEN, fetch_station_maxen, c_van_f, _get_json, nl
+import logger  # met_herkansing
+
+# Herkansingen op een haperende verbinding, met dezelfde helper als logger.py,
+# signalen.py en portfolio.py. Deze module was de laatste zonder, en dat was te
+# zien: op 31 augustus 2026 verloor de wekelijkse kalibratie dertien van de
+# 49 steden aan `_ssl.c:993: The handshake operation timed out`, een week eerder
+# negen andere. Elke week andere steden, dus een kwaal van het moment en niet
+# van de stad — precies wat logger.py hierover al opschreef. Een stad die
+# omvalt houdt zijn oude parameters, en omdat het steeds anderen zijn kan een
+# stad weken achtereen overgeslagen worden zonder dat het opvalt.
+#
+# De timeout gaat van 90 naar 30 seconden. Dat kost niets: een geslaagde
+# aanroep is in enkele seconden terug (7 tot 23 seconden voor een hele stad,
+# alle endpoints bij elkaar), en de fout hierboven valt in de handshake, dus
+# vóór het eerste byte. Zo blijft het slechtste geval met drie pogingen
+# (30 + 3 + 30 + 6 + 30 ≈ 99 s) ongeveer waar het stond, maar met drie kansen
+# in plaats van één.
+FETCH_POGINGEN = 3
+FETCH_PAUZE = 3.0        # seconden, oplopend per poging
+FETCH_TIMEOUT = 30
+
+
+def _haal_json(url: str, timeout: int = FETCH_TIMEOUT):
+    """weer._get_json met herkansingen."""
+    return logger.met_herkansing(weer._get_json, url, timeout=timeout,
+                                 pogingen=FETCH_POGINGEN, pauze=FETCH_PAUZE)
+
+
+def _haal_tekst(url: str, timeout: int = FETCH_TIMEOUT):
+    """weer._get met herkansingen."""
+    return logger.met_herkansing(weer._get, url, timeout=timeout,
+                                 pogingen=FETCH_POGINGEN, pauze=FETCH_PAUZE)
 
 # De API-namen verschillen per endpoint (de ensemble-API kent ecmwf_aifs025,
 # de deterministische APIs ecmwf_aifs025_single). Intern werkt alles daarom met
@@ -118,13 +150,13 @@ def _haal_met_aifs(soort: str, bouw_url, heeft_aifs):
     een extra aanroep. Geeft (json, gebruikte aifs-naam)."""
     if soort in _AIFS_NAAM:
         naam = _AIFS_NAAM[soort]
-        return weer._get_json(bouw_url(modelnamen(naam)), timeout=90), naam
+        return _haal_json(bouw_url(modelnamen(naam))), naam
 
     reserve = None
     laatste_fout = None
     for naam in (API_MODELLEN[1], AIFS_ALTERNATIEF):
         try:
-            data = weer._get_json(bouw_url(modelnamen(naam)), timeout=90)
+            data = _haal_json(bouw_url(modelnamen(naam)))
         except Exception as ex:
             laatste_fout = ex
             continue
@@ -227,7 +259,7 @@ def haal_actuals_hko(stad: dict, d1: date, d2: date, soort: str = "max") -> dict
         url = ("https://data.weather.gov.hk/weatherAPI/opendata/opendata.php"
                f"?dataType={'CLMMINT' if soort == 'min' else 'CLMMAXT'}&year={jaar}&rformat=csv&station=HKO")
         try:
-            tekst = weer._get(url, timeout=60)
+            tekst = _haal_tekst(url, timeout=60)
         except Exception as ex:
             print(f"      [let op] HKO {jaar} mislukt: {ex}")
             continue
@@ -257,7 +289,7 @@ def haal_actuals_era5(stad: dict, d1: date, d2: date, soort: str = "max") -> dic
            f"&temperature_unit={eenheid}"
            f"&start_date={d1.isoformat()}&end_date={d2.isoformat()}"
            f"&timezone={urllib.parse.quote(stad['tz'])}")
-    data = weer._get_json(url, timeout=60)
+    data = _haal_json(url, timeout=60)
     daily = data.get("daily", {})
     uit = {}
     veld = "temperature_2m_min" if soort == "min" else "temperature_2m_max"
@@ -281,13 +313,13 @@ def verrijk_1min(stad: dict, uit_f: dict, d1: date, d2: date) -> int:
                f"?station={stad['station']}&vars=tmpf"
                f"&sts={blok.isoformat()}T00:00Z&ets={(eind + timedelta(days=1)).isoformat()}T00:00Z"
                "&sample=1min&what=download&tz=UTC&delim=comma")
-        tekst = None
-        for poging in range(3):
-            try:
-                tekst = weer._get(url, timeout=150)
-                break
-            except Exception:
-                time.sleep(3 + 3 * poging)
+        # Deze reeks is groot (een minuutwaarde per minuut over een blok dagen),
+        # dus hier blijft de ruimere timeout staan; de herkansingen komen uit
+        # dezelfde helper als de rest.
+        try:
+            tekst = _haal_tekst(url, timeout=150)
+        except Exception:                          # noqa: BLE001
+            tekst = None
         if tekst:
             for regel in tekst.splitlines():
                 if not regel.startswith(stad["station"] + ","):
@@ -323,7 +355,9 @@ def haal_actuals(stad: dict, d1: date, d2: date, soort: str = "max") -> dict:
         return haal_actuals_hko(stad, d1, d2, soort)
     if bron == "era5":
         return haal_actuals_era5(stad, d1, d2, soort)
-    ruw = weer.fetch_station_maxen(stad["station"], stad["tz"], d1, d2)
+    ruw = logger.met_herkansing(weer.fetch_station_maxen, stad["station"],
+                                stad["tz"], d1, d2,
+                                pogingen=FETCH_POGINGEN, pauze=FETCH_PAUZE)
     uit = {}
     for dag, e in ruw.items():
         if e["n"] >= 8 and e["laatste_uur"] >= 18:
