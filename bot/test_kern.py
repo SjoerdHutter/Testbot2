@@ -495,10 +495,80 @@ def test_data(max_steden: int = 6) -> bool:
     return ok
 
 
+def test_herkansing() -> bool:
+    """De kalibratie moet een haperende verbinding overleven.
+
+    Dit bestaat omdat het wekenlang misging zonder dat de actie faalde. Op
+    31 augustus 2026 verloor de wekelijkse kalibratie dertien van de 49 steden
+    aan `_ssl.c:993: The handshake operation timed out`, de week ervoor negen
+    andere. Steeds andere steden, dus een kwaal van het moment en niet van de
+    stad. Een stad die omvalt houdt stilletjes zijn oude parameters, en de run
+    slaagt: het viel alleen op door de logs te lezen.
+
+    logger.py, signalen.py en portfolio.py hadden hier al herkansingen voor;
+    kalibratie.py was de laatste zonder."""
+    import weer
+    goed = True
+    echte_get, echte_pauze = weer._get_json, K.FETCH_PAUZE
+    try:
+        K.FETCH_PAUZE = 0.0                        # niet echt wachten
+
+        # twee keer stuk, dan goed: de derde poging moet tellen
+        n = {"x": 0}
+
+        def hapert(url, timeout=None):
+            n["x"] += 1
+            if n["x"] < 3:
+                raise OSError("_ssl.c:993: The handshake operation timed out")
+            return {"ok": True}
+
+        weer._get_json = hapert
+        if K._haal_json("https://verzonnen") != {"ok": True}:
+            print("  herkans   MISLUKT: geen antwoord na twee haperingen")
+            goed = False
+        elif n["x"] != 3:
+            print(f"  herkans   MISLUKT: {n['x']} pogingen, verwacht 3")
+            goed = False
+
+        # blijft het stuk, dan komt de reden omhoog mét het aantal pogingen:
+        # een stad die stilletjes zijn oude parameters houdt is erger dan een
+        # gat dat zichzelf meldt
+        weer._get_json = lambda *a, **k: (_ for _ in ()).throw(
+            OSError("_ssl.c:993: The handshake operation timed out"))
+        try:
+            K._haal_json("https://verzonnen")
+            print("  herkans   MISLUKT: een blijvende storing geeft geen fout")
+            goed = False
+        except Exception as ex:
+            reden = str(ex)
+            if "handshake" not in reden or "pogingen" not in reden:
+                print(f"  herkans   MISLUKT: reden zegt niet wat er misging: {reden}")
+                goed = False
+    finally:
+        weer._get_json, K.FETCH_PAUZE = echte_get, echte_pauze
+
+    # en er staat nergens meer een kale aanroep in de ophaalpaden
+    bron = (Path(__file__).resolve().parent / "kalibratie.py").read_text()
+    kaal = [r.strip() for r in bron.splitlines()
+            if ("weer._get" in r or "weer.fetch_station_maxen" in r)
+            and "met_herkansing" not in r and not r.strip().startswith(("#", '"""'))]
+    if kaal:
+        print("  herkans   MISLUKT: nog kale aanroepen zonder herkansing:")
+        for r in kaal:
+            print("     ", r[:90])
+        goed = False
+
+    if goed:
+        print(f"  herkans   ok: herstelt na twee haperingen, meldt de reden na "
+              f"{K.FETCH_POGINGEN}, geen kale aanroepen meer")
+    return goed
+
+
 def main() -> int:
     print("\n  Zelftest correctiekern\n")
     goed = all([test_ridge(), test_pariteit(), test_kalibratie_pariteit(),
-                test_toepassing(), test_kans_pariteit(), test_data()])
+                test_toepassing(), test_kans_pariteit(), test_data(),
+                test_herkansing()])
     print("\n  " + ("Alles in orde.\n" if goed else "ER GING IETS MIS.\n"))
     return 0 if goed else 1
 
