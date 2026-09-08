@@ -50,13 +50,19 @@ jobs:
       - name: Backtest lead 2
         run: python weerbot-modellen/schaduw_backtest.py --lead 2 --controleer --schrijf
 
-      - name: Activatielijst toetsen
-        # Valt om zodra een stad die aanstaat de drempels in de verse backtest
-        # niet meer haalt. Dat is precies de bedoeling: een stilzwijgend
-        # verslechterende stad hoort niet in een logboek weg te zakken.
-        run: python bot/test_ml.py
-
       - name: Committen
+        # Vóór de toets hieronder, en dat is de hele reden dat hij hier staat.
+        # Andersom ging de meting van een falende run verloren: op 8 september
+        # zakte shanghai h1 naar +0,048, de toets viel om, en deze stap werd
+        # overgeslagen — terwijl juist dat cijfer het cijfer is dat je wilt
+        # kunnen terugzoeken. De reeks in monitoring/ is waarop later gemeten
+        # wordt; een gat erin op precies de dag dat er iets omslaat, is het
+        # duurste gat dat er is.
+        #
+        # Wat hier gecommit wordt is een meting, geen besluit: de backtest
+        # hierboven schrijft alleen monitoring/, en ml_activatie.json blijft
+        # onaangeroerd. De toets die daarna komt bepaalt alleen of de actie
+        # rood wordt.
         run: |
           git config user.name "weerbot-actie"
           git config user.email "actions@users.noreply.github.com"
@@ -68,3 +74,9 @@ jobs:
           git commit -m "ML-controle"
           git pull --rebase origin "${GITHUB_REF_NAME}"
           git push origin "HEAD:${GITHUB_REF_NAME}"
+
+      - name: Activatielijst toetsen
+        # Valt om zodra een stad die aanstaat de drempels in de verse backtest
+        # niet meer haalt. Dat is precies de bedoeling: een stilzwijgend
+        # verslechterende stad hoort niet in een logboek weg te zakken.
+        run: python bot/test_ml.py
