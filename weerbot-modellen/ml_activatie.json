@@ -35,9 +35,22 @@
   "nooit_labels": ["LINEAIR"],
   "nooit_horizons": ["0"],
   "extra_toets": ["atlanta", "chengdu"],
+  "_besluiten": [
+    "2026-09-08 shanghai h1 uit. De winst zakte naar +0,048 °C, onder de 0,05",
+    "  die hierboven staat. Hij stond daar al weken vlak boven: 0,0503 op",
+    "  13 augustus, 0,0512 op 18 augustus, 0,0505 van 25 augustus tot 4",
+    "  september, en met de veertien evaluatiedagen die er maandag bij kwamen",
+    "  (n van 749 naar 763) viel hij eronder. Het model is nog steeds beter dan",
+    "  de rekenkern, alleen niet genoeg beter om de lat te halen.",
+    "  Uit gezet en niet de drempel verlaagd: de lat verschuiven nadat je de",
+    "  uitslag kent is precies de fout die bot/inzet.py elders benoemt.",
+    "  Shanghai h2 haalt de drempels wel en blijft aan.",
+    "  Komt hij later weer boven de 0,05, dan mag hij terug — dat is dan een",
+    "  besluit op nieuwe cijfers en niet op deze."
+  ],
   "aan": {
     "singapore": { "1": true, "2": true },
-    "shanghai": { "1": true, "2": true },
+    "shanghai": { "1": false, "2": true },
     "chongqing": { "2": true },
     "hongkong": { "2": true },
     "nyc": { "2": true }
