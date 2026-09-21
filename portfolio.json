@@ -1,5 +1,5 @@
 {
- "generated_at": "2026-09-21T16:59:42+00:00",
+ "generated_at": "2026-09-21T21:00:40+00:00",
  "wallet": "0x470b23A4b98C191e50b90AcD62D2cc18670A52AB",
  "positions": [],
  "unmapped": [
@@ -68,39 +68,6 @@
     "endDate": "2027-07-01",
     "negativeRisk": false
    }
-  },
-  {
-   "reason": "slug niet te ontleden: 'will-nicols-maduro-be-the-leader-of-venezuela-end-of-2026'",
-   "raw": {
-    "proxyWallet": "0x470b23a4b98c191e50b90acd62d2cc18670a52ab",
-    "asset": "21527446005162722668702146847806837944786417986794925592709069062391666573103",
-    "conditionId": "0x67f3f8d0a0ecdfc008c99650284a4674388a8c3029b0eb7ca0abd65dde8d996f",
-    "size": 7.647,
-    "avgPrice": 0.2039,
-    "initialValue": 1.5599,
-    "grossInitialValue": 1.617451,
-    "entryFeesUsdc": 0.05746,
-    "currentValue": 3.7432,
-    "cashPnl": 2.1832,
-    "percentPnl": 139.9494,
-    "totalBought": 7.647,
-    "realizedPnl": 0,
-    "percentRealizedPnl": 139.9499,
-    "curPrice": 0.4895,
-    "redeemable": false,
-    "mergeable": false,
-    "title": "Will Nicolás Maduro be the leader of Venezuela end of 2026?",
-    "slug": "will-nicols-maduro-be-the-leader-of-venezuela-end-of-2026",
-    "icon": "https://polymarket-upload.s3.us-east-2.amazonaws.com/venezuela-leader-end-of-2026-lOfqbUxiKAsg.png",
-    "eventId": "143443",
-    "eventSlug": "venezuela-leader-end-of-2026",
-    "outcome": "No",
-    "outcomeIndex": 1,
-    "oppositeOutcome": "Yes",
-    "oppositeAsset": "37090128566507509913630589460372620352013766554886380785463533062224343545231",
-    "endDate": "2026-12-31",
-    "negativeRisk": true
-   }
   }
  ],
  "summary": {
@@ -111,7 +78,7 @@
   "n_unknown": 0,
   "n_settled": 0,
   "n_market_disagrees": 0,
-  "n_unmapped": 3,
+  "n_unmapped": 2,
   "total_exposure": 0
  }
 }
