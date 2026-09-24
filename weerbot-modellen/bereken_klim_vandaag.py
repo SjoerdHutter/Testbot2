@@ -8,7 +8,7 @@ per lokale datum (vandaag, morgen, overmorgen):
 Draait in de dagelijkse GitHub Action; vier lichte API-aanroepen totaal.
 Alles in graden Celsius; de app rekent zelf om naar de markteenheid.
 """
-import json, math, pickle, urllib.request
+import json, math, pickle, time, urllib.request
 from datetime import date, datetime, timedelta, timezone
 from pathlib import Path
 from zoneinfo import ZoneInfo
@@ -31,16 +31,47 @@ KLIM_STEDEN   = [k for k, m in MOD.items() if m.get("variant") == "ridge_klim"]
 POOLED_STEDEN = [k for k, m in MOD.items() if m.get("label") == "GEPOOLD"]
 ALLE = KLIM_STEDEN + POOLED_STEDEN
 
-def haal(url):
+# Herkansingen op elke aanroep. Zonder deze wikkel kostte één hapering van de
+# weer-API de hele dagberekening: op 21 september 2026 gaf Open-Meteo een
+# HTTP 503 en viel de actie klim-dagelijks daarop om, terwijl de volgende poging
+# het gewoon gedaan zou hebben. bot/logger.py had zo'n wikkel al (met_herkansing);
+# dit bestand miste hem als enige van de ophalende scripts.
+#
+# Drie pogingen met oplopende pauze. Een 503 en een dichtgevallen verbinding zijn
+# allebei tijdelijk en allebei een uitzondering, dus er wordt niet op soort
+# gefilterd; blijft het misgaan, dan gaat de laatste reden met het aantal
+# pogingen erbij omhoog en valt de run alsnog om -- zichtbaar, en met de oorzaak
+# erbij.
+POGINGEN = 3
+PAUZE    = 4.0          # seconden, oplopend per poging
+
+def met_herkansing(fn, *args, pogingen: int = POGINGEN, pauze: float = PAUZE):
+    laatste = None
+    for poging in range(pogingen):
+        try:
+            return fn(*args)
+        except Exception as ex:               # noqa: BLE001 - reden gaat mee
+            laatste = ex
+            if poging + 1 < pogingen:
+                time.sleep(pauze * (poging + 1))
+    raise RuntimeError(f"{laatste} (na {pogingen} pogingen)") from laatste
+
+def _haal_een(url):
     req = urllib.request.Request(url, headers={"User-Agent": "weerbot-klim/1.0"})
     with urllib.request.urlopen(req, timeout=60) as r:
         return json.loads(r.read()) if url.split("?")[0].endswith(("forecast", "archive")) \
                or "open-meteo" in url else r.read().decode()
 
-def haal_tekst(url):
+def haal(url):
+    return met_herkansing(_haal_een, url)
+
+def _haal_tekst_een(url):
     req = urllib.request.Request(url, headers={"User-Agent": "weerbot-klim/1.0"})
     with urllib.request.urlopen(req, timeout=90) as r:
         return r.read().decode(errors="replace")
+
+def haal_tekst(url):
+    return met_herkansing(_haal_tekst_een, url)
 
 def coord(keys):
     la = ",".join(str(STEDEN[k]["lat"]) for k in keys)

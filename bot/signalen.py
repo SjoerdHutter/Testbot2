@@ -680,7 +680,7 @@ def run(steden=None, dagen: int = 3, pauze: float = 0.6) -> int:
         rijen.extend(deel)
 
     if rijen:
-        logger.schrijf(logmap() / "signalen.csv", KOP, rijen)
+        deel = logger.schrijf_deel("signalen", KOP, rijen)
     met_prijs = sum(1 for r in rijen if r[14] != "")
     print(f"Gelogd: {len(rijen)} signaalregels over "
           f"{len(set(r[1] for r in rijen))} steden, {met_prijs} met marktprijs, "

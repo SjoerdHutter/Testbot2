@@ -562,8 +562,20 @@ bestanden:
 
 * `.github/workflows/signalen-log.yml` draait `bot/logger.py`,
   `bot/signalen.py` en `bot/taf.py` **vier keer per dag** en commit
-  `ensemble_log.csv`, `nws_log.csv`, `signalen.csv` en `taf_log.csv`. Vier keer
+  `ensemble_log.csv`, `nws_log.csv`, `logs/signalen/` en `taf_log.csv`. Vier keer
   is genoeg omdat ECMWF en GFS zelf elke zes uur draaien.
+
+  Het signalenlogboek staat in stukken en niet in één bestand. GitHub weigert
+  elk bestand boven de 100 MB met een pre-receive hook, en `signalen.csv` liep
+  daar op 19 september 2026 tegenaan: vanaf dat moment faalde deze actie vier
+  keer per dag met `GH001`, waarbij het werk wél gebeurde en bij het pushen werd
+  weggegooid. Omdat de vier logboeken in dezelfde commit meegaan, stond sindsdien
+  ook de rest van de reeks stil. `logger.schrijf_deel` rolt nu om bij 40 MB —
+  ruim onder de grens, want de reeks groeit met 2,96 MB per dag en per maand
+  delen zou maar elf procent marge laten. Elk deel heet naar de datum waarop het
+  begon, dus sorteren op naam is sorteren op tijd, en `logger.delen("signalen")`
+  leest ze in die volgorde terug. `bot/migratie_signalen_delen.py` heeft het
+  bestaande logboek opgedeeld.
 * `.github/workflows/portefeuille.yml` draait `bot/signalen.py --portfolio`
   **elk uur** en commit `portfolio.json` en `logs/portfolio_history.csv`. Die
   redenering over modelrondes geldt daar niet: open posities veranderen wanneer

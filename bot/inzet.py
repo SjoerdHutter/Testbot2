@@ -91,6 +91,9 @@ import random
 import sys
 from datetime import datetime
 from pathlib import Path
+
+sys.path.insert(0, str(Path(__file__).resolve().parent))
+import logger
 from zoneinfo import ZoneInfo
 
 sys.path.insert(0, str(Path(__file__).resolve().parent))
@@ -300,9 +303,10 @@ def meet(pad: Path = None, trekkingen: int = 120) -> list:
     stad-dag zijn één waarneming, geen elf: doe je dat niet, dan komt er een
     interval uit dat een factor drie te smal is en lijkt een toevalstreffer
     significant."""
-    pad = pad or (Path.cwd() / "logs" / "signalen.csv")
-    with open(pad, newline="") as f:
-        rijen = list(csv.DictReader(f))
+    rijen = []
+    for deel in logger.delen("signalen", pad):
+        with open(deel, newline="") as f:
+            rijen.extend(csv.DictReader(f))
     winnaar = _uitslagen(rijen)
 
     # Momenten waarop de markt al afgerekend had tellen niet mee. Polymarket

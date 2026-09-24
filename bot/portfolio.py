@@ -594,32 +594,31 @@ def instap_index(pad: Path = None) -> dict:
     is in de loop van de tijd gegroeid, en een DictReader plakt de kop van nu op
     een kortere oude regel, waarmee elke kolom een plek opschuift zonder dat er
     iets misgaat waar je het aan ziet."""
-    pad = pad or (logger.logmap() / "signalen.csv")
     uit: dict = {}
-    if not pad.exists():
-        return uit
-
-    with open(pad, newline="") as f:
-        for cellen in csv.reader(f):
-            n = len(cellen)
-            if n < 13 or cellen[0] == "gelogd_utc":
-                continue
-            # De eerste dertien kolommen staan er vanaf het begin en op dezelfde
-            # plek; alles wat deze index nodig heeft zit daarbinnen.
-            (gelogd, key, datum, _lead, soort, eenheid,
-             label, lo, hi, verwachting, _p10, _p90, kans) = cellen[:13]
-            g_lo, g_hi = _getal(lo), _getal(hi)
-            sleutel = (datum, key, soort,
-                       None if g_lo is None else int(g_lo),
-                       None if g_hi is None else int(g_hi))
-            vorig = uit.get(sleutel)
-            if vorig and vorig["gelogd"] <= gelogd:
-                continue
-            uit[sleutel] = {
-                "gelogd": gelogd, "eenheid": eenheid, "label": label,
-                "adj_mean": _getal(verwachting), "model_prob": _getal(kans),
-                "kolommen": n,
-            }
+    for deel in logger.delen("signalen", pad):
+        if not deel.exists():
+            continue
+        with open(deel, newline="") as f:
+            for cellen in csv.reader(f):
+                n = len(cellen)
+                if n < 13 or cellen[0] == "gelogd_utc":
+                    continue
+                # De eerste dertien kolommen staan er vanaf het begin en op
+                # dezelfde plek; alles wat deze index nodig heeft zit daarbinnen.
+                (gelogd, key, datum, _lead, soort, eenheid,
+                 label, lo, hi, verwachting, _p10, _p90, kans) = cellen[:13]
+                g_lo, g_hi = _getal(lo), _getal(hi)
+                sleutel = (datum, key, soort,
+                           None if g_lo is None else int(g_lo),
+                           None if g_hi is None else int(g_hi))
+                vorig = uit.get(sleutel)
+                if vorig and vorig["gelogd"] <= gelogd:
+                    continue
+                uit[sleutel] = {
+                    "gelogd": gelogd, "eenheid": eenheid, "label": label,
+                    "adj_mean": _getal(verwachting), "model_prob": _getal(kans),
+                    "kolommen": n,
+                }
     return uit
 
 

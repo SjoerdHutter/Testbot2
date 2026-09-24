@@ -36,8 +36,17 @@ KOPPEN = {
 }
 
 
+def kop_van(pad: Path):
+    """De kop die bij dit logboek hoort.
+
+    Kijkt eerst naar de bestandsnaam en anders naar de map erboven: sinds
+    logs/signalen.csv is opgedeeld heten de delen naar hun begindatum
+    (logs/signalen/2026-08-07.csv), en dan staat de soort in de mapnaam."""
+    return KOPPEN.get(pad.name) or KOPPEN.get(pad.parent.name + ".csv")
+
+
 def migreer(pad: Path) -> int:
-    kop_nu = KOPPEN.get(pad.name)
+    kop_nu = kop_van(pad)
     if kop_nu is None:
         print(f"  {pad}: onbekend logboek, ik weet niet welke kop erbij hoort")
         return 1
