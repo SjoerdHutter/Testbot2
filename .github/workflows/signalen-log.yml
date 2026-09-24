@@ -83,7 +83,13 @@ jobs:
           # taf_log.csv hoort er expliciet bij: die reeks is het enige wat
           # kalibratie.leer_taf later heeft om een gewicht op te leren, en
           # een niet-gecommit logboek is een reeks die nooit begint.
-          git add logs/ensemble_log.csv logs/nws_log.csv logs/signalen.csv \
+          # logs/signalen/ is een map en geen bestand: het signalenlogboek staat
+          # sinds de 100 MB-limiet in stukken. Stond hier nog logs/signalen.csv,
+          # dan viel `git add` meteen om op een pad dat niet meer bestaat --
+          # precies wat er op 24 september gebeurde, met een commitstap die in
+          # nul seconden stuk ging. weerbot-modellen/controleer_workflows.py
+          # bewaakt dat elk pad hieronder bestaat.
+          git add logs/ensemble_log.csv logs/nws_log.csv logs/signalen/ \
                   logs/taf_log.csv
           if git diff --cached --quiet; then
             echo "  geen wijziging"
