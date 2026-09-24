@@ -23,6 +23,12 @@ jobs:
       - name: Bestanden controleren
         run: python weerbot-modellen/controleer_upload.py
 
+      - name: Workflowpaden controleren
+        # Valt om zodra een `git add` in een workflow naar een pad wijst dat
+        # niet meer bestaat. Dat kost anders een hele run: de stap sterft in
+        # nul seconden nadat het werk al gedaan is.
+        run: python weerbot-modellen/controleer_workflows.py
+
       - name: Schilversie controleren
         # Valt om zodra een schilbestand wijzigt zonder dat de servicewerker een
         # nieuwe versie kreeg. Zonder deze stap houden bezoekers de oude pagina,
