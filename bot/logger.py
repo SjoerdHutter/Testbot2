@@ -79,6 +79,79 @@ def schrijf(pad: Path, velden: list, rijen: list) -> None:
         w.writerows(rijen)
 
 
+# ── Gedeelde logboeken ────────────────────────────────────────────────────────
+#
+# GitHub weigert elk bestand boven de 100 MB. Dat is geen waarschuwing maar een
+# pre-receive hook: de push wordt afgewezen en de hele run valt om.
+#
+# logs/signalen.csv liep daar op 19 september 2026 tegenaan, op 100,32 MB. Vanaf
+# dat moment faalde de actie Signalenlog vier keer per dag met GH001. Het werk
+# gebeurde wel -- achttien minuten markten ophalen, 3.702 regels wegschrijven --
+# en werd bij het pushen weggegooid. Sinds die dag staat er geen enkele nieuwe
+# regel meer in signalen.csv, ensemble_log.csv, taf_log.csv of nws_log.csv, want
+# die vier gaan in dezelfde commit mee.
+#
+# Een groter logboek is dus niet traag maar kapot, en het herschrijven van de
+# geschiedenis helpt daar niet tegen: het probleem is het bestand van vandaag.
+# Daarom gaat een gedeeld logboek in stukken.
+#
+# De grens staat op 40 MB en niet vlak onder de 100. signalen.csv groeit met
+# 2,96 MB per dag, dus per maand delen zou 89 MB geven -- elf procent marge, en
+# dat is te krap voor een reeks die nog een kolom kan krijgen. Op 40 MB rolt hij
+# om de dertien dagen om en zijn het er zo'n achtentwintig per jaar.
+#
+# De naam is de datum waarop een deel begon, zodat sorteren op naam hetzelfde is
+# als sorteren op tijd en je aan de bestandsnaam ziet welk venster erin zit.
+DEEL_GRENS = 40 * 1024 * 1024
+
+
+def delen(naam: str, pad: Path = None) -> list:
+    """De deelbestanden van een gedeeld logboek, oudste eerst.
+
+    `pad` overschrijft alles en geeft precies dat ene bestand terug; de tests
+    van inzet.py en portfolio.py geven op die manier hun eigen logboek mee.
+
+    Een nog niet opgedeeld logs/<naam>.csv komt er vooraan bij. Daardoor blijft
+    een oude werkkopie gewoon lezen, en hoeft de migratie niet in dezelfde
+    commit te zitten als de code die ervan uitgaat."""
+    if pad is not None:
+        return [Path(pad)]
+    m = logmap()
+    uit = []
+    oud = m / f"{naam}.csv"
+    if oud.exists():
+        uit.append(oud)
+    return uit + sorted((m / naam).glob("*.csv"))
+
+
+def _nieuw_deel(map_: Path) -> Path:
+    """Een vrije naam voor een nieuw deel, op de datum van vandaag."""
+    vandaag = datetime.now(timezone.utc).date().isoformat()
+    pad = map_ / f"{vandaag}.csv"
+    n = 2
+    while pad.exists():               # twee keer omrollen op één dag
+        pad = map_ / f"{vandaag}-{n}.csv"
+        n += 1
+    return pad
+
+
+def schrijf_deel(naam: str, velden: list, rijen: list,
+                 grens: int = DEEL_GRENS) -> Path:
+    """Als schrijf(), maar naar het laatste deel van een gedeeld logboek.
+
+    Rolt om zodra dat deel de grens haalt. De grens wordt gemeten vóór het
+    schrijven, dus een deel mag er met één ronde overheen gaan; bij 40 MB en
+    een ronde van 0,8 MB is dat ruim binnen de 100 die telt."""
+    map_ = logmap() / naam
+    map_.mkdir(exist_ok=True)
+    bestaand = sorted(map_.glob("*.csv"))
+    actief = bestaand[-1] if bestaand else None
+    if actief is None or actief.stat().st_size >= grens:
+        actief = _nieuw_deel(map_)
+    schrijf(actief, velden, rijen)
+    return actief
+
+
 def ensemble_url(stad: dict, velden: str = "temperature_2m_max") -> str:
     unit = "fahrenheit" if stad["eenheid"] == "F" else "celsius"
     return ("https://ensemble-api.open-meteo.com/v1/ensemble"

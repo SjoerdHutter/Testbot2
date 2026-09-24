@@ -54,6 +54,7 @@ from pathlib import Path
 from zoneinfo import ZoneInfo
 
 sys.path.insert(0, str(Path(__file__).resolve().parent))
+import logger
 import weer
 import waarneming as W
 
@@ -88,16 +89,21 @@ def sigma_van_entropie(e: float, stap: float) -> float:
     return (lo + hi) / 2
 
 
-def lees(pad: Path, soort: str) -> dict:
-    """Per lokaal uur de lijst met marktsigma's, in vakbreedtes."""
+def lees(paden, soort: str) -> dict:
+    """Per lokaal uur de lijst met marktsigma's, in vakbreedtes.
+
+    `paden` is de lijst deelbestanden uit logger.delen(); één los pad mag ook."""
+    if isinstance(paden, (str, Path)):
+        paden = [Path(paden)]
     tz = {s["key"]: s["tz"] for s in weer.STEDEN}
     groepen = collections.defaultdict(list)
-    with open(pad, newline="") as f:
-        for r in csv.DictReader(f):
-            if r["lead"] != "0" or r["soort"] != soort or not r["markt_prijs"]:
-                continue
-            sleutel = (r["key"], r["doel_datum"], r["gelogd_utc"], r["eenheid"])
-            groepen[sleutel].append(float(r["markt_prijs"]))
+    for pad in paden:
+        with open(pad, newline="") as f:
+            for r in csv.DictReader(f):
+                if r["lead"] != "0" or r["soort"] != soort or not r["markt_prijs"]:
+                    continue
+                sleutel = (r["key"], r["doel_datum"], r["gelogd_utc"], r["eenheid"])
+                groepen[sleutel].append(float(r["markt_prijs"]))
 
     per_uur = collections.defaultdict(list)
     for (key, dag, t, eenheid), prijzen in groepen.items():
@@ -136,14 +142,15 @@ def main(argv: list) -> int:
     for i, a in enumerate(argv):
         if a == "--soort" and i + 1 < len(argv):
             soort = argv[i + 1]
-    pad = Path.cwd() / "logs" / "signalen.csv"
-    if not pad.exists():
-        print(f"  {pad} bestaat niet")
+    paden = logger.delen("signalen")
+    if not paden:
+        print(f"  geen signalenlogboek in {logger.logmap()}")
         return 1
 
-    per_uur = lees(pad, soort)
+    per_uur = lees(paden, soort)
     if not per_uur:
-        print(f"  geen bruikbare {soort}-reeksen in {pad}")
+        print(f"  geen bruikbare {soort}-reeksen in "
+              f"{len(paden)} deelbestand(en)")
         return 1
     mediaan, basis, verhouding = curve(per_uur)
     n_totaal = sum(len(v) for v in per_uur.values())

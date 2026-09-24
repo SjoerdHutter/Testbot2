@@ -31,6 +31,19 @@ jobs:
           git config user.name "weerbot-actie"
           git config user.email "actions@users.noreply.github.com"
           git add weerbot-modellen/klim_vandaag.json
-          git diff --cached --quiet || git commit -m "Dagelijkse klim-waarden"
-          git push
+          if git diff --cached --quiet; then
+            echo "  geen wijziging"
+            exit 0
+          fi
+          git commit -m "Dagelijkse klim-waarden"
+          # Een andere actie kan ondertussen gepusht hebben. Zonder deze rebase
+          # wordt de push afgewezen met "fetch first" en valt de run om terwijl
+          # er niets mis is met het werk. De vier andere acties deden dit al;
+          # deze twee waren de uitzondering, en dat viel niet op zolang de
+          # planning ze netjes uit elkaar hield. Sinds GitHub de geplande runs
+          # vertraagt -- de portefeuille draait op :12 maar komt op willekeurige
+          # minuten, met gaten van drie tot vijf uur -- klonteren ze samen en is
+          # het een kwestie van tijd.
+          git pull --rebase origin "${GITHUB_REF_NAME}"
+          git push origin "HEAD:${GITHUB_REF_NAME}"
 
